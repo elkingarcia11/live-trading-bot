@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Callable, Optional
 
+from option_quote import OptionQuoteSnapshot
 from order_manager import FillEvent, OrderSide
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,12 @@ class Position:
     trailing_stop_price: Optional[float] = None
     last_mark_price: Optional[float] = None
     last_updated_at: Optional[datetime] = None
+    asset_type: str = "EQUITY"
+    underlying_symbol: Optional[str] = None
+    underlying_entry_price: Optional[float] = None
+    entry_quote: Optional[OptionQuoteSnapshot] = None
+    max_unrealized_profit: Optional[float] = None
+    max_unrealized_loss: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +117,10 @@ class PositionTracker:
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None,
         trailing_stop_distance: Optional[float] = None,
+        asset_type: str = "EQUITY",
+        underlying_symbol: Optional[str] = None,
+        underlying_entry_price: Optional[float] = None,
+        entry_quote: Optional[OptionQuoteSnapshot] = None,
     ) -> Position:
         """Open or replace a position for a symbol.
 
@@ -159,6 +170,10 @@ class PositionTracker:
             trailing_stop_price=trailing_stop_price,
             last_mark_price=entry_price,
             last_updated_at=opened_at or datetime.now(timezone.utc),
+            asset_type=asset_type.upper(),
+            underlying_symbol=(underlying_symbol or symbol).upper(),
+            underlying_entry_price=underlying_entry_price,
+            entry_quote=entry_quote,
         )
 
         with self._lock:
@@ -186,6 +201,8 @@ class PositionTracker:
                 quantity=signed_quantity,
                 entry_price=fill.price,
                 opened_at=fill.timestamp,
+                asset_type=fill.asset_type,
+                underlying_symbol=fill.underlying_symbol,
             )
 
         new_quantity = current.quantity + signed_quantity
@@ -218,6 +235,10 @@ class PositionTracker:
             ),
             last_mark_price=fill.price,
             last_updated_at=fill.timestamp,
+            asset_type=current.asset_type,
+            underlying_symbol=current.underlying_symbol,
+            underlying_entry_price=current.underlying_entry_price,
+            entry_quote=current.entry_quote,
         )
 
         with self._lock:
@@ -230,6 +251,7 @@ class PositionTracker:
         mark_price: float,
         *,
         timestamp: Optional[datetime] = None,
+        evaluate_exits: bool = True,
     ) -> list[ExitNotification]:
         """Update mark price, refresh PnL state, and evaluate exit conditions.
 
@@ -237,6 +259,7 @@ class PositionTracker:
             symbol: Ticker symbol to update.
             mark_price: Latest market price used for PnL and stop checks.
             timestamp: Optional timestamp associated with the price update.
+            evaluate_exits: When False, only refresh mark price; no stop/target exits.
 
         Returns:
             Exit notifications triggered by breached stop or target levels.
@@ -249,7 +272,10 @@ class PositionTracker:
             if position is None:
                 return []
 
-            trailing_stop_price = self._update_trailing_stop(position, mark_price)
+            if evaluate_exits:
+                trailing_stop_price = self._update_trailing_stop(position, mark_price)
+            else:
+                trailing_stop_price = position.trailing_stop_price
             updated = Position(
                 symbol=position.symbol,
                 quantity=position.quantity,
@@ -261,13 +287,62 @@ class PositionTracker:
                 trailing_stop_price=trailing_stop_price,
                 last_mark_price=mark_price,
                 last_updated_at=timestamp,
+                asset_type=position.asset_type,
+                underlying_symbol=position.underlying_symbol,
+                underlying_entry_price=position.underlying_entry_price,
+                entry_quote=position.entry_quote,
+                max_unrealized_profit=position.max_unrealized_profit,
+                max_unrealized_loss=position.max_unrealized_loss,
             )
             self._positions[symbol] = updated
+
+        if not evaluate_exits:
+            return []
 
         notifications = self._evaluate_exit_conditions(updated, mark_price, timestamp)
         for notification in notifications:
             self._publish_exit(notification)
         return notifications
+
+    def record_mark(
+        self,
+        symbol: str,
+        mark_price: float,
+        *,
+        unrealized_pnl: float,
+        timestamp: Optional[datetime] = None,
+    ) -> Optional[Position]:
+        """Update the latest mark and running max unrealized profit/loss.
+
+        Args:
+            symbol: Instrument symbol (OCC option symbol for options).
+            mark_price: Latest observed mark price.
+            unrealized_pnl: Unrealized P&L at this mark (net of entry costs).
+            timestamp: Optional time of the mark update.
+
+        Returns:
+            The updated position, or None when no position is open.
+        """
+        symbol = symbol.upper()
+        timestamp = timestamp or datetime.now(timezone.utc)
+        with self._lock:
+            position = self._positions.get(symbol)
+            if position is None:
+                return None
+
+            position.last_mark_price = mark_price
+            position.last_updated_at = timestamp
+            if (
+                position.max_unrealized_profit is None
+                or unrealized_pnl > position.max_unrealized_profit
+            ):
+                position.max_unrealized_profit = unrealized_pnl
+            if (
+                position.max_unrealized_loss is None
+                or unrealized_pnl < position.max_unrealized_loss
+            ):
+                position.max_unrealized_loss = unrealized_pnl
+            return position
 
     def close_position(self, symbol: str) -> Optional[Position]:
         """Remove a tracked position without placing a broker order.
@@ -285,6 +360,17 @@ class PositionTracker:
         """Return the current position for a symbol."""
         with self._lock:
             return self._positions.get(symbol.upper())
+
+    def get_position_for_underlying(self, underlying_symbol: str) -> Optional[Position]:
+        """Return the open position tied to an underlying symbol."""
+        underlying = underlying_symbol.upper()
+        with self._lock:
+            for position in self._positions.values():
+                if position.underlying_symbol == underlying:
+                    return position
+                if position.asset_type == "EQUITY" and position.symbol == underlying:
+                    return position
+        return None
 
     def snapshot(self, symbol: str, mark_price: float) -> Optional[PositionSnapshot]:
         """Return live unrealized PnL for an open position.

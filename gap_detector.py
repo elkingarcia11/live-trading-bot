@@ -10,7 +10,29 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
+
+
+def session_bounds_for_day(
+    day: date,
+    session_start: time,
+    session_end: time,
+) -> tuple[datetime, datetime]:
+    """Return session open (inclusive) and close (exclusive) in UTC.
+
+    When ``session_end`` is not after ``session_start`` on the same calendar day
+    (e.g. 08:00 -> 01:00), the close is on the following UTC day.
+    """
+    start = datetime.combine(day, session_start, tzinfo=timezone.utc)
+    if session_end <= session_start:
+        close = datetime.combine(
+            day + timedelta(days=1),
+            session_end,
+            tzinfo=timezone.utc,
+        )
+    else:
+        close = datetime.combine(day, session_end, tzinfo=timezone.utc)
+    return start, close
 
 
 @dataclass(frozen=True)
@@ -88,6 +110,7 @@ class GapDetector:
         session_start: time,
         session_end: time,
         interval: timedelta,
+        last_bar_inclusive: Optional[datetime] = None,
     ) -> list[datetime]:
         """Build expected intraday timestamps for one session.
 
@@ -97,15 +120,25 @@ class GapDetector:
             session_end: Session close time in UTC. The final expected bar
                 begins before this time.
             interval: Expected spacing between bars.
+            last_bar_inclusive: Optional cap for the final expected bar on the
+                last sync day (typically the last completed 3m left edge).
 
         Returns:
             Ordered list of expected UTC timestamps.
         """
-        current = datetime.combine(day, session_start, tzinfo=timezone.utc)
-        session_close = datetime.combine(day, session_end, tzinfo=timezone.utc)
+        from bar_alignment import session_first_bucket
+
+        session_open, session_close = session_bounds_for_day(
+            day,
+            session_start,
+            session_end,
+        )
+        current = session_first_bucket(session_open, interval)
         expected: list[datetime] = []
 
         while current < session_close:
+            if last_bar_inclusive is not None and current > last_bar_inclusive:
+                break
             expected.append(current)
             current += interval
 
@@ -150,6 +183,8 @@ class GapDetector:
         session_start: time,
         session_end: time,
         trading_days_only: bool = True,
+        range_end_datetime: Optional[datetime] = None,
+        intraday_gap_start: Optional[date] = None,
     ) -> GapReport:
         """Detect missing dates and intraday intervals for a target range.
 
@@ -162,6 +197,11 @@ class GapDetector:
             session_start: Session open time in UTC.
             session_end: Session close time in UTC.
             trading_days_only: Skip weekends in the expected date timeline.
+            range_end_datetime: Optional UTC cap for the final expected bar on
+                ``range_end`` (use the last completed strategy-timeframe bar).
+            intraday_gap_start: Only scan stored days on or after this date for
+                missing intraday intervals. Earlier stored days are treated as
+                complete to avoid re-fetching unfillable historical gaps.
 
         Returns:
             A report containing missing dates and missing intraday intervals.
@@ -175,17 +215,26 @@ class GapDetector:
 
         missing_intervals: list[TimeGap] = []
         present_date_set = set(present_dates)
+        last_bar_cap: Optional[datetime] = None
+        if range_end_datetime is not None:
+            last_bar_cap = self._normalize_timestamp(range_end_datetime, interval)
+
+        interval_scan_start = intraday_gap_start or range_start
         for day in expected_dates:
             if day in missing_dates:
                 continue
             if day not in present_date_set:
                 continue
+            if day < interval_scan_start:
+                continue
 
+            day_cap = last_bar_cap if day == range_end else None
             expected_timestamps = self.build_expected_intervals(
                 day,
                 session_start=session_start,
                 session_end=session_end,
                 interval=interval,
+                last_bar_inclusive=day_cap,
             )
             day_timestamps = present_timestamps_by_date.get(day, [])
             missing_intervals.extend(

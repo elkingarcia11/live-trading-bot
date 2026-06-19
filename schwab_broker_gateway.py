@@ -52,18 +52,21 @@ class SchwabBrokerGateway:
 
     @classmethod
     def from_env(cls, *, load_dotenv: bool = True) -> SchwabBrokerGateway:
-        """Build a Schwab broker gateway from environment variables."""
+        """Build a Schwab broker gateway from config.json."""
         if load_dotenv:
             _load_dotenv()
 
+        from config import get_config
+
+        app = get_config(reload=True)
         trader_client = SchwabTraderClient.from_env(load_dotenv=False)
-        orders_path = os.getenv("SCHWAB_ORDERS_PATH", "accounts/{account_hash}/orders")
+        broker = app.broker
         return cls(
             trader_client,
-            account_hash=os.getenv("SCHWAB_ACCOUNT_HASH") or None,
-            account_number=os.getenv("SCHWAB_ACCOUNT_NUMBER") or None,
-            orders_path_template=orders_path,
-            preview=_env_bool("SCHWAB_PREVIEW_ORDERS", False),
+            account_hash=broker.account_hash or None,
+            account_number=broker.account_number or None,
+            orders_path_template=app.schwab.orders_path,
+            preview=broker.preview_orders,
         )
 
     def submit_order(self, order: Order) -> str:

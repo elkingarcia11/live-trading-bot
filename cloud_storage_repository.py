@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -86,9 +87,9 @@ class CloudStorageRepository:
 
         # Apply optional time filters after normalization.
         if start is not None:
-            df = df[df["timestamp"] >= pd.Timestamp(start, tz="UTC")]
+            df = df[df["timestamp"] >= _to_utc_timestamp(start)]
         if end is not None:
-            df = df[df["timestamp"] <= pd.Timestamp(end, tz="UTC")]
+            df = df[df["timestamp"] <= _to_utc_timestamp(end)]
 
         return df.reset_index(drop=True)
 
@@ -145,9 +146,7 @@ class CloudStorageRepository:
         Returns:
             True if the object exists, otherwise False.
         """
-        return self._bucket.blob(
-            self._blob_path(symbol, timeframe, partition_date)
-        ).exists()
+        return self._blob_has_rows(symbol, timeframe, partition_date)
 
     def _blob_path(
         self,
@@ -169,6 +168,51 @@ class CloudStorageRepository:
         if partition_date is not None:
             return f"{base}/{partition_date.isoformat()}.parquet"
         return f"{base}/data.parquet"
+
+    def _blob_has_rows(
+        self,
+        symbol: str,
+        timeframe: str,
+        partition_date: Optional[date],
+    ) -> bool:
+        """Return whether a parquet object contains at least one row."""
+        blob = self._bucket.blob(self._blob_path(symbol, timeframe, partition_date))
+        if not blob.exists():
+            return False
+        try:
+            raw = blob.download_as_bytes()
+        except NotFound:
+            return False
+        return parquet_bytes_have_rows(raw)
+
+
+def parquet_bytes_have_rows(payload: bytes) -> bool:
+    """Return whether parquet bytes contain at least one row."""
+    try:
+        import pyarrow.parquet as pq
+
+        return pq.read_metadata(io.BytesIO(payload)).num_rows > 0
+    except Exception:
+        return False
+
+
+def parquet_file_has_rows(path: Path) -> bool:
+    """Return whether a parquet file on disk contains at least one row."""
+    try:
+        import pyarrow.parquet as pq
+
+        return pq.read_metadata(path).num_rows > 0
+    except Exception:
+        return False
+
+
+def _to_utc_timestamp(value: datetime) -> pd.Timestamp:
+    """Normalize a datetime to a timezone-aware UTC pandas Timestamp."""
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        return timestamp.tz_localize("UTC")
+    return timestamp.tz_convert("UTC")
+
 
 if __name__ == "__main__":
     # Example usage (requires GCS credentials and an existing bucket).

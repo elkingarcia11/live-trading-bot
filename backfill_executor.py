@@ -9,16 +9,20 @@ Repository. Does not decide which gaps exist or own gap-detection logic.
 
 from __future__ import annotations
 
+import io
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+from bar_alignment import align_bucket_start, timeframe_timedelta
+
 EARLIEST_FALLBACK_START = datetime(1970, 1, 1, tzinfo=timezone.utc)
+BOOTSTRAP_SCAN_CHUNK_DAYS = 10
 
 from cloud_storage_repository import CloudStorageRepository
 from market_data_api_client import MarketDataApiClient
@@ -84,11 +88,19 @@ class BackfillExecutor:
         self._earliest_key = earliest_key
         self._use_daily_partitions = use_daily_partitions
 
-    def execute(self, request: BackfillRequest) -> BackfillResult:
+    def execute(
+        self,
+        request: BackfillRequest,
+        *,
+        index: Optional[int] = None,
+        total: Optional[int] = None,
+    ) -> BackfillResult:
         """Fetch, normalize, and persist one backfill request.
 
         Args:
             request: Target symbol, timeframe, and missing time range.
+            index: Optional 1-based progress index for logging.
+            total: Optional total request count for logging.
 
         Returns:
             Metadata describing how many rows were written and where.
@@ -97,6 +109,33 @@ class BackfillExecutor:
             MarketDataApiError: If the remote API request fails.
             ValueError: If vendor payloads cannot be normalized.
         """
+        progress = ""
+        if index is not None and total is not None:
+            progress = f" [{index}/{total}]"
+
+        if self._request_satisfied_by_storage(request):
+            logger.info(
+                "Skipping Schwab pricehistory%s: %s %s already stored (%s -> %s)",
+                progress,
+                request.symbol,
+                request.timeframe,
+                request.start.isoformat(),
+                request.end.isoformat(),
+            )
+            return BackfillResult(
+                request=request,
+                rows_written=0,
+                storage_uri="",
+            )
+
+        logger.info(
+            "Fetching Schwab pricehistory%s: %s %s (%s -> %s)",
+            progress,
+            request.symbol,
+            request.timeframe,
+            request.start.isoformat(),
+            request.end.isoformat(),
+        )
         path = self._bars_path_template.format(symbol=request.symbol.upper())
         raw_bars = self._api_client.fetch_paginated(
             path,
@@ -110,6 +149,13 @@ class BackfillExecutor:
 
         ohlcv = self._transformer.from_bars(raw_bars, field_map=self._field_map)
         if ohlcv.empty:
+            logger.info(
+                "No %s %s bars returned for %s -> %s",
+                request.symbol,
+                request.timeframe,
+                request.start.isoformat(),
+                request.end.isoformat(),
+            )
             return BackfillResult(
                 request=request,
                 rows_written=0,
@@ -124,11 +170,31 @@ class BackfillExecutor:
             ohlcv,
             partition_date=partition_date,
         )
+        if ohlcv.empty:
+            logger.info(
+                "No %s %s bars to write for %s -> %s after merge",
+                request.symbol,
+                request.timeframe,
+                request.start.isoformat(),
+                request.end.isoformat(),
+            )
+            return BackfillResult(
+                request=request,
+                rows_written=0,
+                storage_uri="",
+            )
         storage_uri = self._storage.write(
             request.symbol,
             request.timeframe,
             ohlcv,
             partition_date=partition_date,
+        )
+        logger.info(
+            "Wrote %d %s %s bar(s) to %s",
+            len(ohlcv),
+            request.symbol,
+            request.timeframe,
+            storage_uri,
         )
 
         return BackfillResult(
@@ -143,6 +209,7 @@ class BackfillExecutor:
         timeframe: str,
         *,
         end: Optional[datetime] = None,
+        not_before: Optional[datetime] = None,
     ) -> Optional[datetime]:
         """Discover the earliest historical bars available from the provider.
 
@@ -150,18 +217,25 @@ class BackfillExecutor:
             symbol: Ticker symbol to query.
             timeframe: Bar interval label (e.g. "1m").
             end: Optional upper bound used by the fallback probe request.
+            not_before: Earliest UTC timestamp to scan from when walking forward.
 
         Returns:
             Earliest available UTC timestamp, or None if it cannot be determined.
         """
         symbol = symbol.upper()
-        end = end or datetime.now(timezone.utc)
+        end = _to_utc_datetime(end or datetime.now(timezone.utc))
+        floor = _to_utc_datetime(not_before or EARLIEST_FALLBACK_START)
 
         earliest = self._fetch_earliest_from_availability(symbol, timeframe)
         if earliest is not None:
-            return earliest
+            return max(_to_utc_datetime(earliest), floor)
 
-        return self._probe_earliest_bar(symbol, timeframe, end=end)
+        return self._scan_forward_for_earliest_bar(
+            symbol,
+            timeframe,
+            not_before=floor,
+            end=end,
+        )
 
     def execute_many(self, requests: list[BackfillRequest]) -> list[BackfillResult]:
         """Execute multiple backfill requests sequentially.
@@ -172,7 +246,11 @@ class BackfillExecutor:
         Returns:
             One result per request, in the same order.
         """
-        return [self.execute(request) for request in requests]
+        total = len(requests)
+        return [
+            self.execute(request, index=index, total=total)
+            for index, request in enumerate(requests, start=1)
+        ]
 
     def _fetch_earliest_from_availability(
         self,
@@ -200,44 +278,70 @@ class BackfillExecutor:
 
         return self._parse_timestamp(raw_value)
 
-    def _probe_earliest_bar(
+    def _scan_forward_for_earliest_bar(
         self,
         symbol: str,
         timeframe: str,
         *,
+        not_before: datetime,
         end: datetime,
     ) -> Optional[datetime]:
-        """Fallback probe that infers earliest availability from the first bar."""
-        path = self._bars_path_template.format(symbol=symbol)
-        try:
-            raw_bars = self._api_client.fetch_paginated(
-                path,
-                params={
-                    "timeframe": timeframe,
-                    "start": EARLIEST_FALLBACK_START.isoformat(),
-                    "end": end.isoformat(),
-                    "limit": 1,
-                    "sort": "asc",
-                },
-                collection_key=self._collection_key,
-                page_token_key=None,
+        """Walk forward in small chunks until the first provider bar is found."""
+        cursor = _to_utc_datetime(not_before)
+        end = _to_utc_datetime(end)
+        if cursor >= end:
+            return None
+
+        path = self._bars_path_template.format(symbol=symbol.upper())
+        delta = timedelta(days=BOOTSTRAP_SCAN_CHUNK_DAYS)
+
+        while cursor < end:
+            chunk_end = min(cursor + delta, end)
+            logger.info(
+                "Scanning for earliest %s %s data: %s -> %s",
+                symbol,
+                timeframe,
+                cursor.isoformat(),
+                chunk_end.isoformat(),
             )
-        except Exception as exc:
-            logger.debug("Earliest bar probe failed for %s: %s", symbol, exc)
-            return None
+            try:
+                raw_bars = self._api_client.fetch_paginated(
+                    path,
+                    params={
+                        "timeframe": timeframe,
+                        "start": cursor.isoformat(),
+                        "end": chunk_end.isoformat(),
+                    },
+                    collection_key=self._collection_key,
+                    page_token_key=None,
+                )
+            except Exception as exc:
+                logger.debug("Earliest scan chunk failed for %s: %s", symbol, exc)
+                cursor = chunk_end
+                continue
 
-        if not raw_bars:
-            return None
+            if raw_bars:
+                try:
+                    ohlcv = self._transformer.from_bars(
+                        raw_bars,
+                        field_map=self._field_map,
+                    )
+                except ValueError:
+                    ohlcv = pd.DataFrame()
 
-        try:
-            ohlcv = self._transformer.from_bars(raw_bars[:1], field_map=self._field_map)
-        except ValueError:
-            return None
+                if not ohlcv.empty:
+                    earliest = ohlcv.iloc[0]["timestamp"].to_pydatetime()
+                    logger.info(
+                        "Found earliest %s %s bar at %s",
+                        symbol,
+                        timeframe,
+                        earliest.isoformat(),
+                    )
+                    return _to_utc_datetime(earliest)
 
-        if ohlcv.empty:
-            return None
+            cursor = chunk_end
 
-        return ohlcv.iloc[0]["timestamp"].to_pydatetime()
+        return None
 
     def _parse_timestamp(self, value: object) -> Optional[datetime]:
         """Parse provider timestamp values into timezone-aware UTC datetimes."""
@@ -255,8 +359,8 @@ class BackfillExecutor:
         request: BackfillRequest,
     ) -> pd.DataFrame:
         """Keep only rows that fall inside the requested backfill window."""
-        start = pd.Timestamp(request.start, tz="UTC")
-        end = pd.Timestamp(request.end, tz="UTC")
+        start = _to_utc_timestamp(request.start)
+        end = _to_utc_timestamp(request.end)
         filtered = ohlcv[
             (ohlcv["timestamp"] >= start) & (ohlcv["timestamp"] < end)
         ]
@@ -302,6 +406,90 @@ class BackfillExecutor:
         merged = pd.concat([existing, incoming], ignore_index=True)
         merged = merged.drop_duplicates(subset=["timestamp"], keep="last")
         return merged.sort_values("timestamp").reset_index(drop=True)
+
+    def _request_satisfied_by_storage(self, request: BackfillRequest) -> bool:
+        """Return whether stored bars already cover the requested window."""
+        partition_date = self._resolve_partition_date(request)
+        try:
+            if self._use_daily_partitions and partition_date is not None:
+                existing = self._storage.read(
+                    request.symbol,
+                    request.timeframe,
+                    partition_date=partition_date,
+                )
+            else:
+                existing = self._storage.read(
+                    request.symbol,
+                    request.timeframe,
+                    start=request.start,
+                    end=request.end,
+                )
+        except FileNotFoundError:
+            return False
+
+        if existing.empty:
+            return False
+
+        start = _to_utc_timestamp(request.start)
+        end = _to_utc_timestamp(request.end)
+        in_window = existing[
+            (existing["timestamp"] >= start) & (existing["timestamp"] < end)
+        ]
+        if in_window.empty:
+            return False
+
+        interval = timeframe_timedelta(request.timeframe)
+        expected = _expected_bucket_starts(
+            request.start,
+            request.end,
+            request.timeframe,
+            interval,
+        )
+        if not expected:
+            return True
+
+        present = {
+            align_bucket_start(
+                _to_utc_datetime(timestamp.to_pydatetime()),
+                request.timeframe,
+            )
+            for timestamp in in_window["timestamp"]
+        }
+        return all(bucket in present for bucket in expected)
+
+
+def _to_utc_timestamp(value: datetime) -> pd.Timestamp:
+    """Normalize a datetime to a timezone-aware UTC pandas Timestamp."""
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        return timestamp.tz_localize("UTC")
+    return timestamp.tz_convert("UTC")
+
+
+def _to_utc_datetime(value: datetime) -> datetime:
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        return timestamp.tz_localize("UTC").to_pydatetime()
+    return timestamp.tz_convert("UTC").to_pydatetime()
+
+
+def _expected_bucket_starts(
+    start: datetime,
+    end: datetime,
+    timeframe: str,
+    interval: timedelta,
+) -> list[datetime]:
+    """Return aligned bar left-edges expected in [start, end)."""
+    if interval <= timedelta(0):
+        raise ValueError("interval must be positive")
+
+    cursor = align_bucket_start(_to_utc_datetime(start), timeframe)
+    end_dt = _to_utc_datetime(end)
+    expected: list[datetime] = []
+    while cursor < end_dt:
+        expected.append(cursor)
+        cursor += interval
+    return expected
 
 
 if __name__ == "__main__":

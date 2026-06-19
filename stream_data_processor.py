@@ -261,6 +261,15 @@ class StreamDataProcessor:
         if low > min(open_price, close):
             return False
 
+        if close > 0:
+            tolerance = 0.02
+            if abs(open_price - close) / close > tolerance:
+                return False
+            if abs(low - close) / close > tolerance:
+                return False
+            if abs(high - close) / close > tolerance:
+                return False
+
         return True
 
     def _bar_signature(self, event: CleanBarEvent) -> tuple[float, ...]:
@@ -274,6 +283,8 @@ class StreamDataProcessor:
 
         with self._lock:
             previous = self._seen_bars.get(key)
+            if previous is None:
+                return False
             return previous == signature
 
     def _remember_bar(self, event: CleanBarEvent) -> None:

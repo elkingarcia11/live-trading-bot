@@ -1,0 +1,153 @@
+{
+  "app": {
+    "env": "development",
+    "log_level": "INFO",
+    "timezone": "America/New_York"
+  },
+  "market": {
+    "symbols": ["SPY"],
+    "stream_timeframe": "1m",
+    "strategy_timeframe": "3m",
+    "aggregation_timeframes": ["3m", "1h", "1d"]
+  },
+  "indicators": {
+    "max_bars": 500,
+    "dema": {
+      "enabled": false,
+      "period": 200,
+      "source": "close"
+    },
+    "supertrend": {
+      "enabled": true,
+      "atr_period": 11,
+      "source": "hl2",
+      "multiplier": 1.0,
+      "change_atr": true
+    }
+  },
+  "strategies": ["supertrend"],
+  "workflow": {
+    "run_schwab_stream": true,
+    "stream_provider": "schwab",
+    "websocket_url": "",
+    "subscribe_on_connect": true,
+    "audit_log_path": "logs/audit.jsonl",
+    "warmup_from_storage": true,
+    "startup_sync_lookback_days": 30,
+    "persist_session_bars": true,
+    "eod_enabled": true,
+    "eod_flatten_time_utc": "19:59",
+    "eod_shutdown_time_utc": "20:00"
+  },
+  "stream": {
+    "schwab_streamer_url": "",
+    "schwab_stream_service": "CHART_EQUITY",
+    "schwab_chart_equity_fields": "0,1,2,3,4,5,6,7",
+    "ping_interval_seconds": 20,
+    "ping_timeout_seconds": 10,
+    "reconnect_backoff_seconds": 1,
+    "max_reconnect_backoff_seconds": 60,
+    "max_reconnect_attempts": null,
+    "heartbeat_interval_seconds": null,
+    "heartbeat_message": "{\"action\":\"heartbeat\"}",
+    "require_minute_alignment": false,
+    "dedup_window": 500
+  },
+  "historical": {
+    "timeframe": "3m",
+    "frequency_type": "minute",
+    "frequency": 3,
+    "need_extended_hours": true,
+    "need_previous_close": false,
+    "sync_start_date": "2024-01-01",
+    "sync_end_date": "",
+    "bootstrap_if_empty": true,
+    "bootstrap_lookback_months": 2,
+    "session_start_utc": "14:30",
+    "session_end_utc": "21:00",
+    "session_start_local": "09:30",
+    "session_end_local": "16:00",
+    "extended_session_start_utc": "08:00",
+    "extended_session_end_utc": "01:00",
+    "trading_days_only": true
+  },
+  "market_data": {
+    "requests_per_minute": 120,
+    "request_timeout_seconds": 30,
+    "max_retries": 3,
+    "retry_backoff_seconds": 1.0
+  },
+  "gcs": {
+    "bucket_name": "live-trading-bot",
+    "ohlcv_prefix": "ohlcv",
+    "credentials_path": "gcs-sa.json",
+    "project_id": "algo-trader-466023",
+    "use_daily_partitions": true,
+    "schwab_token_path": "schwab/tokens.json",
+    "local_fallback_path": "data"
+  },
+  "risk": {
+    "position_size_pct": 0.3,
+    "position_size_max_dollars": 15000,
+    "simulated_tradeable_balance": 3000,
+    "max_position_quantity": 10000,
+    "managed_exits": false,
+    "stop_loss": null,
+    "take_profit": null,
+    "trailing_stop_distance": null
+  },
+  "broker": {
+    "use_in_memory": true,
+    "simulated_fill_price": 100,
+    "preview_orders": false,
+    "sync_positions_on_start": false,
+    "account_number": "",
+    "account_hash": ""
+  },
+  "options": {
+    "enabled": true,
+    "days_to_expiration": 2,
+    "contract_type": "CALL",
+    "simulated_premium": 5.0,
+    "strike_count": 5,
+    "commission_per_contract": 0.65
+  },
+  "email": {
+    "forward_test": true,
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,
+    "sender": "elkinzain@gmail.com",
+    "recipients": ["elkinzain@gmail.com"]
+  },
+  "forward_test": {
+    "initial_balance": 3000,
+    "persist_state": true,
+    "state_prefix": "forward_test",
+    "transactions_csv_path": "data/transactions.csv"
+  },
+  "health": {
+    "check_interval_seconds": 30,
+    "feed_stale_seconds": 120,
+    "indicator_stale_seconds": 180,
+    "max_reconnects_per_hour": 5,
+    "max_order_round_trip_seconds": 10,
+    "module_silence_seconds": 300,
+    "startup_grace_seconds": 180
+  },
+  "schwab": {
+    "callback_url": "https://127.0.0.1",
+    "callback_port": 443,
+    "token_file": ".schwab_tokens.json",
+    "api_base_url": "https://api.schwabapi.com",
+    "oauth_authorize_path": "/v1/oauth/authorize",
+    "oauth_token_path": "/v1/oauth/token",
+    "market_data_base_url": "https://api.schwabapi.com/marketdata/v1",
+    "price_history_path": "pricehistory",
+    "trader_base_url": "https://api.schwabapi.com/trader/v1",
+    "user_preference_path": "userPreference",
+    "account_numbers_path": "accounts/accountNumbers",
+    "accounts_path": "accounts",
+    "orders_path": "accounts/{account_hash}/orders",
+    "preview_order_path": "accounts/{account_hash}/previewOrder"
+  }
+}

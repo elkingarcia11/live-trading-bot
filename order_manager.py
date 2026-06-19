@@ -57,6 +57,9 @@ class TradingSignal:
     order_type: OrderType = OrderType.MARKET
     limit_price: Optional[float] = None
     signal_id: Optional[str] = None
+    asset_type: str = "EQUITY"
+    underlying_symbol: Optional[str] = None
+    mark_price: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,8 @@ class FillEvent:
     quantity: float
     price: float
     timestamp: datetime
+    asset_type: str = "EQUITY"
+    underlying_symbol: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -337,6 +342,8 @@ class OrderManager:
             quantity=order.filled_quantity,
             price=order.average_fill_price,
             timestamp=order.updated_at or datetime.now(timezone.utc),
+            asset_type=order.signal.asset_type,
+            underlying_symbol=order.signal.underlying_symbol,
         )
 
 class InMemoryBrokerGateway:
@@ -354,6 +361,11 @@ class InMemoryBrokerGateway:
                 OrderStatus.FILLED if self._immediate_fill else OrderStatus.SUBMITTED
             ),
             "quantity": order.signal.quantity,
+            "fill_price": (
+                order.signal.mark_price
+                if order.signal.mark_price is not None and order.signal.mark_price > 0
+                else self._fill_price
+            ),
         }
         return broker_order_id
 
@@ -378,7 +390,7 @@ class InMemoryBrokerGateway:
         average_fill_price = None
         if status in {OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED}:
             filled_quantity = float(record["quantity"])
-            average_fill_price = self._fill_price
+            average_fill_price = float(record.get("fill_price", self._fill_price))
 
         return ExecutionReport(
             broker_order_id=broker_order_id,

@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from bar_alignment import align_bucket_start, is_bucket_closing_minute, timeframe_timedelta
+from ohlc_sanity import repair_ohlc_bar
 from stream_data_processor import CleanBarEvent
 
 
@@ -63,7 +65,28 @@ class DataAggregator:
         """
         self._target_timeframes = target_timeframes
         self._partials: dict[tuple[str, str], _PartialBar] = {}
+        self._completed_through: dict[tuple[str, str], datetime] = {}
         self._lock = threading.Lock()
+
+    def set_completed_through(
+        self,
+        symbol: str,
+        timeframe: str,
+        timestamp: datetime,
+    ) -> None:
+        """Mark stored 3m bars through ``timestamp`` as already finalized."""
+        key = (symbol.upper(), timeframe)
+        with self._lock:
+            self._completed_through[key] = align_bucket_start(timestamp, timeframe)
+
+    def completed_through(
+        self,
+        symbol: str,
+        timeframe: str,
+    ) -> Optional[datetime]:
+        """Return the newest 3m bucket already persisted and replayed."""
+        with self._lock:
+            return self._completed_through.get((symbol.upper(), timeframe))
 
     def on_bar(self, bar: CleanBarEvent) -> list[AggregatedBar]:
         """Consume one 1-minute bar and emit higher-timeframe updates.
@@ -78,6 +101,29 @@ class DataAggregator:
         """
         if bar.timeframe != "1m":
             raise ValueError(f"DataAggregator expects 1m bars, got {bar.timeframe}")
+
+        open_price, high_price, low_price, close_price = repair_ohlc_bar(
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+        )
+        if (open_price, high_price, low_price, close_price) != (
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+        ):
+            bar = CleanBarEvent(
+                symbol=bar.symbol,
+                timeframe=bar.timeframe,
+                timestamp=bar.timestamp,
+                open=open_price,
+                high=high_price,
+                low=low_price,
+                close=close_price,
+                volume=bar.volume,
+            )
 
         emitted: list[AggregatedBar] = []
         symbol = bar.symbol.upper()
@@ -101,7 +147,9 @@ class DataAggregator:
         emitted: list[AggregatedBar] = []
 
         if current is not None and current.bucket_start != bucket_start:
-            emitted.append(self._to_aggregated_bar(current, is_complete=True))
+            completed = self._to_aggregated_bar(current, is_complete=True)
+            if not self._should_suppress_complete(symbol, timeframe, completed.timestamp):
+                emitted.append(completed)
             current = None
 
         if current is None:
@@ -121,8 +169,24 @@ class DataAggregator:
             current.close = bar.close
             current.volume += bar.volume
 
+        if is_bucket_closing_minute(bar.timestamp, timeframe):
+            completed = self._to_aggregated_bar(current, is_complete=True)
+            if not self._should_suppress_complete(symbol, timeframe, completed.timestamp):
+                emitted.append(completed)
+            self._partials.pop(key, None)
+            return emitted
+
         self._partials[key] = current
         emitted.append(self._to_aggregated_bar(current, is_complete=False))
+        return emitted
+
+    def flush(self) -> list[AggregatedBar]:
+        """Emit in-progress buckets as completed bars (for shutdown persistence)."""
+        emitted: list[AggregatedBar] = []
+        with self._lock:
+            for partial in self._partials.values():
+                emitted.append(self._to_aggregated_bar(partial, is_complete=True))
+            self._partials.clear()
         return emitted
 
     def _to_aggregated_bar(self, partial: _PartialBar, *, is_complete: bool) -> AggregatedBar:
@@ -139,37 +203,25 @@ class DataAggregator:
             is_complete=is_complete,
         )
 
+    def _should_suppress_complete(
+        self,
+        symbol: str,
+        timeframe: str,
+        bucket_start: datetime,
+    ) -> bool:
+        """Return whether a closing bucket was already saved and replayed."""
+        through = self._completed_through.get((symbol, timeframe))
+        if through is None:
+            return False
+        return bucket_start <= through
+
     def _bucket_start(self, timestamp: datetime, timeframe: str) -> datetime:
         """Floor a timestamp to the start of its higher-timeframe bucket."""
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
-        else:
-            timestamp = timestamp.astimezone(timezone.utc)
-
-        if timeframe == "1d":
-            return datetime.combine(timestamp.date(), datetime.min.time(), tzinfo=timezone.utc)
-
-        interval = self._parse_timeframe(timeframe)
-        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-        interval_seconds = int(interval.total_seconds())
-        elapsed = int((timestamp - epoch).total_seconds())
-        aligned = elapsed - (elapsed % interval_seconds)
-        return epoch + timedelta(seconds=aligned)
+        return align_bucket_start(timestamp, timeframe)
 
     def _parse_timeframe(self, timeframe: str) -> timedelta:
         """Convert a timeframe label into a timedelta."""
-        if len(timeframe) < 2:
-            raise ValueError(f"Unsupported timeframe: {timeframe}")
-
-        unit = timeframe[-1]
-        value = int(timeframe[:-1])
-        if unit == "m":
-            return timedelta(minutes=value)
-        if unit == "h":
-            return timedelta(hours=value)
-        if unit == "d":
-            return timedelta(days=value)
-        raise ValueError(f"Unsupported timeframe: {timeframe}")
+        return timeframe_timedelta(timeframe)
 
 
 if __name__ == "__main__":

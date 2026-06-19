@@ -9,45 +9,104 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# Fill SCHWAB_APP_KEY, SCHWAB_APP_SECRET, SCHWAB_REFRESH_TOKEN in .env
+# Fill SCHWAB_APP_KEY, SCHWAB_APP_SECRET, GMAIL_APP_PASSWORD, GOOGLE_APPLICATION_CREDENTIALS
 ```
 
-Complete Schwab OAuth once (local callback on port 8182 by default), then save
-the refresh token to `.env` or `SCHWAB_TOKEN_FILE`.
+### Schwab OAuth (local → GCS)
+
+Schwab requires a browser login about once a week. The bot refreshes the
+short-lived access token automatically from the stored refresh token.
+
+**1. Register the callback URL** in the [Schwab developer portal](https://developer.schwab.com).
+Default in `config.json`:
+
+```json
+"callback_url": "https://127.0.0.1",
+"callback_port": 443
+```
+
+The redirect URI must match exactly. Port `443` on macOS/Linux often requires
+`sudo` for the callback listener. You can instead use e.g.
+`http://127.0.0.1:8182` if that URI is registered in your Schwab app (update
+`callback_url` and `callback_port` in `config.json`).
+
+**2. Configure token storage** in `config.json`:
+
+```json
+"gcs": {
+  "bucket_name": "live-trading-bot",
+  "schwab_token_path": "schwab/tokens.json"
+},
+"schwab": {
+  "token_file": ".schwab_tokens.json"
+}
+```
+
+**3. Run the local OAuth helper** (needs `GOOGLE_APPLICATION_CREDENTIALS` or
+`gcloud auth application-default login` for the GCS upload):
+
+```bash
+# https://127.0.0.1:443 often needs elevated privileges for the callback server
+sudo .venv/bin/python authorize_schwab.py
+
+# Or without sudo when using http://127.0.0.1:8182 in config.json
+.venv/bin/python authorize_schwab.py
+```
+
+This will:
+
+1. Open the Schwab authorize URL in your browser (or print it with `--no-browser`)
+2. Capture the redirect on your local callback URL
+3. Exchange the code for access + refresh tokens
+4. Save tokens to **`.schwab_tokens.json`** (local)
+5. Upload the same JSON to **`gs://{bucket}/schwab/tokens.json`** (cloud)
+
+**4. Cloud VM usage:** `workflow.py` and `SchwabAuthClient.from_env()` load
+tokens from the local file first, then from GCS. On a VM with no local token
+file, the bot reads `gs://live-trading-bot/schwab/tokens.json` automatically.
+Refreshed access tokens are written back to every configured store.
+
+Re-run `authorize_schwab.py` locally when the refresh token expires (~7 days)
+or Schwab returns an auth error on the VM.
+
+**Manual fallback:** set `SCHWAB_REFRESH_TOKEN` in `.env` or Secret Manager
+instead of using GCS token storage.
 
 ## Architecture
 
 Each module owns one layer of the pipeline. Downstream modules consume outputs from upstream modules, but responsibilities do not overlap.
 
-| Module | Responsibility | Does not |
-|--------|----------------|----------|
-| `ohlcv_schema` | Canonical OHLCV column definition and coercion for already-standard data | Vendor mapping, I/O, networking |
-| `market_data_transformer` | Vendor payload → standard OHLCV | HTTP, WebSockets, persistence, live validation |
-| `market_data_api_client` | HTTP auth, rate limits, retries, raw JSON responses | Data normalization, storage, streaming |
-| `stream_connection_manager` | WebSocket lifecycle, reconnect, heartbeats | Message parsing, bar validation, storage |
-| `stream_data_processor` | Live 1m bar validation, deduplication, event publishing | WebSocket I/O, vendor mapping, storage |
-| `cloud_storage_repository` | GCS read/write for standard OHLCV Parquet | Remote fetching, vendor mapping, streaming |
-| `gap_detector` | Missing date/interval detection against a timeline | Storage, HTTP, vendor mapping |
-| `backfill_executor` | Fetch, normalize, and persist planned backfills | Gap detection, workflow planning |
-| `historical_orchestrator` | Plan and run historical sync workflows | Direct HTTP, vendor mapping, gap algorithms |
-| `order_manager` | Broker order submission and execution tracking | PnL, stops, portfolio state |
-| `position_tracker` | Live positions, PnL, stops/targets, exit alerts | Broker order submission |
-| `data_aggregator` | Roll 1m bars into 5m/1h/1d with incomplete bar buffers | Indicators, strategies, storage |
-| `indicator_calculator` | Stateless DEMA/Supertrend/RSI/MACD/SMA/EMA math | Config, dispatch, strategy rules |
-| `indicator_coordinator` | Indicator config, bar buffers, job dispatch | Indicator formulas, signal rules |
-| `strategy_registry` | Store strategy rule definitions | Live evaluation, indicator math |
-| `signal_evaluator` | Evaluate rules → BUY/SELL/HOLD | Indicators, aggregation, broker orders |
-| `event_bus` | In-process pub/sub backbone | Persistence, health logic, audit writes |
-| `trade_logger` | Durable audit trail for signals, orders, fills | Event routing, strategy evaluation |
-| `health_monitor` | Feed latency, reconnects, module silence alerts | Trade execution, audit persistence |
-| `workflow` | Orchestrates the full live pipeline via the event bus | Low-level module internals |
-| `schwab_auth` | OAuth token refresh and `.env` loading | Market data, streaming, trading |
-| `schwab_market_data_client` | `GET /pricehistory` with date-range chunking | Normalization, storage |
-| `schwab_trader_client` | Accounts, positions, orders, `userPreference` | WebSocket sessions |
-| `schwab_streamer` | WebSocket LOGIN + `CHART_EQUITY` → 1m bars | Strategy, storage |
-| `schwab_account_sync` | Sync broker positions into `PositionTracker` | Order submission |
-| `schwab_order_builder` | Internal orders → Schwab order JSON | HTTP transport |
-| `schwab_broker_gateway` | Place, poll, cancel, preview, list orders | Signal evaluation |
+| Module                      | Responsibility                                                           | Does not                                       |
+| --------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------- |
+| `ohlcv_schema`              | Canonical OHLCV column definition and coercion for already-standard data | Vendor mapping, I/O, networking                |
+| `market_data_transformer`   | Vendor payload → standard OHLCV                                          | HTTP, WebSockets, persistence, live validation |
+| `market_data_api_client`    | HTTP auth, rate limits, retries, raw JSON responses                      | Data normalization, storage, streaming         |
+| `stream_connection_manager` | WebSocket lifecycle, reconnect, heartbeats                               | Message parsing, bar validation, storage       |
+| `stream_data_processor`     | Live 1m bar validation, deduplication, event publishing                  | WebSocket I/O, vendor mapping, storage         |
+| `cloud_storage_repository`  | GCS read/write for standard OHLCV Parquet                                | Remote fetching, vendor mapping, streaming     |
+| `gap_detector`              | Missing date/interval detection against a timeline                       | Storage, HTTP, vendor mapping                  |
+| `backfill_executor`         | Fetch, normalize, and persist planned backfills                          | Gap detection, workflow planning               |
+| `historical_orchestrator`   | Plan and run historical sync workflows                                   | Direct HTTP, vendor mapping, gap algorithms    |
+| `order_manager`             | Broker order submission and execution tracking                           | PnL, stops, portfolio state                    |
+| `position_tracker`          | Live positions, PnL, stops/targets, exit alerts                          | Broker order submission                        |
+| `data_aggregator`           | Roll 1m bars into 5m/1h/1d with incomplete bar buffers                   | Indicators, strategies, storage                |
+| `indicator_calculator`      | Stateless DEMA/Supertrend/RSI/MACD/SMA/EMA math                          | Config, dispatch, strategy rules               |
+| `indicator_coordinator`     | Indicator config, bar buffers, job dispatch                              | Indicator formulas, signal rules               |
+| `strategy_registry`         | Store strategy rule definitions                                          | Live evaluation, indicator math                |
+| `signal_evaluator`          | Evaluate rules → BUY/SELL/HOLD                                           | Indicators, aggregation, broker orders         |
+| `event_bus`                 | In-process pub/sub backbone                                              | Persistence, health logic, audit writes        |
+| `trade_logger`              | Durable audit trail for signals, orders, fills                           | Event routing, strategy evaluation             |
+| `health_monitor`            | Feed latency, reconnects, module silence alerts                          | Trade execution, audit persistence             |
+| `workflow`                  | Orchestrates the full live pipeline via the event bus                    | Low-level module internals                     |
+| `schwab_auth`               | OAuth token refresh, local/GCS token stores, `.env` loading                | Market data, streaming, trading                |
+| `schwab_oauth`              | Local browser OAuth flow and callback capture                            | Live trading, order submission                 |
+| `authorize_schwab.py`       | CLI entrypoint for local OAuth → GCS token upload                        | Strategy, streaming                            |
+| `schwab_market_data_client` | `GET /pricehistory` with date-range chunking                             | Normalization, storage                         |
+| `schwab_trader_client`      | Accounts, positions, orders, `userPreference`                            | WebSocket sessions                             |
+| `schwab_streamer`           | WebSocket LOGIN + `CHART_EQUITY` → 1m bars                               | Strategy, storage                              |
+| `schwab_account_sync`       | Sync broker positions into `PositionTracker`                             | Order submission                               |
+| `schwab_order_builder`      | Internal orders → Schwab order JSON                                      | HTTP transport                                 |
+| `schwab_broker_gateway`     | Place, poll, cancel, preview, list orders                                | Signal evaluation                              |
 
 ### Data flow
 
@@ -96,14 +155,14 @@ processor. Producers publish; passive listeners subscribe.
 
 Defined once in `ohlcv_schema.py`:
 
-| Column    | Type      | Notes |
-|-----------|-----------|-------|
-| timestamp | datetime  | UTC   |
-| open      | numeric   |       |
-| high      | numeric   |       |
-| low       | numeric   |       |
-| close     | numeric   |       |
-| volume    | numeric   |       |
+| Column    | Type     | Notes |
+| --------- | -------- | ----- |
+| timestamp | datetime | UTC   |
+| open      | numeric  |       |
+| high      | numeric  |       |
+| low       | numeric  |       |
+| close     | numeric  |       |
+| volume    | numeric  |       |
 
 ## Module examples
 
@@ -226,17 +285,17 @@ sync.sync_positions(tracker, watchlist=("SPY", "QQQ"))
 # Optional dry-run: SCHWAB_PREVIEW_ORDERS=true validates via POST /previewOrder
 ```
 
-| Schwab Trader API | Module |
-|-------------------|--------|
-| `GET /accounts/accountNumbers` | `schwab_trader_client` |
-| `GET /accounts` / `GET /accounts/{hash}` | `schwab_trader_client` |
-| `GET /userPreference` | `schwab_trader_client` → `schwab_streamer` |
-| `POST /accounts/{hash}/previewOrder` | `schwab_broker_gateway` |
-| `POST /accounts/{hash}/orders` | `schwab_broker_gateway` |
-| `GET /accounts/{hash}/orders/{id}` | `schwab_broker_gateway` |
-| `GET /accounts/{hash}/orders` | `schwab_broker_gateway` |
-| `DELETE /accounts/{hash}/orders/{id}` | `schwab_broker_gateway` |
-| `GET /marketdata/v1/pricehistory` | `schwab_market_data_client` |
+| Schwab Trader API                        | Module                                     |
+| ---------------------------------------- | ------------------------------------------ |
+| `GET /accounts/accountNumbers`           | `schwab_trader_client`                     |
+| `GET /accounts` / `GET /accounts/{hash}` | `schwab_trader_client`                     |
+| `GET /userPreference`                    | `schwab_trader_client` → `schwab_streamer` |
+| `POST /accounts/{hash}/previewOrder`     | `schwab_broker_gateway`                    |
+| `POST /accounts/{hash}/orders`           | `schwab_broker_gateway`                    |
+| `GET /accounts/{hash}/orders/{id}`       | `schwab_broker_gateway`                    |
+| `GET /accounts/{hash}/orders`            | `schwab_broker_gateway`                    |
+| `DELETE /accounts/{hash}/orders/{id}`    | `schwab_broker_gateway`                    |
+| `GET /marketdata/v1/pricehistory`        | `schwab_market_data_client`                |
 
 `{hash}` is the encrypted account id from `accountNumbers`, not the plain
 account number.
@@ -300,11 +359,11 @@ the backbone and passive audit/health listeners.
 
 **Run modes**
 
-| Command | What it does |
-|---------|----------------|
-| `python workflow.py` | Offline simulation — replays synthetic 1m bars (no network) |
-| `RUN_SCHWAB_STREAM=true python workflow.py` | Live Schwab `CHART_EQUITY` WebSocket feed |
-| `BROKER_USE_IN_MEMORY=false` | Routes orders to Schwab (use with preview mode first) |
+| Command                                     | What it does                                                |
+| ------------------------------------------- | ----------------------------------------------------------- |
+| `python workflow.py`                        | Offline simulation — replays synthetic 1m bars (no network) |
+| `RUN_SCHWAB_STREAM=true python workflow.py` | Live Schwab `CHART_EQUITY` WebSocket feed                   |
+| `BROKER_USE_IN_MEMORY=false`                | Routes orders to Schwab (use with preview mode first)       |
 
 ```python
 from workflow import DEFAULT_SYMBOLS, TradingWorkflow, WorkflowConfig
@@ -336,10 +395,8 @@ workflow = TradingWorkflow(
 # workflow.process_clean_bar(clean_bar_event)
 ```
 
-Key `.env` groups: OAuth (`SCHWAB_*`), streaming (`STREAM_*`, `SCHWAB_STREAM_*`),
-historical (`HISTORICAL_*`, `GCS_*`), strategies/indicators (`DEMA_*`,
-`SUPERTREND_*`), broker (`BROKER_*`, `SCHWAB_PREVIEW_ORDERS`). See
-`.env.example` for the full list.
+Key `.env` groups: secrets only (`SCHWAB_*`, `GMAIL_APP_PASSWORD`, `GOOGLE_*`).
+All other settings live in `config.json`. See `.env.example` for the full list.
 
 ### Infrastructure (pub/sub, audit, observability)
 
@@ -375,14 +432,14 @@ print(snapshot.to_dict())
 
 Canonical topics live in `event_bus.Topics`. Important audit topics:
 
-| Topic | Payload |
-|-------|---------|
-| `strategy.signal` | `StrategySignal` |
-| `risk.decision` | `RiskDecisionRecord` |
-| `order.updated` | `Order` |
-| `order.fill` | `FillEvent` |
-| `position.exit` | `ExitNotification` |
-| `bar.clean` | `CleanBarEvent` |
+| Topic             | Payload              |
+| ----------------- | -------------------- |
+| `strategy.signal` | `StrategySignal`     |
+| `risk.decision`   | `RiskDecisionRecord` |
+| `order.updated`   | `Order`              |
+| `order.fill`      | `FillEvent`          |
+| `position.exit`   | `ExitNotification`   |
+| `bar.clean`       | `CleanBarEvent`      |
 
 `TradeLogger` writes append-only JSON Lines to durable local storage. Swap the
 bus implementation later (Redis Streams, NATS, etc.) without changing producers.
@@ -399,6 +456,8 @@ Storage layout:
 ```
 gs://{bucket}/ohlcv/{SYMBOL}/{TIMEFRAME}/data.parquet
 gs://{bucket}/ohlcv/{SYMBOL}/{TIMEFRAME}/{YYYY-MM-DD}.parquet
+gs://{bucket}/schwab/tokens.json
+gs://{bucket}/forward_test/account.json
 ```
 
 `CloudStorageRepository` expects data that already uses the standard OHLCV schema. Normalize vendor payloads with `MarketDataTransformer` before writing.

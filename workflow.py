@@ -10,30 +10,25 @@ Does not own low-level transport, indicator math, or broker protocol details.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
 
+import pandas as pd
+
+from bar_alignment import aggregation_checkpoint, align_bucket_start, last_completed_minute, to_utc
+from cloud_storage_repository import CloudStorageRepository
 from data_aggregator import AggregatedBar, DataAggregator
 from event_bus import EventBus, Topics
-from health_monitor import HealthMonitor
-from indicator_calculator import (
-    DEFAULT_DEMA_PERIOD,
-    DEFAULT_DEMA_SOURCE,
-    DEFAULT_SUPERTREND_ATR_PERIOD,
-    DEFAULT_SUPERTREND_CHANGE_ATR,
-    DEFAULT_SUPERTREND_MULTIPLIER,
-    DEFAULT_SUPERTREND_SOURCE,
-)
+from config import AppConfig, load_config
+from health_monitor import HealthMonitor, HealthThresholds
 from indicator_coordinator import (
     IndicatorCoordinator,
     IndicatorSnapshot,
     SymbolIndicatorConfig,
-    build_dema_job,
-    build_supertrend_job,
 )
 from order_manager import (
     BrokerGateway,
@@ -43,111 +38,197 @@ from order_manager import (
     OrderSide,
     TradingSignal,
 )
+from position_reconciliation import option_position_aligned_with_supertrend
+from position_sizer import contracts_for_buy, shares_for_buy
+from option_selector import (
+    SelectedOption,
+    contract_mark_from_chain,
+    contract_quote_from_chain,
+    days_to_expiration_for_occ,
+    option_contract_type,
+    resolve_option_exit_from_chain,
+    select_atm_call_from_chain,
+    select_atm_put_from_chain,
+    synthetic_atm_call,
+    synthetic_atm_put,
+)
+from option_quote import OptionQuoteSnapshot
+from schwab_market_data_client import SchwabMarketDataClient
 from schwab_broker_gateway import build_broker_gateway
-from position_tracker import ExitNotification, PositionTracker
+from position_tracker import ExitNotification, Position, PositionTracker
 from signal_evaluator import SignalEvaluator, StrategySignal
 from strategy_registry import SignalAction, StrategyRegistry, build_default_registry
 from schwab_account_sync import SchwabAccountSync
+from schwab_trader_client import SchwabAccountSnapshot
 from schwab_streamer import SchwabStreamSession, build_schwab_stream_processor
 from stream_connection_manager import ConnectionState, StreamConnectionManager
 from stream_data_processor import CleanBarEvent, StreamDataProcessor
+from emailer import EmailerConfig, TradeEmailer, describe_conditions_met
+from forward_test_account import ForwardTestAccount, ForwardTestFillResult
+from market_session_scheduler import (
+    EodSchedule,
+    is_regular_hours_timestamp_local,
+    parse_hhmm,
+    parse_utc_hhmm,
+    should_flatten_positions,
+    should_shutdown,
+)
 from trade_logger import RiskDecisionRecord, TradeLogger
+from transaction_ledger import TransactionLedger, TransactionRecord
+from session_ohlcv_recorder import SessionOhlcvRecorder
+from workflow_warmup import build_storage_repository, load_stored_bars, warm_start_pipeline
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SYMBOLS: tuple[str, ...] = ("SPY", "QQQ", "TSLA", "AMZN", "NVDA")
-
-
 StreamProvider = Literal["generic", "schwab"]
+
+
+@dataclass(frozen=True)
+class ResolvedTrade:
+    """Broker order details after instrument and sizing resolution."""
+
+    symbol: str
+    underlying_symbol: str
+    asset_type: str
+    quantity: float
+    mark_price: float
+    description: str = ""
+    option_quote: Optional[OptionQuoteSnapshot] = None
 
 
 @dataclass(frozen=True)
 class WorkflowConfig:
     """Runtime configuration for the live trading workflow."""
 
-    websocket_url: str = ""
-    stream_provider: StreamProvider = "schwab"
-    symbols: tuple[str, ...] = DEFAULT_SYMBOLS
-    strategies: tuple[str, ...] = ("dema_trend",)
-    strategy_timeframe: str = "5m"
-    dema_period: int = DEFAULT_DEMA_PERIOD
-    dema_source: str = DEFAULT_DEMA_SOURCE
-    supertrend_atr_period: int = DEFAULT_SUPERTREND_ATR_PERIOD
-    supertrend_source: str = DEFAULT_SUPERTREND_SOURCE
-    supertrend_multiplier: float = DEFAULT_SUPERTREND_MULTIPLIER
-    supertrend_change_atr: bool = DEFAULT_SUPERTREND_CHANGE_ATR
-    order_quantity: float = 10.0
-    audit_log_path: str = "logs/audit.jsonl"
-    health_check_interval_seconds: float = 30.0
-    max_position_quantity: float = 100.0
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
-    trailing_stop_distance: Optional[float] = None
-    subscribe_on_connect: bool = True
-    sync_broker_positions_on_start: bool = False
-    schwab_account_hash: Optional[str] = None
-    schwab_account_number: Optional[str] = None
-    broker_use_in_memory: bool = True
-    broker_fill_price: float = 100.0
-    schwab_preview_orders: bool = False
+    app: AppConfig = field(default_factory=AppConfig)
 
     def __post_init__(self) -> None:
-        normalized = tuple(symbol.upper() for symbol in self.symbols)
-        if not normalized:
-            raise ValueError("At least one symbol is required")
-        object.__setattr__(self, "symbols", normalized)
-
         if self.stream_provider == "generic" and not self.websocket_url:
             raise ValueError("websocket_url is required when stream_provider='generic'")
 
+    @property
+    def symbols(self) -> tuple[str, ...]:
+        return self.app.market.symbols
+
+    @property
+    def market_config(self):
+        return self.app.market
+
+    @property
+    def indicator_config(self):
+        return self.app.indicators
+
+    @property
+    def stream_provider(self) -> StreamProvider:
+        return self.app.workflow.stream_provider
+
+    @property
+    def websocket_url(self) -> str:
+        return self.app.workflow.websocket_url or self.app.stream.schwab_streamer_url
+
+    @property
+    def strategies(self) -> tuple[str, ...]:
+        return self.app.strategies
+
+    @property
+    def risk(self):
+        return self.app.risk
+
+    @property
+    def audit_log_path(self) -> str:
+        return self.app.workflow.audit_log_path
+
+    @property
+    def health_check_interval_seconds(self) -> float:
+        return self.app.health.check_interval_seconds
+
+    @property
+    def max_position_quantity(self) -> float:
+        return self.app.risk.max_position_quantity
+
+    @property
+    def stop_loss(self) -> Optional[float]:
+        return self.app.risk.stop_loss
+
+    @property
+    def take_profit(self) -> Optional[float]:
+        return self.app.risk.take_profit
+
+    @property
+    def trailing_stop_distance(self) -> Optional[float]:
+        return self.app.risk.trailing_stop_distance
+
+    @property
+    def managed_exits(self) -> bool:
+        return self.app.risk.managed_exits
+
+    @property
+    def subscribe_on_connect(self) -> bool:
+        return self.app.workflow.subscribe_on_connect
+
+    @property
+    def sync_broker_positions_on_start(self) -> bool:
+        return self.app.broker.sync_positions_on_start
+
+    @property
+    def schwab_account_hash(self) -> Optional[str]:
+        value = self.app.broker.account_hash
+        return value or None
+
+    @property
+    def schwab_account_number(self) -> Optional[str]:
+        value = self.app.broker.account_number
+        return value or None
+
+    @property
+    def broker_use_in_memory(self) -> bool:
+        return self.app.broker.use_in_memory
+
+    @property
+    def broker_fill_price(self) -> float:
+        return self.app.broker.simulated_fill_price
+
+    @property
+    def schwab_preview_orders(self) -> bool:
+        return self.app.broker.preview_orders
+
+    @property
+    def email_forward_test(self) -> bool:
+        return self.app.email.forward_test
+
+    @property
+    def warmup_from_storage(self) -> bool:
+        return self.app.workflow.warmup_from_storage
+
+    @property
+    def persist_session_bars(self) -> bool:
+        return self.app.workflow.persist_session_bars
+
+    @property
+    def eod_schedule(self) -> EodSchedule:
+        workflow = self.app.workflow
+        historical = self.app.historical
+        return EodSchedule(
+            enabled=workflow.eod_enabled,
+            flatten_time_utc=parse_utc_hhmm(workflow.eod_flatten_time_utc),
+            shutdown_time_utc=parse_utc_hhmm(workflow.eod_shutdown_time_utc),
+            trading_days_only=historical.trading_days_only,
+        )
+
+    @property
+    def options_enabled(self) -> bool:
+        return self.app.options.enabled
+
     @classmethod
     def from_env(cls, *, load_dotenv: bool = True) -> WorkflowConfig:
-        """Build workflow configuration from environment variables."""
-        if load_dotenv:
-            from schwab_auth import _load_dotenv
+        """Build workflow configuration from config.json."""
+        app = load_config(reload=load_dotenv)
+        return cls.from_app_config(app)
 
-            _load_dotenv()
-
-        symbols = _env_symbols(
-            os.getenv("WATCHLIST_SYMBOLS"),
-            fallback=DEFAULT_SYMBOLS,
-        )
-        stream_provider = os.getenv("STREAM_PROVIDER", "schwab").strip().lower()
-        if stream_provider not in {"generic", "schwab"}:
-            raise ValueError("STREAM_PROVIDER must be 'generic' or 'schwab'")
-
-        return cls(
-            websocket_url=os.getenv("WEBSOCKET_URL", os.getenv("SCHWAB_STREAMER_URL", "")),
-            stream_provider=stream_provider,  # type: ignore[arg-type]
-            symbols=symbols,
-            strategies=_env_tuple(os.getenv("STRATEGIES"), fallback=("dema_trend",)),
-            strategy_timeframe=os.getenv("STRATEGY_TIMEFRAME", "5m"),
-            dema_period=int(os.getenv("DEMA_PERIOD", "200")),
-            dema_source=os.getenv("DEMA_SOURCE", "close"),
-            supertrend_atr_period=int(os.getenv("SUPERTREND_ATR_PERIOD", "12")),
-            supertrend_source=os.getenv("SUPERTREND_SOURCE", "hl2"),
-            supertrend_multiplier=float(os.getenv("SUPERTREND_MULTIPLIER", "3.0")),
-            supertrend_change_atr=_env_bool("SUPERTREND_CHANGE_ATR", True),
-            order_quantity=float(os.getenv("ORDER_QUANTITY", "10")),
-            audit_log_path=os.getenv("AUDIT_LOG_PATH", "logs/audit.jsonl"),
-            health_check_interval_seconds=float(
-                os.getenv("HEALTH_CHECK_INTERVAL_SECONDS", "30")
-            ),
-            max_position_quantity=float(os.getenv("MAX_POSITION_QUANTITY", "100")),
-            stop_loss=_env_optional_float("STOP_LOSS"),
-            take_profit=_env_optional_float("TAKE_PROFIT"),
-            trailing_stop_distance=_env_optional_float("TRAILING_STOP_DISTANCE"),
-            subscribe_on_connect=_env_bool("STREAM_SUBSCRIBE_ON_CONNECT", True),
-            sync_broker_positions_on_start=_env_bool(
-                "SCHWAB_SYNC_POSITIONS_ON_START",
-                False,
-            ),
-            schwab_account_hash=os.getenv("SCHWAB_ACCOUNT_HASH") or None,
-            schwab_account_number=os.getenv("SCHWAB_ACCOUNT_NUMBER") or None,
-            broker_use_in_memory=_env_bool("BROKER_USE_IN_MEMORY", True),
-            broker_fill_price=float(os.getenv("BROKER_SIMULATED_FILL_PRICE", "100")),
-            schwab_preview_orders=_env_bool("SCHWAB_PREVIEW_ORDERS", False),
-        )
+    @classmethod
+    def from_app_config(cls, app: AppConfig) -> WorkflowConfig:
+        """Build workflow configuration from a loaded AppConfig."""
+        return cls(app=app)
 
 
 class RiskGuard:
@@ -157,16 +238,16 @@ class RiskGuard:
         self,
         *,
         max_position_quantity: float = 100.0,
-        order_quantity: float = 10.0,
     ) -> None:
         self._max_position_quantity = max_position_quantity
-        self._order_quantity = order_quantity
 
     def evaluate(
         self,
         signal: StrategySignal,
         *,
         current_quantity: float,
+        order_quantity: float,
+        option_entry_on_sell: bool = False,
     ) -> RiskDecisionRecord:
         """Approve or block a strategy signal before order submission."""
         if signal.action == SignalAction.HOLD:
@@ -177,11 +258,19 @@ class RiskGuard:
                 strategy_name=signal.strategy_name,
             )
 
+        if order_quantity <= 0:
+            return RiskDecisionRecord(
+                symbol=signal.symbol,
+                approved=False,
+                reason="order quantity is zero",
+                strategy_name=signal.strategy_name,
+            )
+
         projected = current_quantity
-        if signal.action == SignalAction.BUY:
-            projected += self._order_quantity
+        if signal.action == SignalAction.BUY or option_entry_on_sell:
+            projected += order_quantity
         elif signal.action == SignalAction.SELL:
-            projected -= self._order_quantity
+            projected -= order_quantity
 
         if abs(projected) > self._max_position_quantity:
             return RiskDecisionRecord(
@@ -191,7 +280,11 @@ class RiskGuard:
                 strategy_name=signal.strategy_name,
             )
 
-        if signal.action == SignalAction.SELL and current_quantity <= 0:
+        if (
+            signal.action == SignalAction.SELL
+            and current_quantity <= 0
+            and not option_entry_on_sell
+        ):
             return RiskDecisionRecord(
                 symbol=signal.symbol,
                 approved=False,
@@ -223,18 +316,31 @@ class TradingWorkflow:
 
         self.bus = bus or EventBus()
         self.trade_logger = TradeLogger(self.bus, log_path=config.audit_log_path)
-        self.health_monitor = HealthMonitor(self.bus)
+        health = config.app.health
+        self.health_monitor = HealthMonitor(
+            self.bus,
+            thresholds=HealthThresholds(
+                feed_stale_seconds=health.feed_stale_seconds,
+                indicator_stale_seconds=health.indicator_stale_seconds,
+                max_reconnects_per_hour=health.max_reconnects_per_hour,
+                max_order_round_trip_seconds=health.max_order_round_trip_seconds,
+                module_silence_seconds=health.module_silence_seconds,
+                startup_grace_seconds=health.startup_grace_seconds,
+            ),
+        )
 
         if config.stream_provider == "schwab":
-            stream_service = os.getenv("SCHWAB_STREAM_SERVICE", "CHART_EQUITY")
-            if stream_service != "CHART_EQUITY":
+            stream = config.app.stream
+            if stream.schwab_stream_service != "CHART_EQUITY":
                 logger.warning(
-                    "SCHWAB_STREAM_SERVICE=%s is not fully supported; using CHART_EQUITY bars",
-                    stream_service,
+                    "stream.schwab_stream_service=%s is not fully supported; using CHART_EQUITY bars",
+                    stream.schwab_stream_service,
                 )
             self.stream_processor = build_schwab_stream_processor(
                 symbols=self._symbols,
                 consumers=[self._on_clean_bar],
+                timeframe=config.market_config.stream_timeframe,
+                stream_settings=stream,
             )
             self._schwab_stream = SchwabStreamSession.from_env(
                 symbols=self._symbols,
@@ -258,13 +364,18 @@ class TradingWorkflow:
                 on_close=self._on_stream_closed,
                 on_error=self._on_stream_error,
             )
-        self.aggregator = DataAggregator()
-        self.indicator_coordinator = IndicatorCoordinator()
-        self.strategy_registry = registry or build_default_registry()
+        self.aggregator = DataAggregator(
+            target_timeframes=config.market_config.aggregation_timeframes,
+        )
+        self.indicator_coordinator = IndicatorCoordinator(
+            max_bars=config.indicator_config.max_bars,
+        )
+        self.strategy_registry = registry or build_default_registry(
+            strategy_timeframe=config.market_config.strategy_timeframe,
+        )
         self.signal_evaluator = SignalEvaluator(self.strategy_registry)
         self.risk_guard = RiskGuard(
             max_position_quantity=config.max_position_quantity,
-            order_quantity=config.order_quantity,
         )
 
         resolved_broker = broker or build_broker_gateway(
@@ -275,16 +386,76 @@ class TradingWorkflow:
             resolved_broker,
             on_update=self._on_order_update,
         )
-        self.position_tracker = PositionTracker(exit_handlers=[self._on_position_exit])
+        self.position_tracker = PositionTracker(
+            exit_handlers=(
+                [self._on_position_exit] if config.managed_exits else []
+            ),
+        )
+        self._trade_emailer: Optional[TradeEmailer] = None
+        self._forward_test_account: Optional[ForwardTestAccount] = None
+        self._transaction_ledger: Optional[TransactionLedger] = None
+        transactions_path = config.app.forward_test.transactions_csv_path.strip()
+        if transactions_path:
+            self._transaction_ledger = TransactionLedger(transactions_path)
+        if config.email_forward_test:
+            self._trade_emailer = TradeEmailer(EmailerConfig.from_app_config(config.app))
+            try:
+                self._forward_test_account = ForwardTestAccount.from_app_config(
+                    config.app
+                )
+                self._forward_test_account.restore_positions(self.position_tracker)
+            except Exception:
+                logger.exception("Forward-test account unavailable; using static balance")
+            logger.info(
+                "Forward-test mode enabled: approved signals email %s (no broker orders)",
+                ", ".join(config.app.email.recipients),
+            )
+            if self._forward_test_account is not None:
+                logger.info(
+                    "Forward-test account: %s",
+                    self._forward_test_account.summary_line(),
+                )
 
         self._health_thread: Optional[threading.Thread] = None
+        self._eod_thread: Optional[threading.Thread] = None
         self._stop_health = threading.Event()
+        self._stop_eod = threading.Event()
+        self._shutdown_requested = threading.Event()
+        self._eod_flattened_on: Optional[date] = None
+        self._eod_shutdown_on: Optional[date] = None
         self._started = False
         self._account_sync = (
             SchwabAccountSync.from_env()
             if config.stream_provider == "schwab"
             else None
         )
+        self._account_snapshot: Optional[SchwabAccountSnapshot] = None
+        self._market_data_client: Optional[SchwabMarketDataClient] = None
+        self._session_recorder: Optional[SessionOhlcvRecorder] = None
+        self._logged_first_live_bar = False
+        self._live_regular_hours_seen = False
+        if config.persist_session_bars:
+            try:
+                storage = build_storage_repository(config.app)
+                persist_timeframes = tuple(
+                    dict.fromkeys(
+                        (
+                            config.market_config.stream_timeframe,
+                            config.app.historical.timeframe,
+                        )
+                    )
+                )
+                self._session_recorder = SessionOhlcvRecorder(
+                    storage,
+                    timeframes=persist_timeframes,
+                    use_daily_partitions=config.app.gcs.use_daily_partitions,
+                )
+                logger.info(
+                    "Session OHLCV recorder enabled for %s (flush on shutdown)",
+                    ", ".join(persist_timeframes),
+                )
+            except Exception:
+                logger.exception("Session OHLCV recorder unavailable")
 
         self._register_indicator_jobs()
         self._wire_passive_listeners()
@@ -296,28 +467,214 @@ class TradingWorkflow:
 
         self.trade_logger.start()
         self.health_monitor.start()
-        self._start_health_checks()
-        if self._config.sync_broker_positions_on_start:
-            self._sync_broker_positions()
+        if self._config.warmup_from_storage:
+            warm_start_pipeline(self)
+        self._reconcile_restored_positions_with_trend()
         if self._schwab_stream is not None:
+            logger.info(
+                "Connecting Schwab live stream for %s (%s bars)",
+                ", ".join(self._symbols),
+                self._config.market_config.stream_timeframe,
+            )
             self._schwab_stream.refresh_streamer_info()
             self._schwab_stream.connect()
         else:
+            logger.info("Connecting market data stream at %s", self._config.websocket_url)
             self.stream_manager.connect()
+        if self._config.sync_broker_positions_on_start:
+            self._sync_broker_positions()
+        self._start_health_checks()
+        if self._config.eod_schedule.enabled:
+            self._start_eod_scheduler()
         self._started = True
         logger.info("TradingWorkflow started for %s", ", ".join(self._symbols))
 
+    @property
+    def shutdown_requested(self) -> bool:
+        """True after the scheduled end-of-day shutdown fires."""
+        return self._shutdown_requested.is_set()
+
     def stop(self) -> None:
         """Stop health checks and disconnect the market data stream."""
+        if not self._started:
+            return
+
+        self._stop_eod.set()
+        if (
+            self._eod_thread is not None
+            and threading.current_thread() is not self._eod_thread
+        ):
+            self._eod_thread.join(timeout=2.0)
         self._stop_health.set()
-        if self._health_thread is not None:
+        if (
+            self._health_thread is not None
+            and threading.current_thread() is not self._health_thread
+        ):
             self._health_thread.join(timeout=2.0)
         if self._schwab_stream is not None:
             self._schwab_stream.disconnect()
         else:
             self.stream_manager.disconnect()
+        if self._forward_test_account is not None:
+            self._forward_test_account.save()
+        if self._session_recorder is not None:
+            flushed = self.aggregator.flush()
+            strategy_timeframe = self._config.market_config.strategy_timeframe
+            for aggregated in flushed:
+                if aggregated.timeframe != strategy_timeframe:
+                    continue
+                self._session_recorder.record_aggregated_bar(aggregated)
+            buffered = self._session_recorder.buffered_row_count
+            if buffered:
+                logger.info(
+                    "Shutdown: saving %d buffered live bar(s) to GCS",
+                    buffered,
+                )
+            self._session_recorder.flush()
         self._started = False
         logger.info("TradingWorkflow stopped for %s", ", ".join(self._symbols))
+
+    @property
+    def config(self) -> WorkflowConfig:
+        """Return the workflow runtime configuration."""
+        return self._config
+
+    def replay_warmup_bar(self, bar: CleanBarEvent) -> None:
+        """Replay one stored 1m bar through aggregation and indicators only."""
+        from ohlc_sanity import repair_ohlc_bar
+
+        open_price, high_price, low_price, close_price = repair_ohlc_bar(
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+        )
+        if (open_price, high_price, low_price, close_price) != (
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+        ):
+            bar = CleanBarEvent(
+                symbol=bar.symbol,
+                timeframe=bar.timeframe,
+                timestamp=bar.timestamp,
+                open=open_price,
+                high=high_price,
+                low=low_price,
+                close=close_price,
+                volume=bar.volume,
+            )
+        aggregated_bars = self.aggregator.on_bar(bar)
+        strategy_timeframe = self._config.market_config.strategy_timeframe
+        for aggregated in aggregated_bars:
+            if (
+                aggregated.timeframe == strategy_timeframe
+                and aggregated.is_complete
+            ):
+                self.indicator_coordinator.on_aggregated_bar(aggregated)
+
+    def replay_warmup_aggregated_bar(self, bar: AggregatedBar) -> None:
+        """Replay one stored strategy-timeframe bar into indicator buffers."""
+        from ohlc_sanity import repair_ohlc_bar
+
+        open_price, high_price, low_price, close_price = repair_ohlc_bar(
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+        )
+        if (open_price, high_price, low_price, close_price) != (
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+        ):
+            bar = AggregatedBar(
+                symbol=bar.symbol,
+                timeframe=bar.timeframe,
+                timestamp=bar.timestamp,
+                open=open_price,
+                high=high_price,
+                low=low_price,
+                close=close_price,
+                volume=bar.volume,
+                is_complete=bar.is_complete,
+            )
+        self.indicator_coordinator.on_aggregated_bar(bar)
+
+    def seed_live_aggregation_from_storage(
+        self,
+        symbol: str,
+        last_saved_3m: datetime,
+        storage: CloudStorageRepository,
+        *,
+        end: Optional[datetime] = None,
+    ) -> None:
+        """Continue live 1m->3m aggregation after the last stored 3m candle."""
+        app = self._config.app
+        strategy_timeframe = self._config.market_config.strategy_timeframe
+        stream_timeframe = self._config.market_config.stream_timeframe
+        symbol = symbol.upper()
+        last_saved_3m = align_bucket_start(last_saved_3m, strategy_timeframe)
+        now = last_completed_minute(end)
+        completed_through, seed_start = aggregation_checkpoint(
+            last_saved_3m,
+            timeframe=strategy_timeframe,
+            now=now,
+        )
+        self.aggregator.set_completed_through(
+            symbol,
+            strategy_timeframe,
+            completed_through,
+        )
+
+        if now < seed_start:
+            logger.info(
+                "Live %s aligned with last saved candle @ %s (next bucket starts %s)",
+                strategy_timeframe,
+                last_saved_3m.isoformat(),
+                seed_start.isoformat(),
+            )
+            return
+
+        minute_bars = load_stored_bars(
+            storage,
+            symbol,
+            stream_timeframe,
+            seed_start,
+            now,
+            use_daily_partitions=app.gcs.use_daily_partitions,
+        )
+        seeded = 0
+        for row in minute_bars.itertuples(index=False):
+            timestamp = to_utc(pd.Timestamp(row.timestamp).to_pydatetime())
+            if timestamp < seed_start:
+                continue
+            self.replay_warmup_bar(
+                CleanBarEvent(
+                    symbol=symbol,
+                    timeframe=stream_timeframe,
+                    timestamp=timestamp,
+                    open=float(row.open),
+                    high=float(row.high),
+                    low=float(row.low),
+                    close=float(row.close),
+                    volume=float(row.volume),
+                )
+            )
+            seeded += 1
+
+        open_bucket = align_bucket_start(now, strategy_timeframe)
+        logger.info(
+            "Live %s aligned with last saved candle @ %s; checkpoint through %s; "
+            "seeded %d stored 1m bar(s) into open bucket %s",
+            strategy_timeframe,
+            last_saved_3m.isoformat(),
+            completed_through.isoformat(),
+            seeded,
+            open_bucket.isoformat(),
+        )
 
     def process_clean_bar(self, bar: CleanBarEvent) -> None:
         """Run one clean 1-minute bar through the full pipeline.
@@ -362,6 +719,7 @@ class TradingWorkflow:
                 account_hash=self._config.schwab_account_hash,
                 account_number=self._config.schwab_account_number,
             )
+            self._account_snapshot = snapshot
             self.bus.publish(
                 Topics.POSITION_SYNC,
                 {
@@ -389,20 +747,9 @@ class TradingWorkflow:
 
     def _register_indicator_jobs(self) -> None:
         """Configure indicator jobs for each watchlist symbol."""
-        jobs = (
-            build_dema_job(
-                self._config.strategy_timeframe,
-                period=self._config.dema_period,
-                source=self._config.dema_source,
-            ),
-            build_supertrend_job(
-                self._config.strategy_timeframe,
-                atr_period=self._config.supertrend_atr_period,
-                source=self._config.supertrend_source,
-                multiplier=self._config.supertrend_multiplier,
-                change_atr=self._config.supertrend_change_atr,
-            ),
-        )
+        indicators = self._config.indicator_config
+        timeframe = self._config.market_config.strategy_timeframe
+        jobs = indicators.build_jobs(timeframe)
         for symbol in self._symbols:
             self.indicator_coordinator.register(
                 SymbolIndicatorConfig(symbol=symbol, jobs=jobs)
@@ -410,8 +757,29 @@ class TradingWorkflow:
 
     def _on_clean_bar(self, bar: CleanBarEvent) -> None:
         """Publish and process a validated 1-minute bar."""
+        if not self._logged_first_live_bar:
+            self._logged_first_live_bar = True
+            logger.info(
+                "First live bar received: %s %s @ %s close=%.2f "
+                "(completed 3m bars will log here every ~3 minutes)",
+                bar.symbol,
+                bar.timeframe,
+                bar.timestamp.isoformat(),
+                bar.close,
+            )
         self.bus.publish(Topics.BAR_CLEAN, bar, source="stream_data_processor")
+        if not self._live_regular_hours_seen and self._is_regular_hours_live_bar(
+            bar.timestamp
+        ):
+            self._live_regular_hours_seen = True
+            logger.info(
+                "First regular-hours live candle received at %s; trade entries enabled",
+                bar.timestamp.isoformat(),
+            )
+        if self._session_recorder is not None:
+            self._session_recorder.record_clean_bar(bar)
         self._run_process_and_strategy_layers(bar)
+        self._track_open_option_marks(bar)
 
     def _run_process_and_strategy_layers(self, bar: CleanBarEvent) -> None:
         """Aggregate bars, calculate indicators, and evaluate strategies."""
@@ -424,6 +792,8 @@ class TradingWorkflow:
                 aggregated,
                 source="data_aggregator",
             )
+            if self._session_recorder is not None:
+                self._session_recorder.record_aggregated_bar(aggregated)
             snapshot = self._dispatch_indicator_jobs(aggregated, started)
             if aggregated.is_complete and snapshot is not None:
                 self._evaluate_strategies(aggregated, snapshot)
@@ -432,7 +802,67 @@ class TradingWorkflow:
             bar.symbol,
             bar.close,
             timestamp=bar.timestamp,
+            evaluate_exits=self._config.managed_exits,
         )
+
+    def _track_open_option_marks(self, bar: CleanBarEvent) -> None:
+        """Refresh the open option mark and running max unrealized P&L per 1m bar."""
+        if not self._config.app.options.enabled:
+            return
+
+        position = self.position_tracker.get_position_for_underlying(bar.symbol)
+        if position is None or position.asset_type != "OPTION":
+            return
+
+        mark = self._fetch_live_option_mark(position)
+        if mark is None or mark <= 0:
+            return
+
+        unrealized = self._option_unrealized_pnl(position, mark)
+        self.position_tracker.record_mark(
+            position.symbol,
+            mark,
+            unrealized_pnl=unrealized,
+            timestamp=bar.timestamp,
+        )
+        logger.debug(
+            "Option mark %s=%.2f unrealized=%.2f (max+=%.2f max-=%.2f)",
+            position.symbol,
+            mark,
+            unrealized,
+            position.max_unrealized_profit if position.max_unrealized_profit is not None else 0.0,
+            position.max_unrealized_loss if position.max_unrealized_loss is not None else 0.0,
+        )
+
+    def _fetch_live_option_mark(self, position: Position) -> Optional[float]:
+        """Return the current option mark from the live chain, or None on failure."""
+        client = self._get_market_data_client()
+        if client is None:
+            return None
+
+        options = self._config.app.options
+        try:
+            chain = client.fetch_option_chain(
+                position.underlying_symbol or position.symbol,
+                contract_type=option_contract_type(position.symbol),
+                strike_count=max(options.strike_count, 10),
+                days_to_expiration=days_to_expiration_for_occ(position.symbol),
+            )
+            return contract_mark_from_chain(chain, position.symbol)
+        except Exception:
+            logger.debug(
+                "Failed to fetch live option mark for %s",
+                position.symbol,
+                exc_info=True,
+            )
+            return None
+
+    def _option_unrealized_pnl(self, position: Position, mark: float) -> float:
+        """Return unrealized P&L for an option at ``mark`` net of entry commission."""
+        quantity = abs(position.quantity)
+        gross = (mark - position.average_entry_price) * quantity * 100.0
+        commission = self._config.app.options.commission_per_contract * quantity
+        return gross - commission
 
     def _dispatch_indicator_jobs(
         self,
@@ -440,9 +870,20 @@ class TradingWorkflow:
         started: float,
     ) -> Optional[IndicatorSnapshot]:
         """Run indicator jobs and publish the latest snapshot."""
+        if not aggregated.is_complete:
+            return None
+
         snapshot = self.indicator_coordinator.on_aggregated_bar(aggregated)
         if snapshot is None:
             return None
+
+        if "supertrend_trend" not in snapshot.values:
+            logger.debug(
+                "Supertrend not ready for %s %s @ %s (need more 3m bars in buffer)",
+                aggregated.symbol,
+                aggregated.timeframe,
+                aggregated.timestamp.isoformat(),
+            )
 
         duration_ms = (time.perf_counter() - started) * 1000.0
         self.bus.publish(
@@ -459,7 +900,7 @@ class TradingWorkflow:
         snapshot: IndicatorSnapshot,
     ) -> None:
         """Evaluate active strategies and route actionable signals to execution."""
-        if aggregated.timeframe != self._config.strategy_timeframe:
+        if aggregated.timeframe != self._config.market_config.strategy_timeframe:
             return
 
         for strategy_name in self._config.strategies:
@@ -490,7 +931,58 @@ class TradingWorkflow:
                 signal,
                 source="signal_evaluator",
             )
+            self._log_strategy_evaluation(
+                aggregated,
+                snapshot,
+                strategy_name=strategy_name,
+                signal=signal,
+            )
             self._handle_strategy_signal(signal)
+
+    def _log_strategy_evaluation(
+        self,
+        aggregated: AggregatedBar,
+        snapshot: IndicatorSnapshot,
+        *,
+        strategy_name: str,
+        signal: StrategySignal,
+    ) -> None:
+        """Log completed strategy-timeframe evaluations for live monitoring."""
+        values = snapshot.values
+        trend = values.get("supertrend_trend")
+        st_value = values.get("supertrend")
+        if trend in (1, 1.0, True):
+            trend_label = "bullish"
+        elif trend in (-1, -1.0):
+            trend_label = "bearish"
+        elif trend is None:
+            trend_label = "warming up"
+        else:
+            trend_label = str(trend)
+        st_text = f" ST={float(st_value):.2f}" if st_value is not None else ""
+
+        if signal.action == SignalAction.HOLD:
+            logger.info(
+                "3m %s @ %s close=%.2f → HOLD | %s %s%s",
+                aggregated.symbol,
+                aggregated.timestamp.isoformat(),
+                aggregated.close,
+                strategy_name,
+                trend_label,
+                st_text,
+            )
+            return
+
+        logger.info(
+            "3m %s @ %s close=%.2f → %s | %s %s%s",
+            aggregated.symbol,
+            aggregated.timestamp.isoformat(),
+            aggregated.close,
+            signal.action.value.upper(),
+            strategy_name,
+            trend_label,
+            st_text,
+        )
 
     def _indicators_ready(
         self,
@@ -500,16 +992,71 @@ class TradingWorkflow:
         """Return whether required indicator values are available."""
         return all(name in values and values[name] is not None for name in required)
 
+    def _is_regular_hours_live_bar(self, timestamp: datetime) -> bool:
+        """Return whether a live bar timestamp is inside the regular session."""
+        historical = self._config.app.historical
+        return is_regular_hours_timestamp_local(
+            timestamp,
+            session_start_local=parse_hhmm(historical.session_start_local),
+            session_end_local=parse_hhmm(historical.session_end_local),
+            market_timezone=self._config.app.app.timezone,
+            trading_days_only=historical.trading_days_only,
+        )
+
+    def _market_today(self) -> date:
+        """Return today's date in the configured market timezone."""
+        return datetime.now(ZoneInfo(self._config.app.app.timezone)).date()
+
+    @staticmethod
+    def _signal_opens_new_trade(
+        signal: StrategySignal,
+        *,
+        options_enabled: bool,
+        option_entry: bool,
+    ) -> bool:
+        """Return True when a signal would open a new position."""
+        if options_enabled:
+            return option_entry
+        return signal.action == SignalAction.BUY
+
     def _handle_strategy_signal(self, signal: StrategySignal) -> None:
         """Run risk checks and submit broker orders for actionable signals."""
         if signal.action == SignalAction.HOLD:
             return
 
-        position = self.position_tracker.get_position(signal.symbol)
+        options = self._config.app.options
+        if options.enabled and signal.action in {SignalAction.BUY, SignalAction.SELL}:
+            self._close_existing_option_on_flip(signal)
+
+        position = self.position_tracker.get_position_for_underlying(signal.symbol)
         current_quantity = position.quantity if position is not None else 0.0
-        decision = self.risk_guard.evaluate(
+        option_put_entry = options.enabled and signal.action == SignalAction.SELL
+        option_entry = option_put_entry or (
+            options.enabled and signal.action == SignalAction.BUY
+        )
+        if not self._live_regular_hours_seen and self._signal_opens_new_trade(
+            signal,
+            options_enabled=options.enabled,
+            option_entry=option_entry,
+        ):
+            logger.info(
+                "Blocking %s for %s until first regular-hours live candle",
+                signal.action.value,
+                signal.symbol,
+            )
+            return
+
+        resolved = self._resolve_trade(
             signal,
             current_quantity=current_quantity,
+            price=signal.close,
+        )
+        order_quantity = resolved.quantity
+        decision = self.risk_guard.evaluate(
+            signal,
+            current_quantity=0.0 if option_entry else current_quantity,
+            order_quantity=order_quantity,
+            option_entry_on_sell=option_put_entry,
         )
         self.bus.publish(Topics.RISK_DECISION, decision, source="risk_guard")
 
@@ -517,20 +1064,895 @@ class TradingWorkflow:
             logger.info("Risk guard blocked %s for %s", signal.action.value, signal.symbol)
             return
 
+        if self._trade_emailer is not None:
+            fill_result: Optional[ForwardTestFillResult] = None
+            closed_position = None
+            if signal.action == SignalAction.SELL and not option_put_entry:
+                closed_position = self.position_tracker.get_position(resolved.symbol)
+            try:
+                fill_result = self._record_forward_test_fill(
+                    signal,
+                    resolved,
+                    order_quantity,
+                    option_put_entry=option_put_entry,
+                )
+                instrument_price = (
+                    resolved.mark_price
+                    if resolved.asset_type == "OPTION"
+                    else signal.close
+                )
+                if option_put_entry:
+                    entry_signal = StrategySignal(
+                        symbol=signal.symbol,
+                        timeframe=signal.timeframe,
+                        timestamp=signal.timestamp,
+                        action=SignalAction.BUY,
+                        strategy_name=signal.strategy_name,
+                        close=signal.close,
+                        indicators=signal.indicators,
+                    )
+                    self._trade_emailer.notify_signal(
+                        entry_signal,
+                        quantity=order_quantity,
+                        instrument_symbol=resolved.symbol,
+                        instrument_description=resolved.description,
+                        account_summary=(
+                            self._forward_test_account.summary_line()
+                            if self._forward_test_account is not None
+                            else None
+                        ),
+                        trade_amount=fill_result.amount if fill_result is not None else None,
+                        instrument_price=instrument_price,
+                        underlying_price=signal.close,
+                        quote=resolved.option_quote,
+                    )
+                else:
+                    self._trade_emailer.notify_signal(
+                        signal,
+                        quantity=order_quantity,
+                        instrument_symbol=resolved.symbol,
+                        instrument_description=resolved.description,
+                        account_summary=(
+                            self._forward_test_account.summary_line()
+                            if self._forward_test_account is not None
+                            else None
+                        ),
+                        trade_amount=fill_result.amount if fill_result is not None else None,
+                        trade_pnl=fill_result.trade_pnl if fill_result is not None else None,
+                        instrument_price=instrument_price,
+                        underlying_price=signal.close,
+                        entry_instrument_price=(
+                            closed_position.average_entry_price
+                            if closed_position is not None
+                            else None
+                        ),
+                        entry_underlying_price=(
+                            closed_position.underlying_entry_price
+                            if closed_position is not None
+                            else None
+                        ),
+                        quote=resolved.option_quote,
+                        entry_quote=(
+                            closed_position.entry_quote
+                            if closed_position is not None
+                            else None
+                        ),
+                        time_bought=(
+                            closed_position.opened_at
+                            if closed_position is not None
+                            else None
+                        ),
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to send forward-test email for %s %s",
+                    signal.action.value,
+                    signal.symbol,
+                )
+            return
+
         side = (
             OrderSide.BUY
-            if signal.action == SignalAction.BUY
+            if signal.action == SignalAction.BUY or option_put_entry
             else OrderSide.SELL
         )
         order = self.order_manager.submit_signal(
             TradingSignal(
-                symbol=signal.symbol,
+                symbol=resolved.symbol,
                 side=side,
-                quantity=self._config.order_quantity,
+                quantity=order_quantity,
                 signal_id=f"{signal.strategy_name}:{signal.timestamp.isoformat()}",
+                asset_type=resolved.asset_type,
+                underlying_symbol=resolved.underlying_symbol,
+                mark_price=(
+                    resolved.mark_price if resolved.asset_type == "OPTION" else None
+                ),
             )
         )
         self.order_manager.refresh_order(order.id)
+
+    def _record_forward_test_fill(
+        self,
+        signal: StrategySignal,
+        resolved: ResolvedTrade,
+        quantity: float,
+        *,
+        option_put_entry: bool = False,
+    ) -> Optional[ForwardTestFillResult]:
+        """Update local position and paper-account state after a forward-test email."""
+        if quantity <= 0:
+            return None
+
+        fill_result: Optional[ForwardTestFillResult] = None
+        is_option_entry = signal.action == SignalAction.BUY or option_put_entry
+
+        if is_option_entry:
+            entry_price = (
+                resolved.mark_price
+                if resolved.asset_type == "OPTION"
+                else signal.close
+            )
+            self.position_tracker.open_position(
+                symbol=resolved.symbol,
+                quantity=quantity,
+                entry_price=entry_price,
+                opened_at=signal.timestamp,
+                asset_type=resolved.asset_type,
+                underlying_symbol=resolved.underlying_symbol,
+                underlying_entry_price=signal.close,
+                entry_quote=resolved.option_quote,
+            )
+            if self._forward_test_account is not None:
+                fill_result = self._forward_test_account.record_buy(
+                    symbol=resolved.symbol,
+                    underlying_symbol=resolved.underlying_symbol,
+                    quantity=quantity,
+                    price=entry_price,
+                    asset_type=resolved.asset_type,
+                    opened_at=signal.timestamp,
+                    underlying_entry_price=signal.close,
+                    entry_quote=resolved.option_quote,
+                )
+            self._record_transaction(
+                side="BUY",
+                signal=signal,
+                resolved=resolved,
+                quantity=quantity,
+                instrument_price=entry_price,
+                underlying_price=signal.close,
+                entry_instrument_price=entry_price,
+                entry_underlying_price=signal.close,
+                trade_amount=fill_result.amount if fill_result is not None else None,
+                timestamp=signal.timestamp,
+                quote=resolved.option_quote,
+            )
+            logger.info(
+                "Forward-test paper BUY %s qty=%.0f @ %.2f",
+                resolved.symbol,
+                quantity,
+                entry_price,
+            )
+            return fill_result
+
+        if signal.action == SignalAction.SELL:
+            closed = self.position_tracker.close_position(resolved.symbol)
+            if closed is not None:
+                exit_price = resolved.mark_price
+                if self._forward_test_account is not None:
+                    fill_result = self._forward_test_account.record_sell(
+                        symbol=resolved.symbol,
+                        underlying_symbol=resolved.underlying_symbol,
+                        quantity=quantity,
+                        exit_price=exit_price,
+                        asset_type=resolved.asset_type,
+                        closed_at=signal.timestamp,
+                    )
+                self._record_transaction(
+                    side="SELL",
+                    signal=signal,
+                    resolved=resolved,
+                    quantity=quantity,
+                    instrument_price=exit_price,
+                    underlying_price=signal.close,
+                    entry_instrument_price=closed.average_entry_price,
+                    entry_underlying_price=closed.underlying_entry_price,
+                    trade_amount=fill_result.amount if fill_result is not None else None,
+                    trade_pnl=fill_result.trade_pnl if fill_result is not None else None,
+                    timestamp=signal.timestamp,
+                    quote=resolved.option_quote,
+                    entry_quote=closed.entry_quote,
+                )
+                logger.info(
+                    "Forward-test paper SELL %s qty=%.0f @ %.2f",
+                    resolved.symbol,
+                    quantity,
+                    exit_price,
+                )
+            return fill_result
+
+        return None
+
+    def _record_transaction(
+        self,
+        *,
+        side: str,
+        signal: StrategySignal,
+        resolved: ResolvedTrade,
+        quantity: float,
+        instrument_price: float,
+        underlying_price: float,
+        entry_instrument_price: Optional[float] = None,
+        entry_underlying_price: Optional[float] = None,
+        trade_amount: Optional[float] = None,
+        trade_pnl: Optional[float] = None,
+        execution_mode: str = "forward_test",
+        timestamp: Optional[datetime] = None,
+        quote: Optional[OptionQuoteSnapshot] = None,
+        entry_quote: Optional[OptionQuoteSnapshot] = None,
+        max_unrealized_profit: Optional[float] = None,
+        max_unrealized_loss: Optional[float] = None,
+    ) -> None:
+        """Append one buy/sell leg to the account transactions CSV."""
+        if self._transaction_ledger is None:
+            return
+
+        try:
+            self._transaction_ledger.record(
+                TransactionRecord(
+                    timestamp=timestamp or datetime.now(timezone.utc),
+                    side=side,
+                    underlying_symbol=resolved.underlying_symbol,
+                    instrument_symbol=resolved.symbol,
+                    asset_type=resolved.asset_type,
+                    quantity=quantity,
+                    instrument_price=instrument_price,
+                    underlying_price=underlying_price,
+                    entry_instrument_price=entry_instrument_price,
+                    entry_underlying_price=entry_underlying_price,
+                    trade_amount=trade_amount,
+                    trade_pnl=trade_pnl,
+                    strategy_name=signal.strategy_name,
+                    execution_mode=execution_mode,
+                    quote=quote,
+                    entry_quote=entry_quote,
+                    max_unrealized_profit=max_unrealized_profit,
+                    max_unrealized_loss=max_unrealized_loss,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "Failed to record transaction for %s %s",
+                side,
+                resolved.symbol,
+            )
+
+    def _record_live_fill_transaction(
+        self,
+        fill: FillEvent,
+        position_before: Optional[Position],
+    ) -> None:
+        """Append a live broker fill to the transactions CSV."""
+        if self._transaction_ledger is None:
+            return
+
+        side = "BUY" if fill.side == OrderSide.BUY else "SELL"
+        asset_type = fill.asset_type.upper()
+        underlying = (fill.underlying_symbol or fill.symbol).upper()
+        underlying_price = fill.price if asset_type == "EQUITY" else 0.0
+
+        if side == "SELL" and position_before is None:
+            logger.warning(
+                "Skipping live SELL transaction for %s: no open position",
+                fill.symbol,
+            )
+            return
+
+        entry_instrument = fill.price if side == "BUY" else position_before.average_entry_price
+        entry_underlying = (
+            underlying_price
+            if side == "BUY"
+            else (position_before.underlying_entry_price or underlying_price)
+        )
+
+        resolved = ResolvedTrade(
+            symbol=fill.symbol.upper(),
+            underlying_symbol=underlying,
+            asset_type=asset_type,
+            quantity=fill.quantity,
+            mark_price=fill.price,
+        )
+        signal = StrategySignal(
+            symbol=underlying,
+            timeframe=self._config.market_config.strategy_timeframe,
+            timestamp=fill.timestamp,
+            action=SignalAction.BUY if side == "BUY" else SignalAction.SELL,
+            strategy_name="live",
+            close=underlying_price,
+            indicators={},
+        )
+        self._record_transaction(
+            side=side,
+            signal=signal,
+            resolved=resolved,
+            quantity=fill.quantity,
+            instrument_price=fill.price,
+            underlying_price=underlying_price,
+            entry_instrument_price=entry_instrument,
+            entry_underlying_price=entry_underlying,
+            execution_mode="live",
+            timestamp=fill.timestamp,
+        )
+
+    def _resolve_trade(
+        self,
+        signal: StrategySignal,
+        *,
+        current_quantity: float,
+        price: float,
+    ) -> ResolvedTrade:
+        """Resolve instrument symbol, asset type, and order quantity."""
+        underlying = signal.symbol.upper()
+        options = self._config.app.options
+
+        if not options.enabled:
+            quantity = self._resolve_equity_quantity(
+                signal,
+                current_quantity=current_quantity,
+                price=price,
+            )
+            return ResolvedTrade(
+                symbol=underlying,
+                underlying_symbol=underlying,
+                asset_type="EQUITY",
+                quantity=quantity,
+                mark_price=price,
+            )
+
+        if signal.action == SignalAction.SELL:
+            if options.enabled:
+                return self._resolve_option_entry(
+                    underlying,
+                    price,
+                    contract_side="put",
+                )
+            quantity = self._resolve_equity_quantity(
+                signal,
+                current_quantity=current_quantity,
+                price=price,
+            )
+            return ResolvedTrade(
+                symbol=underlying,
+                underlying_symbol=underlying,
+                asset_type="EQUITY",
+                quantity=quantity,
+                mark_price=price,
+            )
+
+        if signal.action != SignalAction.BUY:
+            return ResolvedTrade(
+                symbol=underlying,
+                underlying_symbol=underlying,
+                asset_type="OPTION",
+                quantity=0.0,
+                mark_price=price,
+            )
+
+        return self._resolve_option_entry(
+            underlying,
+            price,
+            contract_side="call",
+        )
+
+    def _resolve_option_entry(
+        self,
+        underlying: str,
+        price: float,
+        *,
+        contract_side: Literal["call", "put"],
+    ) -> ResolvedTrade:
+        """Size and resolve a 2-DTE ATM option entry."""
+        if contract_side == "call":
+            selected = self._select_atm_call(underlying, price)
+            right_label = "call"
+        else:
+            selected = self._select_atm_put(underlying, price)
+            right_label = "put"
+
+        balance = self._tradeable_balance()
+        contracts = contracts_for_buy(
+            balance,
+            selected.mark_price,
+            pct=self._config.risk.position_size_pct,
+            max_dollars=self._config.risk.position_size_max_dollars,
+        )
+        if contracts <= 0:
+            logger.info(
+                "Option position size is zero for %s (balance=%.2f, premium=%.2f)",
+                underlying,
+                balance,
+                selected.mark_price,
+            )
+            return ResolvedTrade(
+                symbol=selected.occ_symbol,
+                underlying_symbol=underlying,
+                asset_type="OPTION",
+                quantity=0.0,
+                mark_price=selected.mark_price,
+            )
+
+        capped = min(float(contracts), self._config.risk.max_position_quantity)
+        description = (
+            f"{int(capped)} x {selected.occ_symbol} "
+            f"(ATM {selected.strike:.2f} {right_label}, {selected.days_to_expiration} DTE)"
+        )
+        return ResolvedTrade(
+            symbol=selected.occ_symbol,
+            underlying_symbol=underlying,
+            asset_type="OPTION",
+            quantity=capped,
+            mark_price=selected.mark_price,
+            description=description,
+            option_quote=selected.quote,
+        )
+
+    def _reconcile_restored_positions_with_trend(self) -> None:
+        """Close restored options that no longer match Supertrend after warmup."""
+        if not self._config.app.options.enabled:
+            return
+
+        timeframe = self._config.market_config.strategy_timeframe
+        for symbol in self._symbols:
+            position = self.position_tracker.get_position_for_underlying(symbol)
+            if position is None or position.asset_type != "OPTION":
+                continue
+
+            snapshot = self.indicator_coordinator.get_latest(symbol, timeframe)
+            if snapshot is None:
+                logger.info(
+                    "Keeping restored %s; indicators not ready for reconciliation",
+                    position.symbol,
+                )
+                continue
+
+            trend = snapshot.values.get("supertrend_trend")
+            if trend is None:
+                logger.info(
+                    "Keeping restored %s; supertrend not ready for reconciliation",
+                    position.symbol,
+                )
+                continue
+
+            contract_type = option_contract_type(position.symbol)
+            if option_position_aligned_with_supertrend(contract_type, float(trend)):
+                trend_label = "bullish" if float(trend) > 0 else "bearish"
+                logger.info(
+                    "Restored %s %s matches supertrend %s; keeping position open",
+                    symbol,
+                    position.symbol,
+                    trend_label,
+                )
+                continue
+
+            underlying_spot = self.indicator_coordinator.latest_close(symbol, timeframe)
+            if underlying_spot is None:
+                underlying_spot = position.underlying_entry_price or position.average_entry_price
+
+            trend_label = "bullish" if float(trend) > 0 else "bearish"
+            logger.info(
+                "Reconciling %s: closing stale %s (supertrend now %s)",
+                position.symbol,
+                contract_type,
+                trend_label,
+            )
+            self._flatten_open_option_position(
+                position=position,
+                underlying_symbol=symbol,
+                underlying_spot=float(underlying_spot),
+                closed_at=datetime.now(timezone.utc),
+                strategy_name="reconciliation",
+                conditions_met=(
+                    f"startup reconciliation: {contract_type} open but supertrend {trend_label}"
+                ),
+                send_email=self._trade_emailer is not None,
+            )
+
+    def _flatten_open_option_position(
+        self,
+        *,
+        position: Position,
+        underlying_symbol: str,
+        underlying_spot: float,
+        closed_at: datetime,
+        strategy_name: str,
+        conditions_met: str,
+        send_email: bool = True,
+    ) -> None:
+        """Exit an open option position in paper or live mode."""
+        exit_mark, exit_quote, chain_underlying = self._resolve_option_exit(
+            position,
+            underlying_spot,
+        )
+        exit_underlying = self._resolve_exit_underlying_price(
+            underlying_symbol,
+            chain_underlying=chain_underlying,
+            fallback_spot=underlying_spot,
+        )
+        quantity = abs(position.quantity)
+        description = f"{quantity:.0f} contracts of {position.symbol}"
+        fill_result: Optional[ForwardTestFillResult] = None
+
+        max_unrealized_profit = position.max_unrealized_profit
+        max_unrealized_loss = position.max_unrealized_loss
+        if position.asset_type == "OPTION":
+            exit_unrealized = self._option_unrealized_pnl(position, exit_mark)
+            max_unrealized_profit = (
+                exit_unrealized
+                if max_unrealized_profit is None
+                else max(max_unrealized_profit, exit_unrealized)
+            )
+            max_unrealized_loss = (
+                exit_unrealized
+                if max_unrealized_loss is None
+                else min(max_unrealized_loss, exit_unrealized)
+            )
+
+        if self._forward_test_account is not None:
+            fill_result = self._forward_test_account.record_sell(
+                symbol=position.symbol,
+                underlying_symbol=position.underlying_symbol or underlying_symbol,
+                quantity=quantity,
+                exit_price=exit_mark,
+                asset_type=position.asset_type,
+                closed_at=closed_at,
+            )
+        elif not self._config.email_forward_test:
+            order = self.order_manager.submit_signal(
+                TradingSignal(
+                    symbol=position.symbol,
+                    side=OrderSide.SELL,
+                    quantity=quantity,
+                    signal_id=f"flatten:{strategy_name}:{closed_at.isoformat()}",
+                    asset_type=position.asset_type,
+                    underlying_symbol=position.underlying_symbol or underlying_symbol,
+                    mark_price=exit_mark,
+                )
+            )
+            self.order_manager.refresh_order(order.id)
+
+        signal = StrategySignal(
+            symbol=underlying_symbol,
+            timeframe=self._config.market_config.strategy_timeframe,
+            timestamp=closed_at,
+            action=SignalAction.SELL,
+            strategy_name=strategy_name,
+            close=exit_underlying,
+            indicators={},
+        )
+        resolved_exit = ResolvedTrade(
+            symbol=position.symbol,
+            underlying_symbol=position.underlying_symbol or underlying_symbol,
+            asset_type=position.asset_type,
+            quantity=quantity,
+            mark_price=exit_mark,
+            description=description,
+            option_quote=exit_quote,
+        )
+        self._record_transaction(
+            side="SELL",
+            signal=signal,
+            resolved=resolved_exit,
+            quantity=quantity,
+            instrument_price=exit_mark,
+            underlying_price=exit_underlying,
+            entry_instrument_price=position.average_entry_price,
+            entry_underlying_price=position.underlying_entry_price,
+            trade_amount=fill_result.amount if fill_result is not None else None,
+            trade_pnl=fill_result.trade_pnl if fill_result is not None else None,
+            timestamp=closed_at,
+            quote=exit_quote,
+            entry_quote=position.entry_quote,
+            max_unrealized_profit=max_unrealized_profit,
+            max_unrealized_loss=max_unrealized_loss,
+        )
+        self.position_tracker.close_position(position.symbol)
+        logger.info(
+            "Closed %s (%s) at mark=%.2f",
+            position.symbol,
+            strategy_name,
+            exit_mark,
+        )
+
+        if not send_email or self._trade_emailer is None:
+            return
+
+        try:
+            self._trade_emailer.send_sell_notification(
+                symbol=underlying_symbol,
+                strategy_name=strategy_name,
+                conditions_met=conditions_met,
+                time_triggered=closed_at,
+                time_sold=datetime.now(timezone.utc),
+                exit_instrument_price=exit_mark,
+                exit_underlying_price=exit_underlying,
+                entry_instrument_price=position.average_entry_price,
+                entry_underlying_price=position.underlying_entry_price,
+                profit=fill_result.trade_pnl if fill_result is not None else None,
+                quantity=quantity,
+                instrument_line=description,
+                account_summary=(
+                    self._forward_test_account.summary_line()
+                    if self._forward_test_account is not None
+                    else None
+                ),
+                trade_amount=fill_result.amount if fill_result is not None else None,
+                quote=exit_quote,
+                entry_quote=position.entry_quote,
+                time_bought=position.opened_at,
+                max_unrealized_profit=max_unrealized_profit,
+                max_unrealized_loss=max_unrealized_loss,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to send exit email for %s",
+                position.symbol,
+            )
+
+    def _close_existing_option_on_flip(self, signal: StrategySignal) -> None:
+        """Flatten an open option before entering the new flip direction."""
+        position = self.position_tracker.get_position_for_underlying(signal.symbol)
+        if position is None or position.asset_type != "OPTION":
+            return
+
+        self._flatten_open_option_position(
+            position=position,
+            underlying_symbol=signal.symbol,
+            underlying_spot=signal.close,
+            closed_at=signal.timestamp,
+            strategy_name=signal.strategy_name,
+            conditions_met=describe_conditions_met(signal),
+            send_email=True,
+        )
+        logger.info(
+            "Closed %s before %s flip entry",
+            position.symbol,
+            signal.action.value,
+        )
+
+    def _resolve_exit_underlying_price(
+        self,
+        underlying_symbol: str,
+        *,
+        chain_underlying: Optional[float],
+        fallback_spot: float,
+    ) -> float:
+        """Prefer live chain/1m spot over a stale strategy-bar close for exits."""
+        if chain_underlying is not None and chain_underlying > 0:
+            return chain_underlying
+
+        one_minute = self.indicator_coordinator.latest_close(underlying_symbol, "1m")
+        if one_minute is not None and one_minute > 0:
+            return one_minute
+
+        strategy_timeframe = self._config.market_config.strategy_timeframe
+        strategy_close = self.indicator_coordinator.latest_close(
+            underlying_symbol,
+            strategy_timeframe,
+        )
+        if strategy_close is not None and strategy_close > 0:
+            return strategy_close
+
+        return fallback_spot
+
+    def _resolve_option_exit(
+        self,
+        position: Position,
+        fallback_underlying_spot: float,
+    ) -> tuple[float, Optional[OptionQuoteSnapshot], Optional[float]]:
+        """Return an option premium estimate, quote snapshot, and underlying spot."""
+        quote: Optional[OptionQuoteSnapshot] = None
+        chain_underlying: Optional[float] = None
+        client = self._get_market_data_client()
+        underlying_symbol = position.underlying_symbol or position.symbol
+        if client is not None:
+            options = self._config.app.options
+            contract_type = option_contract_type(position.symbol)
+            dte = days_to_expiration_for_occ(position.symbol)
+            dte_attempts: list[Optional[int]] = []
+            if dte is not None and dte >= 0:
+                dte_attempts.append(dte)
+            if options.days_to_expiration not in dte_attempts:
+                dte_attempts.append(options.days_to_expiration)
+            dte_attempts.append(None)
+
+            for days_to_expiration in dte_attempts:
+                try:
+                    chain = client.fetch_option_chain(
+                        underlying_symbol,
+                        contract_type=contract_type,
+                        strike_count=max(options.strike_count, 10),
+                        days_to_expiration=days_to_expiration,
+                    )
+                    exit_mark = resolve_option_exit_from_chain(chain, position.symbol)
+                    if exit_mark is not None:
+                        return (
+                            exit_mark.premium,
+                            exit_mark.quote,
+                            exit_mark.underlying_price,
+                        )
+                except Exception:
+                    logger.exception(
+                        "Failed to fetch exit quote for %s (dte=%s)",
+                        position.symbol,
+                        days_to_expiration,
+                    )
+
+            logger.warning(
+                "Could not resolve live exit quote for %s from option chain",
+                position.symbol,
+            )
+
+        if position.asset_type == "OPTION":
+            logger.warning(
+                "Using entry premium fallback for option exit on %s",
+                position.symbol,
+            )
+            return (
+                float(position.average_entry_price or 0.0),
+                quote,
+                chain_underlying,
+            )
+
+        if position.last_mark_price is not None and position.last_mark_price > 0:
+            return float(position.last_mark_price), quote, chain_underlying
+
+        return (
+            float(position.average_entry_price or fallback_underlying_spot),
+            quote,
+            chain_underlying,
+        )
+
+    def _resolve_option_exit_mark(self, position, underlying_spot: float) -> float:
+        """Return an option premium estimate for paper exit P&L."""
+        mark, _, _ = self._resolve_option_exit(position, underlying_spot)
+        return mark
+
+    def _select_atm_call(self, underlying: str, spot_price: float) -> SelectedOption:
+        """Resolve a 2-DTE ATM call from Schwab chain data or simulation defaults."""
+        options = self._config.app.options
+        client = self._get_market_data_client()
+        if client is not None:
+            try:
+                chain = client.fetch_option_chain(
+                    underlying,
+                    contract_type=options.contract_type,
+                    strike_count=options.strike_count,
+                    days_to_expiration=options.days_to_expiration,
+                )
+                return select_atm_call_from_chain(
+                    chain,
+                    underlying,
+                    spot_price,
+                    target_dte=options.days_to_expiration,
+                    as_of=self._market_today(),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to fetch option chain for %s; using synthetic contract",
+                    underlying,
+                )
+
+        return synthetic_atm_call(
+            underlying,
+            spot_price,
+            days_to_expiration=options.days_to_expiration,
+            mark_price=options.simulated_premium,
+            as_of=self._market_today(),
+        )
+
+    def _select_atm_put(self, underlying: str, spot_price: float) -> SelectedOption:
+        """Resolve a 2-DTE ATM put from Schwab chain data or simulation defaults."""
+        options = self._config.app.options
+        client = self._get_market_data_client()
+        if client is not None:
+            try:
+                chain = client.fetch_option_chain(
+                    underlying,
+                    contract_type="PUT",
+                    strike_count=options.strike_count,
+                    days_to_expiration=options.days_to_expiration,
+                )
+                return select_atm_put_from_chain(
+                    chain,
+                    underlying,
+                    spot_price,
+                    target_dte=options.days_to_expiration,
+                    as_of=self._market_today(),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to fetch put option chain for %s; using synthetic contract",
+                    underlying,
+                )
+
+        return synthetic_atm_put(
+            underlying,
+            spot_price,
+            days_to_expiration=options.days_to_expiration,
+            mark_price=options.simulated_premium,
+            as_of=self._market_today(),
+        )
+
+    def _get_market_data_client(self) -> Optional[SchwabMarketDataClient]:
+        """Return a cached Schwab market data client when credentials are available."""
+        if self._market_data_client is not None:
+            return self._market_data_client
+        try:
+            self._market_data_client = SchwabMarketDataClient.from_config(
+                self._config.app
+            )
+        except Exception:
+            logger.debug("Schwab market data client unavailable for option chains")
+            return None
+        return self._market_data_client
+
+    def _resolve_equity_quantity(
+        self,
+        signal: StrategySignal,
+        *,
+        current_quantity: float,
+        price: float,
+    ) -> float:
+        """Size buys from tradeable balance; sells flatten the open long."""
+        if signal.action == SignalAction.SELL:
+            return max(current_quantity, 0.0)
+
+        if signal.action != SignalAction.BUY:
+            return 0.0
+
+        risk = self._config.risk
+        balance = self._tradeable_balance()
+        shares = shares_for_buy(
+            balance,
+            price,
+            pct=risk.position_size_pct,
+            max_dollars=risk.position_size_max_dollars,
+        )
+        if shares <= 0:
+            logger.info(
+                "Position size is zero for %s (balance=%.2f, price=%.2f)",
+                signal.symbol,
+                balance,
+                price,
+            )
+            return 0.0
+
+        capped = min(float(shares), risk.max_position_quantity)
+        return capped
+
+    def _tradeable_balance(self) -> float:
+        """Return cash available for trading from Schwab or simulation config."""
+        if self._forward_test_account is not None:
+            return self._forward_test_account.cash_balance
+
+        risk = self._config.risk
+        if self._config.broker_use_in_memory:
+            return risk.simulated_tradeable_balance
+
+        if self._account_sync is None:
+            return risk.simulated_tradeable_balance
+
+        try:
+            snapshot = self._account_sync.fetch_snapshot(
+                account_hash=self._config.schwab_account_hash,
+                account_number=self._config.schwab_account_number,
+            )
+            self._account_snapshot = snapshot
+            return snapshot.balances.cash_available_for_trading
+        except Exception:
+            logger.exception("Failed to fetch Schwab tradeable balance")
+            if self._account_snapshot is not None:
+                return self._account_snapshot.balances.cash_available_for_trading
+            return 0.0
 
     def _on_order_update(self, order: Order) -> None:
         """Publish order lifecycle events and update portfolio state."""
@@ -540,9 +1962,15 @@ class TradingWorkflow:
         if fill is None:
             return
 
+        position_before = self.position_tracker.get_position(fill.symbol)
         self.bus.publish(Topics.ORDER_FILL, fill, source="order_manager")
         updated = self.position_tracker.on_fill(fill)
-        if updated is not None and self._config.stop_loss is not None:
+        self._record_live_fill_transaction(fill, position_before)
+        if (
+            updated is not None
+            and self._config.managed_exits
+            and self._config.stop_loss is not None
+        ):
             self._apply_default_risk_targets(updated.symbol)
 
     def _apply_default_risk_targets(self, symbol: str) -> None:
@@ -576,6 +2004,9 @@ class TradingWorkflow:
                 side=side,
                 quantity=quantity,
                 signal_id=f"exit:{notification.reason.value}",
+                asset_type=notification.position.asset_type,
+                underlying_symbol=notification.position.underlying_symbol,
+                mark_price=notification.position.last_mark_price,
             )
         )
         self.order_manager.refresh_order(order.id)
@@ -636,6 +2067,175 @@ class TradingWorkflow:
             source="stream_connection_manager",
         )
 
+    def _start_eod_scheduler(self) -> None:
+        """Watch the clock and flatten/shutdown at configured UTC times."""
+        schedule = self._config.eod_schedule
+        logger.info(
+            "EOD scheduler enabled: flatten %s UTC, shutdown %s UTC",
+            schedule.flatten_time_utc.strftime("%H:%M"),
+            schedule.shutdown_time_utc.strftime("%H:%M"),
+        )
+        self._eod_thread = threading.Thread(
+            target=self._eod_loop,
+            name="workflow-eod-scheduler",
+            daemon=True,
+        )
+        self._eod_thread.start()
+
+    def _eod_loop(self) -> None:
+        """Flatten open positions near the close, then stop and flush."""
+        while not self._stop_eod.wait(15.0):
+            now = datetime.now(timezone.utc)
+            schedule = self._config.eod_schedule
+
+            if should_flatten_positions(
+                now,
+                schedule=schedule,
+                flattened_on=self._eod_flattened_on,
+            ):
+                logger.info("EOD: flattening open positions before regular close")
+                self._flatten_all_positions_eod(now)
+                self._eod_flattened_on = now.date()
+
+            if should_shutdown(
+                now,
+                schedule=schedule,
+                shutdown_on=self._eod_shutdown_on,
+            ):
+                logger.info("EOD: regular session ended; shutting down and flushing data")
+                self._eod_shutdown_on = now.date()
+                self.stop()
+                self._shutdown_requested.set()
+                return
+
+    def _flatten_all_positions_eod(self, closed_at: datetime) -> None:
+        """Sell every open position at the end of the regular session."""
+        positions = self.position_tracker.list_positions()
+        if not positions:
+            logger.info("EOD flatten: no open positions")
+            return
+
+        timeframe = self._config.market_config.strategy_timeframe
+        for position in positions:
+            underlying = (position.underlying_symbol or position.symbol).upper()
+            spot = self.indicator_coordinator.latest_close(underlying, timeframe)
+            if spot is None:
+                spot = position.last_mark_price or position.average_entry_price
+
+            if position.asset_type == "OPTION":
+                self._flatten_open_option_position(
+                    position=position,
+                    underlying_symbol=underlying,
+                    underlying_spot=float(spot),
+                    closed_at=closed_at,
+                    strategy_name="eod_close",
+                    conditions_met="end-of-day flatten before regular session close",
+                    send_email=self._trade_emailer is not None,
+                )
+                continue
+
+            self._flatten_equity_position(
+                position=position,
+                underlying_symbol=underlying,
+                exit_price=float(spot),
+                closed_at=closed_at,
+            )
+
+    def _flatten_equity_position(
+        self,
+        *,
+        position: Position,
+        underlying_symbol: str,
+        exit_price: float,
+        closed_at: datetime,
+    ) -> None:
+        """Exit an open equity position in paper or live mode."""
+        quantity = abs(position.quantity)
+        fill_result: Optional[ForwardTestFillResult] = None
+
+        if self._forward_test_account is not None:
+            fill_result = self._forward_test_account.record_sell(
+                symbol=position.symbol,
+                underlying_symbol=underlying_symbol,
+                quantity=quantity,
+                exit_price=exit_price,
+                asset_type=position.asset_type,
+                closed_at=closed_at,
+            )
+        elif not self._config.email_forward_test:
+            side = OrderSide.SELL if position.quantity > 0 else OrderSide.BUY
+            order = self.order_manager.submit_signal(
+                TradingSignal(
+                    symbol=position.symbol,
+                    side=side,
+                    quantity=quantity,
+                    signal_id=f"flatten:eod_close:{closed_at.isoformat()}",
+                    asset_type=position.asset_type,
+                    underlying_symbol=underlying_symbol,
+                )
+            )
+            self.order_manager.refresh_order(order.id)
+
+        signal = StrategySignal(
+            symbol=underlying_symbol,
+            timeframe=self._config.market_config.strategy_timeframe,
+            timestamp=closed_at,
+            action=SignalAction.SELL,
+            strategy_name="eod_close",
+            close=exit_price,
+            indicators={},
+        )
+        resolved_exit = ResolvedTrade(
+            symbol=position.symbol,
+            underlying_symbol=underlying_symbol,
+            asset_type=position.asset_type,
+            quantity=quantity,
+            mark_price=exit_price,
+        )
+        self._record_transaction(
+            side="SELL",
+            signal=signal,
+            resolved=resolved_exit,
+            quantity=quantity,
+            instrument_price=exit_price,
+            underlying_price=exit_price,
+            entry_instrument_price=position.average_entry_price,
+            entry_underlying_price=position.underlying_entry_price,
+            trade_amount=fill_result.amount if fill_result is not None else None,
+            trade_pnl=fill_result.trade_pnl if fill_result is not None else None,
+            timestamp=closed_at,
+        )
+        self.position_tracker.close_position(position.symbol)
+        logger.info("EOD closed equity %s at %.2f", position.symbol, exit_price)
+
+        if self._trade_emailer is None:
+            return
+
+        try:
+            self._trade_emailer.send_sell_notification(
+                symbol=underlying_symbol,
+                strategy_name="eod_close",
+                conditions_met="end-of-day flatten before regular session close",
+                time_triggered=closed_at,
+                time_sold=datetime.now(timezone.utc),
+                exit_instrument_price=exit_price,
+                exit_underlying_price=exit_price,
+                entry_instrument_price=position.average_entry_price,
+                entry_underlying_price=position.underlying_entry_price,
+                profit=fill_result.trade_pnl if fill_result is not None else None,
+                quantity=quantity,
+                instrument_line=position.symbol,
+                account_summary=(
+                    self._forward_test_account.summary_line()
+                    if self._forward_test_account is not None
+                    else None
+                ),
+                trade_amount=fill_result.amount if fill_result is not None else None,
+                time_bought=position.opened_at,
+            )
+        except Exception:
+            logger.exception("Failed to send EOD exit email for %s", position.symbol)
+
     def _start_health_checks(self) -> None:
         """Run periodic health checks in a background thread."""
         self._stop_health.clear()
@@ -656,74 +2256,30 @@ class TradingWorkflow:
                 logger.exception("Health check failed")
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_tuple(name: Optional[str], *, fallback: tuple[str, ...]) -> tuple[str, ...]:
-    if not name:
-        return fallback
-    values = tuple(item.strip() for item in name.split(",") if item.strip())
-    return values or fallback
-
-
-def _env_symbols(name: Optional[str], *, fallback: tuple[str, ...]) -> tuple[str, ...]:
-    symbols = _env_tuple(name, fallback=fallback)
-    return tuple(symbol.upper() for symbol in symbols)
-
-
-def _env_optional_float(name: str) -> Optional[float]:
-    raw = os.getenv(name)
-    if raw is None or not raw.strip():
-        return None
-    return float(raw)
-
-
 if __name__ == "__main__":
     import json
     from datetime import timedelta
 
     logging.basicConfig(level=logging.INFO)
 
-    use_live_schwab = os.getenv("RUN_SCHWAB_STREAM", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    app = load_config()
+    use_live_schwab = app.workflow.run_schwab_stream
 
     if use_live_schwab:
         workflow = TradingWorkflow(WorkflowConfig.from_env())
         workflow.start()
         try:
-            while True:
+            while not workflow.shutdown_requested:
                 time.sleep(1)
         except KeyboardInterrupt:
             workflow.stop()
+        else:
+            if workflow.shutdown_requested:
+                logger.info("Exiting after scheduled end-of-day shutdown")
         raise SystemExit(0)
 
     workflow = TradingWorkflow(
-        WorkflowConfig(
-            websocket_url="wss://echo.websocket.events",
-            stream_provider="generic",
-            symbols=DEFAULT_SYMBOLS,
-            strategies=("dema_trend",),
-            dema_period=200,
-            dema_source="close",
-            supertrend_atr_period=12,
-            supertrend_source="hl2",
-            supertrend_multiplier=3.0,
-            order_quantity=10,
-            stop_loss=180.0,
-            take_profit=190.0,
-            trailing_stop_distance=1.5,
-            subscribe_on_connect=False,
-            broker_use_in_memory=True,
-            broker_fill_price=185.0,
-        ),
+        WorkflowConfig.from_app_config(app),
     )
 
     workflow.trade_logger.start()
@@ -731,7 +2287,7 @@ if __name__ == "__main__":
 
     base = datetime(2024, 1, 15, 9, 30, tzinfo=timezone.utc)
     for offset in range(30):
-        for index, symbol in enumerate(DEFAULT_SYMBOLS):
+        for index, symbol in enumerate(workflow.symbols):
             workflow.process_clean_bar(
                 CleanBarEvent(
                     symbol=symbol,

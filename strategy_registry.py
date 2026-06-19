@@ -140,14 +140,14 @@ def macd_crossover(ctx: StrategyEvaluationContext) -> SignalAction:
     return SignalAction.HOLD
 
 
-def build_default_registry() -> StrategyRegistry:
+def build_default_registry(*, strategy_timeframe: str = "5m") -> StrategyRegistry:
     """Create a registry with the built-in example strategies."""
     registry = StrategyRegistry()
     registry.register(
         StrategyDefinition(
             name="dema_trend",
             rule=dema_trend,
-            timeframe="5m",
+            timeframe=strategy_timeframe,
             required_indicators=("dema",),
         )
     )
@@ -155,7 +155,7 @@ def build_default_registry() -> StrategyRegistry:
         StrategyDefinition(
             name="supertrend_trend",
             rule=supertrend_trend,
-            timeframe="5m",
+            timeframe=strategy_timeframe,
             required_indicators=("supertrend_trend",),
         )
     )
@@ -163,7 +163,15 @@ def build_default_registry() -> StrategyRegistry:
         StrategyDefinition(
             name="supertrend_signals",
             rule=supertrend_signals,
-            timeframe="5m",
+            timeframe=strategy_timeframe,
+            required_indicators=("supertrend_buy_signal", "supertrend_sell_signal"),
+        )
+    )
+    registry.register(
+        StrategyDefinition(
+            name="supertrend",
+            rule=supertrend_signals,
+            timeframe=strategy_timeframe,
             required_indicators=("supertrend_buy_signal", "supertrend_sell_signal"),
         )
     )
@@ -171,7 +179,7 @@ def build_default_registry() -> StrategyRegistry:
         StrategyDefinition(
             name="rsi_mean_reversion",
             rule=rsi_mean_reversion,
-            timeframe="5m",
+            timeframe=strategy_timeframe,
             required_indicators=("rsi",),
         )
     )
@@ -179,7 +187,7 @@ def build_default_registry() -> StrategyRegistry:
         StrategyDefinition(
             name="macd_crossover",
             rule=macd_crossover,
-            timeframe="5m",
+            timeframe=strategy_timeframe,
             required_indicators=("macd", "macd_signal"),
         )
     )

@@ -40,6 +40,14 @@ class HealthThresholds:
     max_reconnects_per_hour: int = 5
     max_order_round_trip_seconds: float = 10.0
     module_silence_seconds: float = 300.0
+    startup_grace_seconds: float = 180.0
+
+
+PIPELINE_MODULES = (
+    "stream_data_processor",
+    "data_aggregator",
+    "indicator_coordinator",
+)
 
 
 @dataclass
@@ -113,15 +121,9 @@ class HealthMonitor:
         """
         self._bus = bus
         self._thresholds = thresholds or HealthThresholds()
-        self._monitored_modules = monitored_modules or (
-            "stream_connection_manager",
-            "stream_data_processor",
-            "data_aggregator",
-            "indicator_coordinator",
-            "signal_evaluator",
-            "order_manager",
-        )
+        self._monitored_modules = monitored_modules or PIPELINE_MODULES
 
+        self._started_at: Optional[datetime] = None
         self._last_bar_at: Optional[datetime] = None
         self._last_indicator_at: Optional[datetime] = None
         self._last_module_event_at: dict[str, datetime] = {}
@@ -141,6 +143,7 @@ class HealthMonitor:
         for topic in self.MONITORED_TOPICS:
             self._bus.subscribe(topic, self._on_event)
         self._bus.subscribe("*", self._track_module_activity)
+        self._started_at = datetime.now(timezone.utc)
         self._started = True
         logger.info("HealthMonitor started")
 
@@ -154,6 +157,7 @@ class HealthMonitor:
         notes: list[str] = []
         stale_modules: list[str] = []
         status = HealthStatus.HEALTHY
+        in_startup_grace = self._in_startup_grace(now)
 
         with self._lock:
             feed_latency = self._seconds_since(self._last_bar_at, now)
@@ -166,7 +170,11 @@ class HealthMonitor:
             for module in self._monitored_modules:
                 last_seen = self._last_module_event_at.get(module)
                 silence = self._seconds_since(last_seen, now)
-                if silence is None or silence > self._thresholds.module_silence_seconds:
+                if last_seen is None:
+                    if not in_startup_grace:
+                        stale_modules.append(module)
+                    continue
+                if silence > self._thresholds.module_silence_seconds:
                     stale_modules.append(module)
 
         if feed_latency is not None and feed_latency > self._thresholds.feed_stale_seconds:
@@ -194,9 +202,11 @@ class HealthMonitor:
             status = HealthStatus.UNHEALTHY
             notes.append(f"Silent modules: {', '.join(stale_modules)}")
 
-        if feed_latency is None:
+        if feed_latency is None and not in_startup_grace:
             status = HealthStatus.UNHEALTHY
             notes.append("No bars received yet")
+        elif feed_latency is None and in_startup_grace:
+            notes.append("Waiting for first bar")
 
         snapshot = HealthSnapshot(
             status=status,
@@ -215,6 +225,9 @@ class HealthMonitor:
             previous_status = (
                 self._last_snapshot.status if self._last_snapshot is not None else None
             )
+            previous_notes = (
+                self._last_snapshot.notes if self._last_snapshot is not None else []
+            )
             self._last_snapshot = snapshot
 
         self._bus.publish(
@@ -223,16 +236,35 @@ class HealthMonitor:
             source="health_monitor",
         )
 
-        if previous_status != snapshot.status or snapshot.status != HealthStatus.HEALTHY:
+        if previous_status != snapshot.status:
             self._bus.publish(
                 Topics.HEALTH_ALERT,
                 snapshot,
                 source="health_monitor",
                 metadata={"previous_status": previous_status.value if previous_status else None},
             )
-            logger.warning("Health status=%s notes=%s", snapshot.status.value, snapshot.notes)
+            self._log_health_snapshot(snapshot, in_startup_grace)
+        elif snapshot.status != HealthStatus.HEALTHY and notes != previous_notes:
+            self._log_health_snapshot(snapshot, in_startup_grace)
 
         return snapshot
+
+    def _log_health_snapshot(
+        self,
+        snapshot: HealthSnapshot,
+        in_startup_grace: bool,
+    ) -> None:
+        if in_startup_grace and snapshot.status == HealthStatus.UNHEALTHY:
+            logger.info(
+                "Health status=%s notes=%s (startup grace)",
+                snapshot.status.value,
+                snapshot.notes,
+            )
+            return
+        if snapshot.status == HealthStatus.HEALTHY:
+            logger.info("Health status=%s notes=%s", snapshot.status.value, snapshot.notes)
+            return
+        logger.warning("Health status=%s notes=%s", snapshot.status.value, snapshot.notes)
 
     def latest_snapshot(self) -> Optional[HealthSnapshot]:
         """Return the most recent health snapshot if one exists."""
@@ -318,6 +350,13 @@ class HealthMonitor:
         if not values:
             return None
         return sum(values) / len(values)
+
+    def _in_startup_grace(self, now: datetime) -> bool:
+        """Return whether the monitor is still in its post-start grace window."""
+        if self._started_at is None:
+            return True
+        elapsed = (now - self._started_at).total_seconds()
+        return elapsed < self._thresholds.startup_grace_seconds
 
 
 if __name__ == "__main__":

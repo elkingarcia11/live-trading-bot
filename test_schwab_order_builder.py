@@ -36,6 +36,29 @@ def test_build_market_sell_order_payload() -> None:
     assert payload["orderLegCollection"][0]["positionEffect"] == "CLOSING"
 
 
+def test_build_market_buy_option_order_payload() -> None:
+    order = Order(
+        id="test-option-order",
+        signal=TradingSignal(
+            symbol="SPY   260617C00550000",
+            side=OrderSide.BUY,
+            quantity=2,
+            order_type=OrderType.MARKET,
+            asset_type="OPTION",
+            underlying_symbol="SPY",
+            mark_price=4.5,
+        ),
+        status=OrderStatus.PENDING,
+    )
+    payload = build_schwab_order_payload(order)
+    leg = payload["orderLegCollection"][0]
+    assert leg["orderLegType"] == "OPTION"
+    assert leg["instruction"] == "BUY"
+    assert leg["quantity"] == 2
+    assert leg["instrument"]["assetType"] == "OPTION"
+    assert leg["instrument"]["symbol"] == "SPY   260617C00550000"
+
+
 def test_map_schwab_status() -> None:
     assert _map_schwab_status("FILLED") == OrderStatus.FILLED
     assert _map_schwab_status("WORKING") == OrderStatus.SUBMITTED

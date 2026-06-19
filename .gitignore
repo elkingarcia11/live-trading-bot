@@ -1,6 +1,24 @@
+# Secrets and credentials
 .env
+.env.*
+!.env.example
 .schwab_tokens.json
+.schwab_oauth_certs/
+gcs-sa.json
+*-sa.json
+*service-account*.json
+credentials.json
+
+# Local / runtime
 logs/
+data/
+.venv/
 __pycache__/
 *.pyc
-.venv/
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

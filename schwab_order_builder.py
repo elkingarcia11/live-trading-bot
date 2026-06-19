@@ -15,11 +15,25 @@ from order_manager import Order, OrderSide, OrderType
 
 
 def build_schwab_order_payload(order: Order) -> dict[str, Any]:
-    """Build a Schwab equity order payload from an internal order."""
+    """Build a Schwab order payload from an internal order."""
     signal = order.signal
     instruction = "BUY" if signal.side == OrderSide.BUY else "SELL"
     position_effect = "OPENING" if signal.side == OrderSide.BUY else "CLOSING"
-    quantity = _normalize_equity_quantity(signal.quantity)
+    asset_type = signal.asset_type.upper()
+    if asset_type == "OPTION":
+        leg_type = "OPTION"
+        quantity = _normalize_option_quantity(signal.quantity)
+        instrument = {
+            "symbol": signal.symbol.upper(),
+            "assetType": "OPTION",
+        }
+    else:
+        leg_type = "EQUITY"
+        quantity = _normalize_equity_quantity(signal.quantity)
+        instrument = {
+            "symbol": signal.symbol.upper(),
+            "assetType": "EQUITY",
+        }
 
     payload: dict[str, Any] = {
         "session": "NORMAL",
@@ -29,14 +43,11 @@ def build_schwab_order_payload(order: Order) -> dict[str, Any]:
         "orderStrategyType": "SINGLE",
         "orderLegCollection": [
             {
-                "orderLegType": "EQUITY",
+                "orderLegType": leg_type,
                 "instruction": instruction,
                 "positionEffect": position_effect,
                 "quantity": quantity,
-                "instrument": {
-                    "symbol": signal.symbol.upper(),
-                    "assetType": "EQUITY",
-                },
+                "instrument": instrument,
             }
         ],
     }
@@ -66,3 +77,14 @@ def _normalize_equity_quantity(quantity: float) -> int:
     if not math.isclose(quantity, whole_shares, rel_tol=0.0, abs_tol=1e-9):
         raise ValueError("Schwab equity orders require whole-share quantities")
     return whole_shares
+
+
+def _normalize_option_quantity(quantity: float) -> int:
+    if quantity <= 0:
+        raise ValueError("quantity must be positive")
+    contracts = int(math.floor(quantity))
+    if contracts <= 0:
+        raise ValueError("Schwab option orders require at least one contract")
+    if not math.isclose(quantity, contracts, rel_tol=0.0, abs_tol=1e-9):
+        raise ValueError("Schwab option orders require whole-contract quantities")
+    return contracts

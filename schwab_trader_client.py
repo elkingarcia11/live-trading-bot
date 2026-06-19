@@ -53,13 +53,15 @@ class SchwabAccountRef:
 
 @dataclass(frozen=True)
 class SchwabAccountPosition:
-    """Normalized equity position from Schwab account payloads."""
+    """Normalized position from Schwab account payloads."""
 
     symbol: str
     quantity: float
     average_price: float
     market_value: float
     current_day_profit_loss: float
+    asset_type: str = "EQUITY"
+    underlying_symbol: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -174,18 +176,22 @@ class SchwabTraderClient:
 
     @classmethod
     def from_env(cls, *, load_dotenv: bool = True) -> SchwabTraderClient:
-        """Build a trader client from environment variables."""
+        """Build a trader client from config.json and environment secrets."""
         if load_dotenv:
             _load_dotenv()
 
+        from config import get_config
+
+        app = get_config(reload=True)
+        schwab = app.schwab
         auth_client = SchwabAuthClient.from_env(load_dotenv=False)
-        base_url = os.getenv("SCHWAB_TRADER_BASE_URL", DEFAULT_TRADER_BASE_URL)
-        preference_path = os.getenv("SCHWAB_USER_PREFERENCE_PATH", DEFAULT_USER_PREFERENCE_PATH)
+        base_url = schwab.trader_base_url
+        preference_path = schwab.user_preference_path
         if preference_path.startswith("http"):
             base_url = preference_path.rsplit("/", 1)[0]
             preference_path = preference_path.rstrip("/").split("/")[-1]
 
-        accounts_path = os.getenv("SCHWAB_ACCOUNTS_PATH", DEFAULT_ACCOUNTS_PATH)
+        accounts_path = schwab.accounts_path
         if accounts_path.startswith("http"):
             base_url = accounts_path.rsplit("/", 1)[0]
             accounts_path = accounts_path.rstrip("/").split("/")[-1]
@@ -195,16 +201,13 @@ class SchwabTraderClient:
             base_url=base_url,
             user_preference_path=preference_path,
             account_numbers_path=_suffix_path(
-                os.getenv("SCHWAB_ACCOUNT_NUMBERS_PATH"),
+                schwab.account_numbers_path,
                 DEFAULT_ACCOUNT_NUMBERS_PATH,
             ),
             accounts_path=accounts_path,
-            orders_path_template=os.getenv("SCHWAB_ORDERS_PATH", DEFAULT_ORDERS_PATH),
-            preview_order_path_template=os.getenv(
-                "SCHWAB_PREVIEW_ORDER_PATH",
-                DEFAULT_PREVIEW_ORDER_PATH,
-            ),
-            timeout=float(os.getenv("MARKET_DATA_REQUEST_TIMEOUT_SECONDS", "30")),
+            orders_path_template=schwab.orders_path,
+            preview_order_path_template=schwab.preview_order_path,
+            timeout=app.market_data.request_timeout_seconds,
         )
 
     def get_user_preference(self) -> list[dict[str, Any]]:
@@ -247,7 +250,9 @@ class SchwabTraderClient:
             self._resolved_account_hash = account_hash
             return account_hash
 
-        configured_hash = os.getenv("SCHWAB_ACCOUNT_HASH", "").strip()
+        from config import get_config
+
+        configured_hash = get_config().broker.account_hash
         if configured_hash:
             self._resolved_account_hash = configured_hash
             return configured_hash
@@ -261,7 +266,7 @@ class SchwabTraderClient:
 
         target_number = (
             account_number
-            or os.getenv("SCHWAB_ACCOUNT_NUMBER", "").strip()
+            or get_config().broker.account_number
             or None
         )
         if target_number:
@@ -441,10 +446,15 @@ class SchwabTraderClient:
     def get_streamer_info(self) -> SchwabStreamerInfo:
         """Extract streamer connection details from user preference."""
         payload = self.get_user_preference()
-        if not isinstance(payload, list) or not payload:
-            raise SchwabTraderError("User preference response was empty")
+        if isinstance(payload, list):
+            if not payload:
+                raise SchwabTraderError("User preference response was empty")
+            preferences = payload[0]
+        elif isinstance(payload, dict):
+            preferences = payload
+        else:
+            raise SchwabTraderError("User preference payload has an unexpected shape")
 
-        preferences = payload[0]
         if not isinstance(preferences, dict):
             raise SchwabTraderError("User preference payload has an unexpected shape")
 
@@ -461,8 +471,20 @@ class SchwabTraderClient:
                 streamer_socket_url=str(entry["streamerSocketUrl"]),
                 schwab_client_customer_id=str(entry["schwabClientCustomerId"]),
                 schwab_client_correl_id=str(entry["schwabClientCorrelId"]),
-                schwab_client_channel=str(entry["SchwabClientChannel"]),
-                schwab_client_function_id=str(entry["SchwabClientFunctionId"]),
+                schwab_client_channel=str(
+                    _streamer_info_field(
+                        entry,
+                        "SchwabClientChannel",
+                        "schwabClientChannel",
+                    )
+                ),
+                schwab_client_function_id=str(
+                    _streamer_info_field(
+                        entry,
+                        "SchwabClientFunctionId",
+                        "schwabClientFunctionId",
+                    )
+                ),
             )
         except KeyError as exc:
             raise SchwabTraderError(
@@ -538,7 +560,12 @@ class SchwabTraderClient:
             return None
 
         instrument_type = str(instrument.get("assetType", instrument.get("type", "EQUITY"))).upper()
-        if instrument_type not in {"EQUITY", "COLLECTIVE_INVESTMENT", "ETF"}:
+        if instrument_type not in {
+            "EQUITY",
+            "COLLECTIVE_INVESTMENT",
+            "ETF",
+            "OPTION",
+        }:
             return None
 
         long_quantity = float(entry.get("longQuantity", 0.0) or 0.0)
@@ -556,12 +583,20 @@ class SchwabTraderClient:
         if average_price <= 0:
             return None
 
+        underlying_symbol = None
+        if instrument_type == "OPTION":
+            underlying = instrument.get("underlyingSymbol")
+            if isinstance(underlying, str) and underlying.strip():
+                underlying_symbol = underlying.upper().strip()
+
         return SchwabAccountPosition(
             symbol=symbol,
             quantity=quantity,
             average_price=average_price,
             market_value=float(entry.get("marketValue", 0.0) or 0.0),
             current_day_profit_loss=float(entry.get("currentDayProfitLoss", 0.0) or 0.0),
+            asset_type=instrument_type,
+            underlying_symbol=underlying_symbol,
         )
 
     def _request_json(
@@ -661,6 +696,14 @@ def _parse_validation_messages(
     return tuple(parsed)
 
 
+def _streamer_info_field(entry: dict[str, Any], *keys: str) -> object:
+    for key in keys:
+        value = entry.get(key)
+        if value is not None and value != "":
+            return value
+    raise KeyError(keys[0])
+
+
 def _optional_float(value: object) -> Optional[float]:
     if value is None:
         return None
@@ -673,7 +716,10 @@ def _optional_float(value: object) -> Optional[float]:
 def _suffix_path(value: Optional[str], default: str) -> str:
     if not value:
         return default
-    return value.strip("/").split("/")[-1]
+    stripped = value.strip("/")
+    if stripped.startswith("http"):
+        return stripped.split("/")[-1]
+    return stripped
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from urllib.parse import urljoin
 
 import pandas as pd
@@ -22,6 +22,9 @@ from market_data_api_client import MarketDataApiError, _RateLimiter
 from schwab_auth import SchwabAuthClient, SchwabAuthError
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from config import AppConfig
 
 DEFAULT_MARKET_DATA_BASE_URL = "https://api.schwabapi.com/marketdata/v1"
 DEFAULT_PRICE_HISTORY_PATH = "pricehistory"
@@ -46,6 +49,12 @@ TIMEFRAME_SPECS: dict[str, SchwabTimeframeSpec] = {
     "15m": SchwabTimeframeSpec("day", "minute", 15, MINUTE_CHUNK_DAYS),
     "30m": SchwabTimeframeSpec("day", "minute", 30, MINUTE_CHUNK_DAYS),
     "1d": SchwabTimeframeSpec("year", "daily", 1, DAILY_CHUNK_DAYS),
+}
+
+# Schwab pricehistory only supports minute frequencies 1, 5, 10, 15, 30.
+# Build these by fetching 1m candles and rolling up locally.
+DERIVED_MINUTE_TIMEFRAMES: dict[str, int] = {
+    "3m": 3,
 }
 
 
@@ -79,25 +88,32 @@ class SchwabMarketDataClient:
 
     @classmethod
     def from_env(cls, *, load_dotenv: bool = True) -> SchwabMarketDataClient:
-        """Build a market data client from environment variables."""
-        import os
-
+        """Build a market data client from config.json."""
         if load_dotenv:
             from schwab_auth import _load_dotenv
 
             _load_dotenv()
 
+        from config import get_config
+
+        return cls.from_config(get_config(reload=True))
+
+    @classmethod
+    def from_config(cls, app: "AppConfig") -> SchwabMarketDataClient:
+        """Build a market data client from a loaded AppConfig."""
         auth_client = SchwabAuthClient.from_env(load_dotenv=False)
+        historical = app.historical
+        market_data = app.market_data
         return cls(
             auth_client,
-            base_url=_market_data_base_url(os.getenv("SCHWAB_PRICE_HISTORY_PATH")),
-            price_history_path=_price_history_path(os.getenv("SCHWAB_PRICE_HISTORY_PATH")),
-            need_extended_hours_data=_env_bool("SCHWAB_NEED_EXTENDED_HOURS", False),
-            need_previous_close=_env_bool("SCHWAB_NEED_PREVIOUS_CLOSE", False),
-            requests_per_minute=int(os.getenv("MARKET_DATA_REQUESTS_PER_MINUTE", "120")),
-            timeout=float(os.getenv("MARKET_DATA_REQUEST_TIMEOUT_SECONDS", "30")),
-            max_retries=int(os.getenv("MARKET_DATA_MAX_RETRIES", "3")),
-            retry_backoff_seconds=float(os.getenv("MARKET_DATA_RETRY_BACKOFF_SECONDS", "1")),
+            base_url=_market_data_base_url(app.schwab.price_history_path),
+            price_history_path=_price_history_path(app.schwab.price_history_path),
+            need_extended_hours_data=historical.need_extended_hours,
+            need_previous_close=historical.need_previous_close,
+            requests_per_minute=market_data.requests_per_minute,
+            timeout=market_data.request_timeout_seconds,
+            max_retries=market_data.max_retries,
+            retry_backoff_seconds=market_data.retry_backoff_seconds,
         )
 
     def request(
@@ -170,6 +186,32 @@ class SchwabMarketDataClient:
         end: datetime,
     ) -> list[dict[str, Any]]:
         """Fetch and merge Schwab candles across chunked date windows."""
+        rollup_minutes = DERIVED_MINUTE_TIMEFRAMES.get(timeframe)
+        if rollup_minutes is not None:
+            minute_candles = self._fetch_native_price_history(
+                symbol,
+                "1m",
+                start=start,
+                end=end,
+            )
+            return _aggregate_minute_candles(minute_candles, rollup_minutes)
+
+        return self._fetch_native_price_history(
+            symbol,
+            timeframe,
+            start=start,
+            end=end,
+        )
+
+    def _fetch_native_price_history(
+        self,
+        symbol: str,
+        timeframe: str,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> list[dict[str, Any]]:
+        """Fetch native Schwab pricehistory candles for a supported timeframe."""
         symbol = symbol.upper()
         spec = self._resolve_timeframe(timeframe)
         start = self._to_utc(start)
@@ -188,14 +230,47 @@ class SchwabMarketDataClient:
                 "frequency": spec.frequency,
                 "startDate": _to_epoch_millis(chunk_start),
                 "endDate": _to_epoch_millis(chunk_end),
-                "needExtendedHoursData": self._need_extended_hours_data,
-                "needPreviousClose": self._need_previous_close,
+                "needExtendedHoursData": _schwab_query_bool(
+                    self._need_extended_hours_data
+                ),
+                "needPreviousClose": _schwab_query_bool(self._need_previous_close),
             }
+            logger.debug(
+                "Schwab pricehistory %s %s %s -> %s (extended_hours=%s)",
+                symbol,
+                timeframe,
+                chunk_start.isoformat(),
+                chunk_end.isoformat(),
+                self._need_extended_hours_data,
+            )
             payload = self._request_json(self._price_history_path, params=params)
             chunk_candles = self._extract_candles(payload)
             collected.extend(self._normalize_candles(chunk_candles))
 
         return _dedupe_candles(collected)
+
+    def fetch_option_chain(
+        self,
+        symbol: str,
+        *,
+        contract_type: str = "CALL",
+        strike_count: int = 5,
+        days_to_expiration: Optional[int] = None,
+        include_underlying_quote: bool = True,
+    ) -> dict[str, Any]:
+        """Fetch the Schwab option chain for an underlying symbol."""
+        params: dict[str, Any] = {
+            "symbol": symbol.upper(),
+            "contractType": contract_type.upper(),
+            "strikeCount": strike_count,
+            "includeUnderlyingQuote": include_underlying_quote,
+        }
+        if days_to_expiration is not None:
+            params["daysToExpiration"] = days_to_expiration
+        payload = self._request_json("chains", params=params)
+        if not isinstance(payload, dict):
+            raise MarketDataApiError("option chain response must be a JSON object")
+        return payload
 
     def _request_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         """Perform a GET request with auth refresh on 401."""
@@ -294,6 +369,8 @@ class SchwabMarketDataClient:
         return normalized
 
     def _resolve_timeframe(self, timeframe: str) -> SchwabTimeframeSpec:
+        if timeframe in DERIVED_MINUTE_TIMEFRAMES:
+            return self._resolve_timeframe("1m")
         spec = TIMEFRAME_SPECS.get(timeframe)
         if spec is None:
             supported = ", ".join(sorted(TIMEFRAME_SPECS))
@@ -341,11 +418,15 @@ class SchwabMarketDataClient:
         return value.astimezone(timezone.utc)
 
 
-def build_schwab_backfill_executor(storage: Any) -> Any:
+def build_schwab_backfill_executor(
+    storage: Any,
+    app: Optional["AppConfig"] = None,
+) -> Any:
     """Wire BackfillExecutor for Schwab pricehistory and candle field mapping.
 
     Args:
         storage: CloudStorageRepository used for OHLCV persistence.
+        app: Optional loaded AppConfig. When omitted, config is read from disk.
 
     Returns:
         Configured BackfillExecutor instance.
@@ -353,7 +434,14 @@ def build_schwab_backfill_executor(storage: Any) -> Any:
     from backfill_executor import BackfillExecutor
     from market_data_transformer import SCHWAB_PRICE_HISTORY_FIELDS
 
-    client = SchwabMarketDataClient.from_env()
+    if app is None:
+        client = SchwabMarketDataClient.from_env()
+    else:
+        client = SchwabMarketDataClient.from_config(app)
+    if client._need_extended_hours_data:
+        logger.info(
+            "Schwab pricehistory backfill will request extended-hours candles"
+        )
     return BackfillExecutor(
         client,
         storage,
@@ -361,6 +449,59 @@ def build_schwab_backfill_executor(storage: Any) -> Any:
         bars_path_template="{symbol}",
         collection_key="candles",
     )
+
+
+def _aggregate_minute_candles(
+    candles: list[dict[str, Any]],
+    interval_minutes: int,
+) -> list[dict[str, Any]]:
+    """Roll 1m Schwab candles into a higher minute interval (e.g. 3m)."""
+    if not candles or interval_minutes <= 1:
+        return candles
+
+    from bar_alignment import align_bucket_start
+
+    timeframe = f"{interval_minutes}m"
+    buckets: dict[datetime, dict[str, Any]] = {}
+
+    for candle in sorted(candles, key=lambda row: str(row.get("datetime", ""))):
+        timestamp = pd.to_datetime(candle["datetime"], utc=True).to_pydatetime()
+        bucket_start = align_bucket_start(timestamp, timeframe)
+        open_price = float(candle["open"])
+        high_price = float(candle["high"])
+        low_price = float(candle["low"])
+        close_price = float(candle["close"])
+        volume = float(candle.get("volume", 0.0) or 0.0)
+
+        existing = buckets.get(bucket_start)
+        if existing is None:
+            buckets[bucket_start] = {
+                "datetime": bucket_start.isoformat(),
+                "open": open_price,
+                "high": high_price,
+                "low": low_price,
+                "close": close_price,
+                "volume": volume,
+            }
+            continue
+
+        existing["high"] = max(existing["high"], high_price)
+        existing["low"] = min(existing["low"], low_price)
+        existing["close"] = close_price
+        existing["volume"] += volume
+
+    aggregated: list[dict[str, Any]] = []
+    for bucket_start in sorted(buckets):
+        row = buckets[bucket_start]
+        if None in {row["open"], row["high"], row["low"], row["close"]}:
+            continue
+        aggregated.append(row)
+    return aggregated
+
+
+def _schwab_query_bool(value: bool) -> str:
+    """Serialize booleans the way Schwab query parameters expect them."""
+    return "true" if value else "false"
 
 
 def _chunk_date_range(
@@ -416,16 +557,12 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _market_data_base_url(price_history_setting: Optional[str]) -> str:
-    import os
-
     if price_history_setting and price_history_setting.startswith("http"):
         return price_history_setting.rsplit("/", 1)[0] + "/"
 
-    configured = os.getenv("SCHWAB_MARKET_DATA_BASE_URL")
-    if configured:
-        return configured.rstrip("/") + "/"
+    from config import get_config
 
-    return DEFAULT_MARKET_DATA_BASE_URL
+    return get_config().schwab.market_data_base_url.rstrip("/") + "/"
 
 
 def _price_history_path(price_history_setting: Optional[str]) -> str:
@@ -440,12 +577,9 @@ def _price_history_path(price_history_setting: Optional[str]) -> str:
 
 
 if __name__ == "__main__":
-    import os
+    from config import load_config
 
-    from schwab_auth import _load_dotenv
-
-    _load_dotenv()
-    symbol = os.getenv("WATCHLIST_SYMBOLS", "SPY").split(",")[0].strip()
+    symbol = load_config().market.symbols[0]
     client = SchwabMarketDataClient.from_env()
 
     end = datetime.now(timezone.utc)

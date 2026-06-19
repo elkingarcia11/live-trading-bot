@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 from backfill_executor import BackfillExecutor, BackfillRequest, BackfillResult
 from cloud_storage_repository import CloudStorageRepository
-from gap_detector import GapDetector, GapReport
+from gap_detector import GapDetector, GapReport, session_bounds_for_day
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,9 @@ class HistoricalOrchestrator:
         use_daily_partitions: bool = True,
         session_start: time = time(9, 30),
         session_end: time = time(16, 0),
+        need_extended_hours: bool = False,
+        extended_session_start: time = time(8, 0),
+        extended_session_end: time = time(1, 0),
         trading_days_only: bool = True,
         bootstrap_if_empty: bool = True,
     ) -> None:
@@ -59,8 +62,13 @@ class HistoricalOrchestrator:
             backfill_executor: Executor that performs fetch/normalize/persist work.
             gap_detector: Optional pure gap-detection helper.
             use_daily_partitions: Inspect and plan backfills per daily partition.
-            session_start: Expected UTC session open for intraday gap detection.
-            session_end: Expected UTC session close for intraday gap detection.
+            session_start: Expected UTC regular-session open for intraday gap detection.
+            session_end: Expected UTC regular-session close for intraday gap detection.
+            need_extended_hours: When true, use extended session bounds for gaps and
+                full-day backfills instead of regular session times.
+            extended_session_start: UTC pre-market open when extended hours are enabled.
+            extended_session_end: UTC after-hours close when extended hours are enabled.
+                Values not after ``extended_session_start`` roll to the next UTC day.
             trading_days_only: Ignore weekends when building the expected timeline.
             bootstrap_if_empty: When storage is empty, backfill from the provider's
                 earliest available data instead of only the requested start date.
@@ -71,8 +79,23 @@ class HistoricalOrchestrator:
         self._use_daily_partitions = use_daily_partitions
         self._session_start = session_start
         self._session_end = session_end
+        self._need_extended_hours = need_extended_hours
+        self._extended_session_start = extended_session_start
+        self._extended_session_end = extended_session_end
         self._trading_days_only = trading_days_only
         self._bootstrap_if_empty = bootstrap_if_empty
+
+    @property
+    def _fetch_session_start(self) -> time:
+        if self._need_extended_hours:
+            return self._extended_session_start
+        return self._session_start
+
+    @property
+    def _fetch_session_end(self) -> time:
+        if self._need_extended_hours:
+            return self._extended_session_end
+        return self._session_end
 
     def plan(
         self,
@@ -80,59 +103,95 @@ class HistoricalOrchestrator:
         timeframe: str,
         start: datetime,
         end: datetime,
+        *,
+        bootstrap_start: Optional[datetime] = None,
     ) -> HistoricalSyncPlan:
         """Inspect storage, detect gaps, and build backfill requests.
 
         Args:
             symbol: Target ticker symbol.
             timeframe: Expected bar interval (e.g. "1m").
-            start: Inclusive UTC lower bound for the sync window.
+            start: Inclusive UTC lower bound for incremental sync windows.
             end: Inclusive UTC upper bound for the sync window.
-
-        Returns:
-            A plan describing detected gaps and the backfill work to run.
+            bootstrap_start: Earliest UTC timestamp to use when storage is empty.
         """
         symbol = symbol.upper()
         interval = self._parse_timeframe(timeframe)
-        effective_start = start
+        bootstrap_floor = bootstrap_start or start
+        effective_start = bootstrap_floor
         bootstrapped = False
 
         present_dates, timestamps_by_date = self._inspect_storage(
             symbol,
             timeframe,
-            start.date(),
+            bootstrap_floor.date(),
             end.date(),
         )
 
-        if not present_dates and self._bootstrap_if_empty:
-            earliest = self._backfill_executor.discover_earliest_available(
+        if present_dates:
+            latest_stored = self._latest_timestamp(timestamps_by_date)
+            logger.info(
+                "Storage for %s %s has %d day partition(s) through %s",
+                symbol,
+                timeframe,
+                len(present_dates),
+                latest_stored.isoformat() if latest_stored is not None else "unknown",
+            )
+        else:
+            latest_stored = None
+
+        if self._bootstrap_if_empty and not present_dates:
+            bootstrapped = True
+            logger.info(
+                "Storage empty for %s; bootstrapping history from %s",
+                symbol,
+                bootstrap_floor.isoformat(),
+            )
+            discovered = self._backfill_executor.discover_earliest_available(
                 symbol,
                 timeframe,
                 end=end,
+                not_before=bootstrap_floor,
             )
-            if earliest is not None and earliest < end:
-                effective_start = earliest
-                bootstrapped = True
+            if discovered is not None and discovered > effective_start:
+                effective_start = discovered
                 logger.info(
-                    "Storage empty for %s; bootstrapping from earliest available %s",
+                    "Provider earliest %s %s bar is %s",
                     symbol,
-                    earliest.isoformat(),
+                    timeframe,
+                    discovered.isoformat(),
                 )
-            elif earliest is None:
-                logger.warning(
-                    "Storage empty for %s but earliest available data could not be determined",
-                    symbol,
-                )
+        elif latest_stored is not None:
+            logger.info(
+                "Incremental sync for %s: filling gaps after last stored bar %s",
+                symbol,
+                latest_stored.isoformat(),
+            )
+
+        if latest_stored is not None and present_dates:
+            missing_dates_start = latest_stored.date()
+            intraday_scan_start = latest_stored.date()
+            logger.info(
+                "Incremental gap scan for %s from %s (not re-scanning bootstrap window from %s)",
+                symbol,
+                missing_dates_start.isoformat(),
+                effective_start.date().isoformat(),
+            )
+        else:
+            missing_dates_start = effective_start.date()
+            intraday_scan_start = missing_dates_start
 
         gaps = self._gap_detector.analyze(
-            range_start=effective_start.date(),
+            range_start=missing_dates_start,
             range_end=end.date(),
             present_dates=present_dates,
             present_timestamps_by_date=timestamps_by_date,
             interval=interval,
-            session_start=self._session_start,
-            session_end=self._session_end,
+            session_start=self._fetch_session_start,
+            session_end=self._fetch_session_end,
             trading_days_only=self._trading_days_only,
+            range_end_datetime=end,
+            intraday_gap_start=intraday_scan_start,
         )
 
         backfill_requests = self._build_backfill_requests(
@@ -158,19 +217,42 @@ class HistoricalOrchestrator:
         timeframe: str,
         start: datetime,
         end: datetime,
+        *,
+        bootstrap_start: Optional[datetime] = None,
     ) -> tuple[HistoricalSyncPlan, list[BackfillResult]]:
         """Plan and execute all required backfills for a symbol and range.
 
         Args:
             symbol: Target ticker symbol.
             timeframe: Expected bar interval (e.g. "1m").
-            start: Inclusive UTC lower bound for the sync window.
+            start: Inclusive UTC lower bound for incremental sync windows.
             end: Inclusive UTC upper bound for the sync window.
+            bootstrap_start: Earliest UTC timestamp to use when storage is empty.
 
         Returns:
             The generated plan and one backfill result per planned request.
         """
-        plan = self.plan(symbol, timeframe, start, end)
+        plan = self.plan(
+            symbol,
+            timeframe,
+            start,
+            end,
+            bootstrap_start=bootstrap_start,
+        )
+        logger.info(
+            "Gap plan for %s %s: %d missing day(s), %d interval gap(s), %d backfill request(s)",
+            symbol,
+            timeframe,
+            len(plan.gaps.missing_dates),
+            len(plan.gaps.missing_intervals),
+            len(plan.backfill_requests),
+        )
+        if plan.bootstrapped_from_earliest:
+            logger.info(
+                "Bootstrapping %s full history from %s",
+                symbol,
+                plan.range_start.isoformat(),
+            )
         if not plan.backfill_requests:
             return plan, []
 
@@ -243,15 +325,10 @@ class HistoricalOrchestrator:
         requests: list[BackfillRequest] = []
 
         for missing_day in gaps.missing_dates:
-            start = datetime.combine(
+            start, end = session_bounds_for_day(
                 missing_day,
-                self._session_start,
-                tzinfo=timezone.utc,
-            )
-            end = datetime.combine(
-                missing_day,
-                self._session_end,
-                tzinfo=timezone.utc,
+                self._fetch_session_start,
+                self._fetch_session_end,
             )
             requests.append(
                 BackfillRequest(
@@ -300,6 +377,19 @@ class HistoricalOrchestrator:
         if timestamp.tzinfo is None:
             return timestamp.replace(tzinfo=timezone.utc)
         return timestamp.astimezone(timezone.utc)
+
+    def _latest_timestamp(
+        self,
+        timestamps_by_date: dict[date, list[datetime]],
+    ) -> Optional[datetime]:
+        """Return the newest stored bar timestamp across inspected partitions."""
+        latest: Optional[datetime] = None
+        for timestamps in timestamps_by_date.values():
+            for timestamp in timestamps:
+                candidate = self._to_utc_datetime(timestamp)
+                if latest is None or candidate > latest:
+                    latest = candidate
+        return latest
 
 
 if __name__ == "__main__":

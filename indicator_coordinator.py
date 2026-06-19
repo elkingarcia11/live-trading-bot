@@ -17,6 +17,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from data_aggregator import AggregatedBar
+from ohlc_sanity import repair_ohlc_bar
 from indicator_calculator import (
     DEFAULT_DEMA_PERIOD,
     DEFAULT_DEMA_SOURCE,
@@ -146,8 +147,21 @@ class IndicatorCoordinator:
         Returns:
             Latest indicator snapshot when jobs exist for the symbol/timeframe.
         """
+        symbol = bar.symbol.upper()
+        config = self._configs.get(symbol)
+        if config is None:
+            return None
+
+        matching_jobs = [job for job in config.jobs if job.timeframe == bar.timeframe]
+        if not matching_jobs:
+            return None
+
+        if not bar.is_complete:
+            with self._lock:
+                return self._latest.get((symbol, bar.timeframe))
+
         return self._dispatch(
-            symbol=bar.symbol,
+            symbol=symbol,
             timeframe=bar.timeframe,
             row=self._row_from_aggregated_bar(bar),
         )
@@ -160,6 +174,15 @@ class IndicatorCoordinator:
         """Return the latest indicator snapshot for a symbol and timeframe."""
         with self._lock:
             return self._latest.get((symbol.upper(), timeframe))
+
+    def latest_close(self, symbol: str, timeframe: str) -> float | None:
+        """Return the close of the newest buffered bar for a symbol/timeframe."""
+        key = (symbol.upper(), timeframe)
+        with self._lock:
+            buffer = self._buffers.get(key)
+            if not buffer:
+                return None
+            return float(buffer[-1]["close"])
 
     def _dispatch(
         self,
@@ -181,10 +204,18 @@ class IndicatorCoordinator:
         key = (symbol, timeframe)
         with self._lock:
             buffer = self._buffers[key]
-            buffer.append(row)
+            if buffer and buffer[-1]["timestamp"] == row["timestamp"]:
+                buffer[-1] = row
+            else:
+                buffer.append(row)
             while len(buffer) > self._max_bars:
                 buffer.popleft()
             bars = pd.DataFrame(list(buffer), columns=list(OHLCV_COLUMNS))
+            bars = (
+                bars.drop_duplicates(subset=["timestamp"], keep="last")
+                .sort_values("timestamp")
+                .reset_index(drop=True)
+            )
 
         values: dict[str, Any] = {}
         for job in matching_jobs:
@@ -209,23 +240,35 @@ class IndicatorCoordinator:
 
     def _row_from_clean_bar(self, bar: CleanBarEvent) -> dict[str, Any]:
         """Convert a clean 1-minute event into a buffer row."""
+        open_price, high_price, low_price, close_price = repair_ohlc_bar(
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+        )
         return {
             "timestamp": bar.timestamp,
-            "open": bar.open,
-            "high": bar.high,
-            "low": bar.low,
-            "close": bar.close,
+            "open": open_price,
+            "high": high_price,
+            "low": low_price,
+            "close": close_price,
             "volume": bar.volume,
         }
 
     def _row_from_aggregated_bar(self, bar: AggregatedBar) -> dict[str, Any]:
         """Convert an aggregated bar into a buffer row."""
+        open_price, high_price, low_price, close_price = repair_ohlc_bar(
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+        )
         return {
             "timestamp": bar.timestamp,
-            "open": bar.open,
-            "high": bar.high,
-            "low": bar.low,
-            "close": bar.close,
+            "open": open_price,
+            "high": high_price,
+            "low": low_price,
+            "close": close_price,
             "volume": bar.volume,
         }
 

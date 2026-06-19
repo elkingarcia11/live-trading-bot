@@ -19,6 +19,7 @@ from typing import Any, Callable, Optional, Sequence
 import pandas as pd
 
 from market_data_transformer import SCHWAB_CHART_EQUITY_FIELDS
+from ohlc_sanity import repair_ohlc_bar as _repair_ohlc_bar
 from schwab_auth import SchwabAuthClient, _load_dotenv
 from schwab_trader_client import SchwabStreamerInfo, SchwabTraderClient
 from stream_connection_manager import StreamConnectionManager
@@ -154,15 +155,25 @@ class SchwabStreamMessageParser:
             return None
 
         try:
-            timestamp = pd.to_datetime(chart_time, unit="ms", utc=True).isoformat()
-            open_price = float(item.get("1", item.get("OPEN_PRICE")))
-            high_price = float(item.get("2", item.get("HIGH_PRICE")))
-            low_price = float(item.get("3", item.get("LOW_PRICE")))
-            close_price = float(item.get("4", item.get("CLOSE_PRICE")))
-            volume = float(item.get("5", item.get("VOLUME")))
-            sequence = int(item.get("6", item.get("SEQUENCE", 0)) or 0)
+            timestamp = _chart_time_to_minute_iso(chart_time)
+            open_price, high_price, low_price, close_price, volume = (
+                _extract_chart_equity_ohlcv(item)
+            )
+            sequence = int(
+                item.get("6", item.get("SEQUENCE", item.get("seq", 0))) or 0
+            )
         except (TypeError, ValueError):
             return None
+
+        normalized = _normalize_forming_chart_ohlc(
+            open_price,
+            high_price,
+            low_price,
+            close_price,
+        )
+        if normalized is None:
+            return None
+        open_price, high_price, low_price, close_price = normalized
 
         return {
             "symbol": symbol,
@@ -231,10 +242,14 @@ class SchwabStreamSession:
         load_dotenv: bool = True,
         **kwargs: Any,
     ) -> SchwabStreamSession:
-        """Build a stream session using environment-backed Schwab clients."""
+        """Build a stream session using config.json-backed Schwab clients."""
         if load_dotenv:
             _load_dotenv()
 
+        from config import StreamSettings, get_config
+
+        app = get_config(reload=True)
+        stream = app.stream
         trader_client = SchwabTraderClient(
             auth_client or SchwabAuthClient.from_env(load_dotenv=False),
         )
@@ -242,12 +257,15 @@ class SchwabStreamSession:
             trader_client=trader_client,
             symbols=symbols,
             processor=processor,
-            stream_service=os.getenv("SCHWAB_STREAM_SERVICE", CHART_EQUITY_SERVICE),
-            chart_fields=os.getenv("SCHWAB_CHART_EQUITY_FIELDS", CHART_EQUITY_FIELDS),
-            subscribe_on_connect=_env_bool("STREAM_SUBSCRIBE_ON_CONNECT", True),
-            ping_interval=float(os.getenv("STREAM_PING_INTERVAL_SECONDS", "20")),
-            ping_timeout=float(os.getenv("STREAM_PING_TIMEOUT_SECONDS", "10")),
-            connection_options=_connection_options_from_env(),
+            stream_service=stream.schwab_stream_service,
+            chart_fields=stream.schwab_chart_equity_fields,
+            subscribe_on_connect=kwargs.pop(
+                "subscribe_on_connect",
+                app.workflow.subscribe_on_connect,
+            ),
+            ping_interval=stream.ping_interval_seconds,
+            ping_timeout=stream.ping_timeout_seconds,
+            connection_options=_connection_options_from_settings(stream),
             **kwargs,
         )
 
@@ -291,7 +309,9 @@ class SchwabStreamSession:
         self._send_chart_equity_command("ADD", symbols)
 
     def _resolve_streamer_url(self) -> str:
-        configured = os.getenv("SCHWAB_STREAMER_URL", "").strip()
+        from config import get_config
+
+        configured = get_config().stream.schwab_streamer_url.strip()
         if configured:
             return configured
 
@@ -340,6 +360,10 @@ class SchwabStreamSession:
                 logger.info(
                     "Subscribed to Schwab %s for %s",
                     self._stream_service,
+                    ", ".join(self._symbols),
+                )
+                logger.info(
+                    "Waiting for live %s bars (updates arrive during market hours)",
                     ", ".join(self._symbols),
                 )
                 continue
@@ -485,14 +509,16 @@ def build_schwab_stream_processor(
     timeframe: str = "1m",
     require_minute_alignment: Optional[bool] = None,
     dedup_window: Optional[int] = None,
+    stream_settings: Optional["StreamSettings"] = None,
 ) -> StreamDataProcessor:
     """Create a stream processor configured for Schwab chart equity bars."""
+    from config import StreamSettings, get_config
+
+    stream = stream_settings or get_config().stream
     if require_minute_alignment is None:
-        require_minute_alignment = _env_bool("STREAM_REQUIRE_MINUTE_ALIGNMENT", True)
+        require_minute_alignment = stream.require_minute_alignment
     if dedup_window is None:
-        dedup_window = int(os.getenv("STREAM_DEDUP_WINDOW", "500"))
-    if timeframe == "1m":
-        timeframe = os.getenv("STREAM_TIMEFRAME", "1m")
+        dedup_window = stream.dedup_window
 
     return StreamDataProcessor(
         symbols=symbols,
@@ -507,34 +533,110 @@ def build_schwab_stream_processor(
     )
 
 
-def _connection_options_from_env() -> dict[str, Any]:
-    options: dict[str, Any] = {
-        "reconnect_backoff_seconds": float(
-            os.getenv("STREAM_RECONNECT_BACKOFF_SECONDS", "1")
-        ),
-        "max_reconnect_backoff_seconds": float(
-            os.getenv("STREAM_MAX_RECONNECT_BACKOFF_SECONDS", "60")
-        ),
-    }
-    max_attempts_raw = os.getenv("STREAM_MAX_RECONNECT_ATTEMPTS", "").strip()
-    if max_attempts_raw:
-        options["max_reconnect_attempts"] = int(max_attempts_raw)
+def _chart_time_to_minute_iso(chart_time: object) -> str:
+    """Normalize Schwab chart time to the UTC minute the candle belongs to."""
+    millis = int(float(chart_time))
+    if millis < 1_000_000_000_000:
+        millis *= 1000
+    return pd.to_datetime(millis, unit="ms", utc=True).floor("min").isoformat()
 
-    heartbeat_interval_raw = os.getenv("STREAM_HEARTBEAT_INTERVAL_SECONDS", "").strip()
-    if heartbeat_interval_raw:
-        options["heartbeat_interval"] = float(heartbeat_interval_raw)
-        options["heartbeat_message"] = os.getenv(
-            "STREAM_HEARTBEAT_MESSAGE",
-            '{"action":"heartbeat"}',
+
+def _normalize_forming_chart_ohlc(
+    open_price: float,
+    high_price: float,
+    low_price: float,
+    close_price: float,
+) -> Optional[tuple[float, float, float, float]]:
+    """Accept in-progress 1m chart updates until a usable close is available."""
+    if close_price <= 0:
+        return None
+
+    if open_price <= 0:
+        open_price = close_price
+    if high_price <= 0:
+        high_price = max(open_price, close_price)
+    if low_price <= 0:
+        low_price = min(open_price, close_price)
+
+    return _repair_ohlc_bar(open_price, high_price, low_price, close_price)
+
+
+def _extract_chart_equity_ohlcv(item: dict[str, Any]) -> tuple[float, float, float, float, float]:
+    """Map Schwab CHART_EQUITY fields, including shifted SUBS snapshot layouts."""
+    if "OPEN_PRICE" in item:
+        return (
+            float(item["OPEN_PRICE"]),
+            float(item["HIGH_PRICE"]),
+            float(item["LOW_PRICE"]),
+            float(item["CLOSE_PRICE"]),
+            float(item.get("VOLUME", 0.0)),
         )
+
+    field_1 = _optional_float(item.get("1"))
+    field_2 = _optional_float(item.get("2"))
+    field_3 = _optional_float(item.get("3"))
+    field_4 = _optional_float(item.get("4"))
+    field_5 = _optional_float(item.get("5"))
+    field_6 = _optional_float(item.get("6"))
+
+    if None in {field_1, field_2, field_3, field_4, field_5}:
+        raise ValueError("chart equity item missing OHLC fields")
+
+    seq = _optional_float(item.get("seq"))
+    if seq is not None and field_1 == seq and field_2 is not None:
+        volume = field_6 if field_6 is not None else 0.0
+        return field_2, field_3, field_4, field_5, volume
+
+    if _chart_field_looks_like_sequence(field_1, field_2, field_3, field_4, field_5):
+        volume = field_6 if field_6 is not None else 0.0
+        return field_2, field_3, field_4, field_5, volume
+
+    volume = float(item.get("5", 0.0) or 0.0)
+    return field_1, field_2, field_3, field_4, volume
+
+
+def _chart_field_looks_like_sequence(
+    field_1: float,
+    field_2: float,
+    field_3: float,
+    field_4: float,
+    field_5: float,
+    *,
+    tolerance: float = 0.05,
+) -> bool:
+    """True when field 1 is not a plausible price but fields 2-5 cluster like OHLC."""
+    anchor = field_4
+    if anchor <= 0:
+        return False
+
+    field_1_is_price = abs(field_1 - anchor) / anchor <= tolerance
+    if field_1_is_price:
+        return False
+
+    clustered_prices = sum(
+        abs(price - anchor) / anchor <= tolerance for price in (field_2, field_3, field_4, field_5)
+    )
+    return clustered_prices >= 3
+
+
+def _optional_float(value: object) -> Optional[float]:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _connection_options_from_settings(stream: "StreamSettings") -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "reconnect_backoff_seconds": stream.reconnect_backoff_seconds,
+        "max_reconnect_backoff_seconds": stream.max_reconnect_backoff_seconds,
+    }
+    if stream.max_reconnect_attempts is not None:
+        options["max_reconnect_attempts"] = stream.max_reconnect_attempts
+
+    if stream.heartbeat_interval_seconds is not None:
+        options["heartbeat_interval"] = stream.heartbeat_interval_seconds
+        options["heartbeat_message"] = stream.heartbeat_message
     return options
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 if __name__ == "__main__":
