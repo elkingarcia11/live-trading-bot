@@ -33,6 +33,8 @@ _BASE_TRANSACTION_COLUMNS = (
     "trade_pnl",
     "max_unrealized_profit",
     "max_unrealized_loss",
+    "max_unrealized_profit_pct",
+    "max_unrealized_loss_pct",
     "strategy_name",
     "execution_mode",
 )
@@ -65,6 +67,8 @@ class TransactionRecord:
     trade_pnl: Optional[float] = None
     max_unrealized_profit: Optional[float] = None
     max_unrealized_loss: Optional[float] = None
+    max_unrealized_profit_pct: Optional[float] = None
+    max_unrealized_loss_pct: Optional[float] = None
     strategy_name: str = ""
     execution_mode: str = "forward_test"
     quote: Optional[OptionQuoteSnapshot] = None
@@ -109,6 +113,12 @@ class TransactionLedger:
             ),
             "max_unrealized_loss": _format_optional_money(
                 transaction.max_unrealized_loss
+            ),
+            "max_unrealized_profit_pct": _format_optional_pct(
+                transaction.max_unrealized_profit_pct
+            ),
+            "max_unrealized_loss_pct": _format_optional_pct(
+                transaction.max_unrealized_loss_pct
             ),
             "strategy_name": transaction.strategy_name,
             "execution_mode": transaction.execution_mode,
@@ -167,3 +177,10 @@ def _format_optional_money(value: Optional[float]) -> str:
     if value is None:
         return ""
     return f"{value:.2f}"
+
+
+def _format_optional_pct(value: Optional[float]) -> str:
+    """Format a P&L fraction (0.2 -> '20.00%') for the ledger CSV."""
+    if value is None:
+        return ""
+    return f"{value * 100.0:.2f}%"

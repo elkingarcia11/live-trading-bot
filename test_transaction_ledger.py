@@ -89,6 +89,8 @@ def test_transaction_ledger_records_max_unrealized_pnl(tmp_path: Path) -> None:
             trade_pnl=198.7,
             max_unrealized_profit=320.5,
             max_unrealized_loss=-145.25,
+            max_unrealized_profit_pct=0.3205,
+            max_unrealized_loss_pct=-0.1452,
             strategy_name="supertrend",
         )
     )
@@ -98,6 +100,8 @@ def test_transaction_ledger_records_max_unrealized_pnl(tmp_path: Path) -> None:
 
     assert rows[0]["max_unrealized_profit"] == "320.50"
     assert rows[0]["max_unrealized_loss"] == "-145.25"
+    assert rows[0]["max_unrealized_profit_pct"] == "32.05%"
+    assert rows[0]["max_unrealized_loss_pct"] == "-14.52%"
 
 
 def test_transaction_ledger_writes_bid_ask_and_greeks(tmp_path: Path) -> None:

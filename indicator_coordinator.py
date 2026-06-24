@@ -21,6 +21,13 @@ from ohlc_sanity import repair_ohlc_bar
 from indicator_calculator import (
     DEFAULT_DEMA_PERIOD,
     DEFAULT_DEMA_SOURCE,
+    DEFAULT_GAUSSIAN_ATR_MULTIPLIER,
+    DEFAULT_GAUSSIAN_ATR_PERIOD,
+    DEFAULT_GAUSSIAN_LENGTH,
+    DEFAULT_GAUSSIAN_SIGMA_DIVISOR,
+    DEFAULT_GAUSSIAN_SQUEEZE_FILTER,
+    DEFAULT_GAUSSIAN_SQUEEZE_MA_PERIOD,
+    DEFAULT_GAUSSIAN_SQUEEZE_RATIO,
     DEFAULT_SUPERTREND_ATR_PERIOD,
     DEFAULT_SUPERTREND_CHANGE_ATR,
     DEFAULT_SUPERTREND_MULTIPLIER,
@@ -88,6 +95,33 @@ def build_supertrend_job(
             ("source", source),
             ("multiplier", multiplier),
             ("change_atr", change_atr),
+        ),
+    )
+
+
+def build_gaussian_bands_job(
+    timeframe: str,
+    *,
+    length: int = DEFAULT_GAUSSIAN_LENGTH,
+    sigma_divisor: float = DEFAULT_GAUSSIAN_SIGMA_DIVISOR,
+    atr_period: int = DEFAULT_GAUSSIAN_ATR_PERIOD,
+    multiplier: float = DEFAULT_GAUSSIAN_ATR_MULTIPLIER,
+    squeeze_filter: bool = DEFAULT_GAUSSIAN_SQUEEZE_FILTER,
+    squeeze_ma_period: int = DEFAULT_GAUSSIAN_SQUEEZE_MA_PERIOD,
+    squeeze_ratio: float = DEFAULT_GAUSSIAN_SQUEEZE_RATIO,
+) -> IndicatorJob:
+    """Build a Gaussian MA + ATR bands job with configurable parameters."""
+    return IndicatorJob(
+        name="gaussian_bands",
+        timeframe=timeframe,
+        params=(
+            ("length", length),
+            ("sigma_divisor", sigma_divisor),
+            ("atr_period", atr_period),
+            ("multiplier", multiplier),
+            ("squeeze_filter", squeeze_filter),
+            ("squeeze_ma_period", squeeze_ma_period),
+            ("squeeze_ratio", squeeze_ratio),
         ),
     )
 

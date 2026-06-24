@@ -31,6 +31,10 @@ CHART_EQUITY_FIELDS = "0,1,2,3,4,5,6,7"
 CHART_EQUITY_SERVICE = "CHART_EQUITY"
 ADMIN_SERVICE = "ADMIN"
 
+LEVELONE_OPTIONS_SERVICE = "LEVELONE_OPTIONS"
+# 0=key, 2=bid, 3=ask, 4=last, 37=mark, 38=quote time (ms)
+LEVELONE_OPTIONS_FIELDS = "0,2,3,4,37,38"
+
 RESPONSE_SUCCESS = 0
 RESPONSE_LOGIN_DENIED = 3
 RESPONSE_CLOSE_CONNECTION = 12
@@ -45,6 +49,9 @@ class StreamEventType(Enum):
     SUBSCRIBE_SUCCESS = "subscribe_success"
     SUBSCRIBE_FAILURE = "subscribe_failure"
     CHART_BAR = "chart_bar"
+    OPTION_QUOTE = "option_quote"
+    OPTION_SUBSCRIBE_SUCCESS = "option_subscribe_success"
+    OPTION_SUBSCRIBE_FAILURE = "option_subscribe_failure"
     CONNECTION_CLOSED = "connection_closed"
     UNKNOWN = "unknown"
 
@@ -62,8 +69,14 @@ class StreamEvent:
 class SchwabStreamMessageParser:
     """Parse Schwab streamer JSON frames into structured events."""
 
-    def __init__(self, *, chart_service: str = CHART_EQUITY_SERVICE) -> None:
+    def __init__(
+        self,
+        *,
+        chart_service: str = CHART_EQUITY_SERVICE,
+        option_service: str = LEVELONE_OPTIONS_SERVICE,
+    ) -> None:
         self._chart_service = chart_service
+        self._option_service = option_service
 
     def parse(self, raw_message: str) -> list[StreamEvent]:
         """Parse one inbound WebSocket text frame."""
@@ -122,25 +135,68 @@ class SchwabStreamMessageParser:
             )
             return StreamEvent(event_type, message=message, response_code=code)
 
+        if service == self._option_service and command in {"SUBS", "ADD", "UNSUBS", "VIEW"}:
+            event_type = (
+                StreamEventType.OPTION_SUBSCRIBE_SUCCESS
+                if success
+                else StreamEventType.OPTION_SUBSCRIBE_FAILURE
+            )
+            return StreamEvent(event_type, message=message, response_code=code)
+
         return None
 
     def _parse_data_frame(self, data_frame: object) -> list[StreamEvent]:
         if not isinstance(data_frame, dict):
             return []
 
-        if str(data_frame.get("service", "")) != self._chart_service:
-            return []
-
+        service = str(data_frame.get("service", ""))
         content = data_frame.get("content", [])
         if not isinstance(content, list):
             return []
 
         events: list[StreamEvent] = []
-        for item in content:
-            bar = self._chart_equity_item_to_bar(item)
-            if bar is not None:
-                events.append(StreamEvent(StreamEventType.CHART_BAR, payload=bar))
+        if service == self._chart_service:
+            for item in content:
+                bar = self._chart_equity_item_to_bar(item)
+                if bar is not None:
+                    events.append(StreamEvent(StreamEventType.CHART_BAR, payload=bar))
+        elif service == self._option_service:
+            for item in content:
+                quote = self._levelone_option_item_to_quote(item)
+                if quote is not None:
+                    events.append(StreamEvent(StreamEventType.OPTION_QUOTE, payload=quote))
         return events
+
+    def _levelone_option_item_to_quote(self, item: object) -> Optional[dict[str, Any]]:
+        if not isinstance(item, dict):
+            return None
+
+        symbol = str(item.get("key") or item.get("0") or "").upper()
+        if not symbol:
+            return None
+
+        bid = _option_field(item, "2", "BID_PRICE")
+        ask = _option_field(item, "3", "ASK_PRICE")
+        last = _option_field(item, "4", "LAST_PRICE")
+        mark = _option_field(item, "37", "MARK_PRICE", "MARK")
+        quote_time = item.get("38", item.get("QUOTE_TIME_MILLIS"))
+
+        if mark is None or mark <= 0:
+            if bid is not None and ask is not None and bid > 0 and ask > 0:
+                mark = (bid + ask) / 2.0
+            elif last is not None and last > 0:
+                mark = last
+            else:
+                return None
+
+        return {
+            "symbol": symbol,
+            "mark": mark,
+            "bid": bid,
+            "ask": ask,
+            "last": last,
+            "quote_time": quote_time,
+        }
 
     def _chart_equity_item_to_bar(self, item: object) -> Optional[dict[str, Any]]:
         if not isinstance(item, dict):
@@ -202,10 +258,13 @@ class SchwabStreamSession:
         streamer_info: Optional[SchwabStreamerInfo] = None,
         stream_service: str = CHART_EQUITY_SERVICE,
         chart_fields: str = CHART_EQUITY_FIELDS,
+        option_service: str = LEVELONE_OPTIONS_SERVICE,
+        option_fields: str = LEVELONE_OPTIONS_FIELDS,
         subscribe_on_connect: bool = True,
         on_open_external: Optional[Callable[[], None]] = None,
         on_close_external: Optional[Callable[[Optional[int], Optional[str]], None]] = None,
         on_error_external: Optional[Callable[[Exception], None]] = None,
+        on_option_quote: Optional[Callable[[dict[str, Any]], None]] = None,
         ping_interval: float = 20.0,
         ping_timeout: float = 10.0,
         connection_options: Optional[dict[str, Any]] = None,
@@ -216,16 +275,23 @@ class SchwabStreamSession:
         self._streamer_info = streamer_info
         self._stream_service = stream_service
         self._chart_fields = chart_fields
+        self._option_service = option_service
+        self._option_fields = option_fields
         self._subscribe_on_connect = subscribe_on_connect
-        self._parser = SchwabStreamMessageParser(chart_service=stream_service)
+        self._parser = SchwabStreamMessageParser(
+            chart_service=stream_service,
+            option_service=option_service,
+        )
         self._request_id = 0
         self._logged_in = False
         self._subscribed = False
         self._login_retries = 0
+        self._option_keys: set[str] = set()
 
         self._on_open_external = on_open_external
         self._on_close_external = on_close_external
         self._on_error_external = on_error_external
+        self._on_option_quote = on_option_quote
 
         self._ping_interval = ping_interval
         self._ping_timeout = ping_timeout
@@ -308,6 +374,29 @@ class SchwabStreamSession:
             raise RuntimeError("Cannot add symbols before Schwab stream login succeeds")
         self._send_chart_equity_command("ADD", symbols)
 
+    def subscribe_option(self, occ_symbol: str) -> None:
+        """Stream LEVELONE_OPTIONS marks for one OCC contract while it is held.
+
+        Safe to call before login; the contract is (re)subscribed automatically
+        once the streamer login succeeds.
+        """
+        key = occ_symbol.strip().upper()
+        if not key:
+            return
+        already_subscribed = key in self._option_keys
+        self._option_keys.add(key)
+        if self._logged_in and not already_subscribed:
+            self._send_option_command("ADD", (key,))
+
+    def unsubscribe_option(self, occ_symbol: str) -> None:
+        """Stop streaming a previously subscribed option contract."""
+        key = occ_symbol.strip().upper()
+        if key not in self._option_keys:
+            return
+        self._option_keys.discard(key)
+        if self._logged_in:
+            self._send_option_command("UNSUBS", (key,))
+
     def _resolve_streamer_url(self) -> str:
         from config import get_config
 
@@ -351,6 +440,7 @@ class SchwabStreamSession:
                 logger.info("Schwab stream login succeeded")
                 if self._subscribe_on_connect:
                     self._send_chart_equity_subs()
+                self._resubscribe_options()
                 continue
             if event.event_type == StreamEventType.LOGIN_FAILURE:
                 self._handle_login_failure(event)
@@ -369,6 +459,23 @@ class SchwabStreamSession:
                 continue
             if event.event_type == StreamEventType.SUBSCRIBE_FAILURE:
                 logger.error("Schwab chart subscription failed: %s", event.message)
+                continue
+            if event.event_type == StreamEventType.OPTION_SUBSCRIBE_SUCCESS:
+                logger.info(
+                    "Subscribed to Schwab %s for %s",
+                    self._option_service,
+                    ", ".join(sorted(self._option_keys)) or "(none)",
+                )
+                continue
+            if event.event_type == StreamEventType.OPTION_SUBSCRIBE_FAILURE:
+                logger.error("Schwab option subscription failed: %s", event.message)
+                continue
+            if event.event_type == StreamEventType.OPTION_QUOTE and event.payload is not None:
+                if self._on_option_quote is not None:
+                    try:
+                        self._on_option_quote(event.payload)
+                    except Exception:
+                        logger.exception("Option quote handler failed")
                 continue
             if event.event_type == StreamEventType.CHART_BAR and event.payload is not None:
                 self._publish_chart_bar(event.payload)
@@ -464,6 +571,38 @@ class SchwabStreamSession:
         if not self._logged_in:
             return
         self._send_chart_equity_command("SUBS", self._symbols)
+
+    def _resubscribe_options(self) -> None:
+        """Re-establish option subscriptions after a (re)connect/login."""
+        if not self._logged_in or not self._option_keys:
+            return
+        self._send_option_command("SUBS", sorted(self._option_keys))
+
+    def _send_option_command(self, command: str, keys: Sequence[str]) -> None:
+        if not self._logged_in:
+            return
+
+        normalized = [key.upper() for key in keys if str(key).strip()]
+        if not normalized:
+            return
+
+        info = self._streamer_info_or_raise()
+        request = {
+            "requests": [
+                {
+                    "requestid": self._next_request_id(),
+                    "service": self._option_service,
+                    "command": command,
+                    "SchwabClientCustomerId": info.schwab_client_customer_id,
+                    "SchwabClientCorrelId": info.schwab_client_correl_id,
+                    "parameters": {
+                        "keys": ",".join(normalized),
+                        "fields": self._option_fields,
+                    },
+                }
+            ]
+        }
+        self._send_request(request)
 
     def _send_chart_equity_command(
         self,
@@ -623,6 +762,17 @@ def _optional_float(value: object) -> Optional[float]:
     if value is None:
         return None
     return float(value)
+
+
+def _option_field(item: dict[str, Any], *keys: str) -> Optional[float]:
+    """Return the first present numeric field from a LEVELONE_OPTIONS item."""
+    for key in keys:
+        if key in item:
+            try:
+                return float(item[key])
+            except (TypeError, ValueError):
+                continue
+    return None
 
 
 def _connection_options_from_settings(stream: "StreamSettings") -> dict[str, Any]:

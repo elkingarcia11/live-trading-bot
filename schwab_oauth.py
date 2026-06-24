@@ -41,6 +41,7 @@ def run_local_oauth_flow(
     scope: str = "readonly",
     open_browser: bool = True,
     timeout_seconds: float = 300.0,
+    manual: bool = False,
 ) -> SchwabTokens:
     """Complete Schwab OAuth locally and persist tokens to disk and/or GCS."""
     _load_dotenv()
@@ -52,13 +53,50 @@ def run_local_oauth_flow(
     if open_browser:
         webbrowser.open(authorize_url, new=1)
 
-    code = capture_authorization_code(
-        callback_url,
-        timeout_seconds=timeout_seconds,
-    )
+    if manual:
+        code = prompt_for_authorization_code(callback_url)
+    else:
+        try:
+            code = capture_authorization_code(
+                callback_url,
+                timeout_seconds=timeout_seconds,
+            )
+        except PermissionError:
+            print(
+                f"\nCannot bind a local callback server on {callback_url} "
+                "(privileged port requires root).\nFalling back to manual code entry.\n"
+            )
+            code = prompt_for_authorization_code(callback_url)
+
     tokens = client.exchange_code(code)
     _log_saved_tokens(tokens)
     return tokens
+
+
+def prompt_for_authorization_code(callback_url: str) -> str:
+    """Ask the user to paste the redirect URL (or code) from the browser."""
+    print(
+        "After approving access, your browser will redirect to a URL that "
+        f"starts with {callback_url} and will likely show a connection error.\n"
+        "Copy the FULL address from the browser's address bar and paste it below "
+        "(or paste just the code value).\n"
+    )
+    raw = input("Paste redirect URL or code: ").strip()
+    if not raw:
+        raise OAuthCallbackError("No authorization code provided.")
+
+    code = raw
+    if "code=" in raw:
+        query = parse_qs(urlparse(raw).query)
+        if "error" in query:
+            raise OAuthCallbackError(
+                f"Schwab authorization error: {query['error'][0]}"
+            )
+        if "code" not in query:
+            raise OAuthCallbackError("Could not find a code in the pasted URL.")
+        code = query["code"][0]
+
+    return normalize_authorization_code(code)
 
 
 def capture_authorization_code(

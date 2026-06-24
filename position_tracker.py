@@ -44,6 +44,8 @@ class Position:
     take_profit: Optional[float] = None
     trailing_stop_distance: Optional[float] = None
     trailing_stop_price: Optional[float] = None
+    trailing_stop_pct: Optional[float] = None
+    max_mark_price: Optional[float] = None
     last_mark_price: Optional[float] = None
     last_updated_at: Optional[datetime] = None
     asset_type: str = "EQUITY"
@@ -52,6 +54,8 @@ class Position:
     entry_quote: Optional[OptionQuoteSnapshot] = None
     max_unrealized_profit: Optional[float] = None
     max_unrealized_loss: Optional[float] = None
+    max_unrealized_profit_pct: Optional[float] = None
+    max_unrealized_loss_pct: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +121,7 @@ class PositionTracker:
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None,
         trailing_stop_distance: Optional[float] = None,
+        trailing_stop_pct: Optional[float] = None,
         asset_type: str = "EQUITY",
         underlying_symbol: Optional[str] = None,
         underlying_entry_price: Optional[float] = None,
@@ -132,6 +137,8 @@ class PositionTracker:
             stop_loss: Optional fixed stop-loss price.
             take_profit: Optional fixed take-profit price.
             trailing_stop_distance: Optional trailing stop distance in price units.
+            trailing_stop_pct: Optional percentage (0-1) trailing stop measured
+                from the peak mark observed after entry. Used for option marks.
 
         Returns:
             The created position.
@@ -144,6 +151,8 @@ class PositionTracker:
             raise ValueError("quantity cannot be zero")
         if entry_price <= 0:
             raise ValueError("entry_price must be positive")
+        if trailing_stop_pct is not None and not 0.0 < trailing_stop_pct < 1.0:
+            raise ValueError("trailing_stop_pct must be between 0 and 1 (exclusive)")
 
         self._validate_risk_levels(
             quantity=quantity,
@@ -168,6 +177,8 @@ class PositionTracker:
             take_profit=take_profit,
             trailing_stop_distance=trailing_stop_distance,
             trailing_stop_price=trailing_stop_price,
+            trailing_stop_pct=trailing_stop_pct,
+            max_mark_price=entry_price,
             last_mark_price=entry_price,
             last_updated_at=opened_at or datetime.now(timezone.utc),
             asset_type=asset_type.upper(),
@@ -233,6 +244,8 @@ class PositionTracker:
                 entry_price=average_entry_price,
                 trailing_stop_distance=current.trailing_stop_distance,
             ),
+            trailing_stop_pct=current.trailing_stop_pct,
+            max_mark_price=fill.price,
             last_mark_price=fill.price,
             last_updated_at=fill.timestamp,
             asset_type=current.asset_type,
@@ -285,6 +298,8 @@ class PositionTracker:
                 take_profit=position.take_profit,
                 trailing_stop_distance=position.trailing_stop_distance,
                 trailing_stop_price=trailing_stop_price,
+                trailing_stop_pct=position.trailing_stop_pct,
+                max_mark_price=position.max_mark_price,
                 last_mark_price=mark_price,
                 last_updated_at=timestamp,
                 asset_type=position.asset_type,
@@ -293,6 +308,8 @@ class PositionTracker:
                 entry_quote=position.entry_quote,
                 max_unrealized_profit=position.max_unrealized_profit,
                 max_unrealized_loss=position.max_unrealized_loss,
+                max_unrealized_profit_pct=position.max_unrealized_profit_pct,
+                max_unrealized_loss_pct=position.max_unrealized_loss_pct,
             )
             self._positions[symbol] = updated
 
@@ -343,6 +360,79 @@ class PositionTracker:
             ):
                 position.max_unrealized_loss = unrealized_pnl
             return position
+
+    def record_option_mark(
+        self,
+        symbol: str,
+        mark_price: float,
+        *,
+        unrealized_pnl: float,
+        unrealized_pnl_pct: Optional[float] = None,
+        timestamp: Optional[datetime] = None,
+    ) -> Optional[ExitNotification]:
+        """Record a streamed/polled option mark and check the peak-mark trailing stop.
+
+        Updates the latest mark, running max unrealized profit/loss (in both
+        dollar and percentage terms), and the peak mark observed since entry.
+        When ``trailing_stop_pct`` is set, returns a ``TRAILING_STOP``
+        notification once the mark falls that far below the peak.
+
+        Args:
+            symbol: OCC option symbol.
+            mark_price: Latest observed option mark price.
+            unrealized_pnl: Unrealized P&L at this mark (net of entry costs).
+            unrealized_pnl_pct: Unrealized P&L as a fraction of cost basis
+                (e.g. ``0.2`` for +20%). Recorded alongside the dollar peak.
+            timestamp: Optional time of the mark update.
+
+        Returns:
+            A trailing-stop exit notification when the threshold is breached,
+            otherwise None. Registered exit handlers are NOT invoked; the caller
+            is responsible for routing the exit (paper vs live).
+        """
+        symbol = symbol.upper()
+        timestamp = timestamp or datetime.now(timezone.utc)
+        if mark_price <= 0:
+            return None
+
+        with self._lock:
+            position = self._positions.get(symbol)
+            if position is None:
+                return None
+
+            position.last_mark_price = mark_price
+            position.last_updated_at = timestamp
+            if (
+                position.max_unrealized_profit is None
+                or unrealized_pnl > position.max_unrealized_profit
+            ):
+                position.max_unrealized_profit = unrealized_pnl
+                position.max_unrealized_profit_pct = unrealized_pnl_pct
+            if (
+                position.max_unrealized_loss is None
+                or unrealized_pnl < position.max_unrealized_loss
+            ):
+                position.max_unrealized_loss = unrealized_pnl
+                position.max_unrealized_loss_pct = unrealized_pnl_pct
+
+            if position.max_mark_price is None or mark_price > position.max_mark_price:
+                position.max_mark_price = mark_price
+
+            pct = position.trailing_stop_pct
+            if pct is None or position.max_mark_price is None:
+                return None
+
+            threshold = position.max_mark_price * (1.0 - pct)
+            if mark_price > threshold:
+                return None
+
+            return ExitNotification(
+                symbol=position.symbol,
+                reason=ExitReason.TRAILING_STOP,
+                mark_price=mark_price,
+                position=position,
+                triggered_at=timestamp,
+            )
 
     def close_position(self, symbol: str) -> Optional[Position]:
         """Remove a tracked position without placing a broker order.

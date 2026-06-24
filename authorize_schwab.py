@@ -33,6 +33,14 @@ def main() -> None:
         default=300.0,
         help="Seconds to wait for the OAuth callback (default: 300)",
     )
+    parser.add_argument(
+        "--manual",
+        action="store_true",
+        help=(
+            "Skip the local callback server and paste the redirect URL/code "
+            "manually (use when the callback uses a privileged port like 443)"
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -41,6 +49,7 @@ def main() -> None:
             scope=args.scope,
             open_browser=not args.no_browser,
             timeout_seconds=args.timeout,
+            manual=args.manual,
         )
     except (SchwabAuthError, OAuthCallbackError) as exc:
         raise SystemExit(str(exc)) from exc

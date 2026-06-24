@@ -242,6 +242,8 @@ class TradeEmailer:
         time_bought: Optional[datetime] = None,
         max_unrealized_profit: Optional[float] = None,
         max_unrealized_loss: Optional[float] = None,
+        max_unrealized_profit_pct: Optional[float] = None,
+        max_unrealized_loss_pct: Optional[float] = None,
     ) -> None:
         """Send a sell forward-test notification email."""
         right = _option_right_suffix(instrument_line)
@@ -269,11 +271,13 @@ class TradeEmailer:
         ]
         if max_unrealized_profit is not None:
             lines.append(
-                f"Max unrealized profit while held: {max_unrealized_profit:+,.2f}"
+                "Max unrealized profit while held: "
+                f"{max_unrealized_profit:+,.2f}{_pct_suffix(max_unrealized_profit_pct)}"
             )
         if max_unrealized_loss is not None:
             lines.append(
-                f"Max unrealized loss while held: {max_unrealized_loss:+,.2f}"
+                "Max unrealized loss while held: "
+                f"{max_unrealized_loss:+,.2f}{_pct_suffix(max_unrealized_loss_pct)}"
             )
         lines.extend(format_quote_email_lines(entry_quote, label="Entry"))
         lines.extend(format_quote_email_lines(quote, label="Exit"))
@@ -314,6 +318,13 @@ def _format_price(value: Optional[float]) -> str:
     return f"{value:.4f}"
 
 
+def _pct_suffix(value: Optional[float]) -> str:
+    """Return a ' (+12.34%)' suffix for a P&L fraction, or '' when unknown."""
+    if value is None:
+        return ""
+    return f" ({value * 100.0:+.2f}%)"
+
+
 _OCC_RIGHT_PATTERN = re.compile(r"\d{6}([CP])\d{8}")
 
 
@@ -351,6 +362,19 @@ def describe_conditions_met(signal: StrategySignal) -> str:
         if indicators.get("supertrend_sell_signal"):
             return "supertrend flipped bearish"
         return "supertrend signal"
+
+    if signal.strategy_name == "gaussian_bands":
+        upper = indicators.get("gaussian_upper")
+        lower = indicators.get("gaussian_lower")
+        if indicators.get("gaussian_buy_signal") and upper is not None:
+            return f"close {close:.4f} crossed above upper band {upper:.4f}"
+        if indicators.get("gaussian_sell_signal") and lower is not None:
+            return f"close {close:.4f} crossed below lower band {lower:.4f}"
+        if indicators.get("gaussian_exit_long") and upper is not None:
+            return f"close {close:.4f} fell back below upper band {upper:.4f}"
+        if indicators.get("gaussian_exit_short") and lower is not None:
+            return f"close {close:.4f} climbed back above lower band {lower:.4f}"
+        return "Gaussian MA band signal"
 
     if signal.strategy_name == "rsi_mean_reversion":
         rsi = indicators.get("rsi")

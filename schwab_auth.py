@@ -440,8 +440,14 @@ class SchwabAuthClient:
 
 
 def normalize_authorization_code(authorization_code: str) -> str:
-    """Strip Schwab's trailing metadata suffix from an authorization code."""
-    return authorization_code.split("@", 1)[0]
+    """Normalize a Schwab authorization code.
+
+    Schwab returns codes that end in a URL-encoded ``%40`` (a literal ``@``).
+    That trailing ``@`` is part of the code and MUST be preserved when
+    exchanging it for tokens; stripping it yields an ``invalid_grant`` error.
+    Callers should pass an already URL-decoded value.
+    """
+    return authorization_code.strip()
 
 
 def _load_dotenv() -> None:

@@ -38,7 +38,7 @@ from order_manager import (
     OrderSide,
     TradingSignal,
 )
-from position_reconciliation import option_position_aligned_with_supertrend
+from position_reconciliation import option_position_aligned_with_gaussian
 from position_sizer import contracts_for_buy, shares_for_buy
 from option_selector import (
     SelectedOption,
@@ -55,7 +55,7 @@ from option_selector import (
 from option_quote import OptionQuoteSnapshot
 from schwab_market_data_client import SchwabMarketDataClient
 from schwab_broker_gateway import build_broker_gateway
-from position_tracker import ExitNotification, Position, PositionTracker
+from position_tracker import ExitNotification, ExitReason, Position, PositionTracker
 from signal_evaluator import SignalEvaluator, StrategySignal
 from strategy_registry import SignalAction, StrategyRegistry, build_default_registry
 from schwab_account_sync import SchwabAccountSync
@@ -349,6 +349,7 @@ class TradingWorkflow:
                 on_open_external=self._on_stream_connected,
                 on_close_external=self._on_stream_closed,
                 on_error_external=self._on_stream_error,
+                on_option_quote=self._on_option_quote,
             )
             self._stream_manager = None
         else:
@@ -434,6 +435,7 @@ class TradingWorkflow:
         self._session_recorder: Optional[SessionOhlcvRecorder] = None
         self._logged_first_live_bar = False
         self._live_regular_hours_seen = False
+        self._flattening_contracts: set[str] = set()
         if config.persist_session_bars:
             try:
                 storage = build_storage_repository(config.app)
@@ -470,6 +472,7 @@ class TradingWorkflow:
         if self._config.warmup_from_storage:
             warm_start_pipeline(self)
         self._reconcile_restored_positions_with_trend()
+        self._subscribe_open_option_contracts()
         if self._schwab_stream is not None:
             logger.info(
                 "Connecting Schwab live stream for %s (%s bars)",
@@ -806,8 +809,15 @@ class TradingWorkflow:
         )
 
     def _track_open_option_marks(self, bar: CleanBarEvent) -> None:
-        """Refresh the open option mark and running max unrealized P&L per 1m bar."""
+        """Refresh the open option mark and running max unrealized P&L per 1m bar.
+
+        Acts as a REST fallback when the live LEVELONE_OPTIONS stream is not the
+        source of truth; when option streaming is active, marks arrive in real
+        time via :meth:`_on_option_quote` and this poll is skipped.
+        """
         if not self._config.app.options.enabled:
+            return
+        if self._option_stream_active():
             return
 
         position = self.position_tracker.get_position_for_underlying(bar.symbol)
@@ -818,21 +828,160 @@ class TradingWorkflow:
         if mark is None or mark <= 0:
             return
 
+        self._handle_option_mark(position.symbol, mark, bar.timestamp)
+
+    def _option_stream_active(self) -> bool:
+        """Return True when option marks are streamed via LEVELONE_OPTIONS."""
+        return (
+            self._schwab_stream is not None
+            and self._config.app.options.stream_contract_marks
+        )
+
+    def _on_option_quote(self, payload: dict[str, object]) -> None:
+        """Handle one streamed LEVELONE_OPTIONS mark for a held contract."""
+        symbol = str(payload.get("symbol", "")).upper()
+        mark = payload.get("mark")
+        if not symbol or mark is None:
+            return
+        try:
+            mark_value = float(mark)
+        except (TypeError, ValueError):
+            return
+        if mark_value <= 0:
+            return
+        self._handle_option_mark(symbol, mark_value, datetime.now(timezone.utc))
+
+    def _handle_option_mark(
+        self,
+        occ_symbol: str,
+        mark: float,
+        timestamp: Optional[datetime] = None,
+    ) -> None:
+        """Record an option mark, track max P&L, and fire the trailing stop."""
+        timestamp = timestamp or datetime.now(timezone.utc)
+        position = self.position_tracker.get_position(occ_symbol)
+        if position is None or position.asset_type != "OPTION":
+            return
+
         unrealized = self._option_unrealized_pnl(position, mark)
-        self.position_tracker.record_mark(
+        unrealized_pct = self._option_unrealized_pnl_pct(position, unrealized)
+        notification = self.position_tracker.record_option_mark(
             position.symbol,
             mark,
             unrealized_pnl=unrealized,
-            timestamp=bar.timestamp,
+            unrealized_pnl_pct=unrealized_pct,
+            timestamp=timestamp,
         )
         logger.debug(
-            "Option mark %s=%.2f unrealized=%.2f (max+=%.2f max-=%.2f)",
+            "Option mark %s=%.2f unrealized=%.2f (%s) (max+=%.2f max-=%.2f peak=%.2f)",
             position.symbol,
             mark,
             unrealized,
+            f"{unrealized_pct:+.1%}" if unrealized_pct is not None else "n/a",
             position.max_unrealized_profit if position.max_unrealized_profit is not None else 0.0,
             position.max_unrealized_loss if position.max_unrealized_loss is not None else 0.0,
+            position.max_mark_price if position.max_mark_price is not None else mark,
         )
+
+        if notification is not None and notification.reason == ExitReason.TRAILING_STOP:
+            self._exit_on_trailing_stop(position, mark, timestamp)
+
+    def _exit_on_trailing_stop(
+        self,
+        position: Position,
+        mark: float,
+        closed_at: datetime,
+    ) -> None:
+        """Flatten an option position when its peak-mark trailing stop is hit."""
+        key = position.symbol.upper()
+        if key in self._flattening_contracts:
+            return
+        self._flattening_contracts.add(key)
+        try:
+            underlying = (position.underlying_symbol or position.symbol).upper()
+            timeframe = self._config.market_config.strategy_timeframe
+            spot = self.indicator_coordinator.latest_close(underlying, timeframe)
+            if spot is None:
+                spot = position.underlying_entry_price or position.average_entry_price
+            peak = position.max_mark_price or mark
+            pct = position.trailing_stop_pct or 0.0
+            logger.info(
+                "Trailing stop hit for %s: mark=%.2f fell %.1f%% from peak=%.2f",
+                position.symbol,
+                mark,
+                (1.0 - (mark / peak)) * 100.0 if peak else 0.0,
+                peak,
+            )
+            self._flatten_open_option_position(
+                position=position,
+                underlying_symbol=underlying,
+                underlying_spot=float(spot),
+                closed_at=closed_at,
+                strategy_name="trailing_stop",
+                conditions_met=(
+                    f"trailing stop: mark {mark:.2f} fell {pct:.0%}+ from peak {peak:.2f}"
+                ),
+                send_email=self._trade_emailer is not None,
+            )
+        finally:
+            self._flattening_contracts.discard(key)
+
+    def _subscribe_open_option_contracts(self) -> None:
+        """Stream marks and arm trailing stops for already-open option positions."""
+        if not self._config.app.options.enabled:
+            return
+        for position in self.position_tracker.list_positions():
+            if position.asset_type != "OPTION":
+                continue
+            self._apply_option_trailing_stop(position.symbol)
+            self._subscribe_option_contract(position.symbol)
+
+    def _apply_option_trailing_stop(self, symbol: str) -> None:
+        """Attach the configured peak-mark trailing stop to an open option."""
+        options = self._config.app.options
+        pct = options.trailing_stop_pct
+        if not options.enabled or pct is None:
+            return
+        position = self.position_tracker.get_position(symbol)
+        if position is None or position.asset_type != "OPTION":
+            return
+        if position.trailing_stop_pct == pct:
+            return
+        self.position_tracker.open_position(
+            symbol=position.symbol,
+            quantity=position.quantity,
+            entry_price=position.average_entry_price,
+            opened_at=position.opened_at,
+            asset_type=position.asset_type,
+            underlying_symbol=position.underlying_symbol,
+            underlying_entry_price=position.underlying_entry_price,
+            entry_quote=position.entry_quote,
+            trailing_stop_pct=pct,
+        )
+
+    def _subscribe_option_contract(self, occ_symbol: str) -> None:
+        """Subscribe a held option contract to the live mark stream."""
+        if self._schwab_stream is None:
+            return
+        if not self._config.app.options.stream_contract_marks:
+            return
+        try:
+            self._schwab_stream.subscribe_option(occ_symbol)
+        except Exception:
+            logger.exception("Failed to subscribe option stream for %s", occ_symbol)
+
+    def _unsubscribe_option_contract(self, occ_symbol: str) -> None:
+        """Stop streaming marks for a closed option contract."""
+        if self._schwab_stream is None:
+            return
+        try:
+            self._schwab_stream.unsubscribe_option(occ_symbol)
+        except Exception:
+            logger.debug(
+                "Failed to unsubscribe option stream for %s",
+                occ_symbol,
+                exc_info=True,
+            )
 
     def _fetch_live_option_mark(self, position: Position) -> Optional[float]:
         """Return the current option mark from the live chain, or None on failure."""
@@ -864,6 +1013,21 @@ class TradingWorkflow:
         commission = self._config.app.options.commission_per_contract * quantity
         return gross - commission
 
+    def _option_cost_basis(self, position: Position) -> float:
+        """Return the premium paid to open an option position (the % denominator)."""
+        return abs(position.quantity) * position.average_entry_price * 100.0
+
+    def _option_unrealized_pnl_pct(
+        self,
+        position: Position,
+        unrealized_pnl: float,
+    ) -> Optional[float]:
+        """Return unrealized P&L as a fraction of premium paid (None if unknown)."""
+        basis = self._option_cost_basis(position)
+        if basis <= 0:
+            return None
+        return unrealized_pnl / basis
+
     def _dispatch_indicator_jobs(
         self,
         aggregated: AggregatedBar,
@@ -877,9 +1041,9 @@ class TradingWorkflow:
         if snapshot is None:
             return None
 
-        if "supertrend_trend" not in snapshot.values:
+        if snapshot.values.get("gaussian_ma") is None:
             logger.debug(
-                "Supertrend not ready for %s %s @ %s (need more 3m bars in buffer)",
+                "Gaussian MA not ready for %s %s @ %s (need more 3m bars in buffer)",
                 aggregated.symbol,
                 aggregated.timeframe,
                 aggregated.timestamp.isoformat(),
@@ -949,17 +1113,7 @@ class TradingWorkflow:
     ) -> None:
         """Log completed strategy-timeframe evaluations for live monitoring."""
         values = snapshot.values
-        trend = values.get("supertrend_trend")
-        st_value = values.get("supertrend")
-        if trend in (1, 1.0, True):
-            trend_label = "bullish"
-        elif trend in (-1, -1.0):
-            trend_label = "bearish"
-        elif trend is None:
-            trend_label = "warming up"
-        else:
-            trend_label = str(trend)
-        st_text = f" ST={float(st_value):.2f}" if st_value is not None else ""
+        context_label, context_text = self._strategy_log_context(values)
 
         if signal.action == SignalAction.HOLD:
             logger.info(
@@ -968,8 +1122,8 @@ class TradingWorkflow:
                 aggregated.timestamp.isoformat(),
                 aggregated.close,
                 strategy_name,
-                trend_label,
-                st_text,
+                context_label,
+                context_text,
             )
             return
 
@@ -980,9 +1134,36 @@ class TradingWorkflow:
             aggregated.close,
             signal.action.value.upper(),
             strategy_name,
-            trend_label,
-            st_text,
+            context_label,
+            context_text,
         )
+
+    @staticmethod
+    def _strategy_log_context(values: dict[str, object]) -> tuple[str, str]:
+        """Return a (label, detail) pair describing indicator state for logs."""
+        gauss_ma = values.get("gaussian_ma")
+        if gauss_ma is not None:
+            upper = values.get("gaussian_upper")
+            lower = values.get("gaussian_lower")
+            squeeze = bool(values.get("gaussian_squeeze"))
+            label = "squeeze" if squeeze else "active"
+            detail = f" GMA={float(gauss_ma):.2f}"
+            if upper is not None and lower is not None:
+                detail += f" [{float(lower):.2f}, {float(upper):.2f}]"
+            return label, detail
+
+        trend = values.get("supertrend_trend")
+        st_value = values.get("supertrend")
+        if trend in (1, 1.0, True):
+            label = "bullish"
+        elif trend in (-1, -1.0):
+            label = "bearish"
+        elif trend is None:
+            label = "warming up"
+        else:
+            label = str(trend)
+        detail = f" ST={float(st_value):.2f}" if st_value is not None else ""
+        return label, detail
 
     def _indicators_ready(
         self,
@@ -1022,6 +1203,10 @@ class TradingWorkflow:
     def _handle_strategy_signal(self, signal: StrategySignal) -> None:
         """Run risk checks and submit broker orders for actionable signals."""
         if signal.action == SignalAction.HOLD:
+            return
+
+        if signal.action == SignalAction.EXIT:
+            self._exit_open_position_on_signal(signal)
             return
 
         options = self._config.app.options
@@ -1171,6 +1356,55 @@ class TradingWorkflow:
         )
         self.order_manager.refresh_order(order.id)
 
+    def _exit_open_position_on_signal(self, signal: StrategySignal) -> None:
+        """Flatten any open position for a signal that closes to flat (no flip)."""
+        position = self.position_tracker.get_position_for_underlying(signal.symbol)
+        if position is None or abs(position.quantity) <= 0:
+            return
+
+        if position.asset_type == "OPTION":
+            self._flatten_open_option_position(
+                position=position,
+                underlying_symbol=signal.symbol,
+                underlying_spot=signal.close,
+                closed_at=signal.timestamp,
+                strategy_name=signal.strategy_name,
+                conditions_met=describe_conditions_met(signal),
+                send_email=True,
+            )
+            return
+
+        # Equity mode: closing to flat is a plain sell of the open long.
+        quantity = abs(position.quantity)
+        if self._forward_test_account is not None:
+            self._forward_test_account.record_sell(
+                symbol=position.symbol,
+                underlying_symbol=position.underlying_symbol or signal.symbol,
+                quantity=quantity,
+                exit_price=signal.close,
+                asset_type=position.asset_type,
+                closed_at=signal.timestamp,
+            )
+        elif not self._config.email_forward_test:
+            order = self.order_manager.submit_signal(
+                TradingSignal(
+                    symbol=position.symbol,
+                    side=OrderSide.SELL,
+                    quantity=quantity,
+                    signal_id=f"exit:{signal.strategy_name}:{signal.timestamp.isoformat()}",
+                    asset_type=position.asset_type,
+                    underlying_symbol=position.underlying_symbol or signal.symbol,
+                )
+            )
+            self.order_manager.refresh_order(order.id)
+        self.position_tracker.close_position(position.symbol)
+        logger.info(
+            "Exited %s to flat (%s) at %.2f",
+            position.symbol,
+            signal.strategy_name,
+            signal.close,
+        )
+
     def _record_forward_test_fill(
         self,
         signal: StrategySignal,
@@ -1201,7 +1435,14 @@ class TradingWorkflow:
                 underlying_symbol=resolved.underlying_symbol,
                 underlying_entry_price=signal.close,
                 entry_quote=resolved.option_quote,
+                trailing_stop_pct=(
+                    self._config.app.options.trailing_stop_pct
+                    if resolved.asset_type == "OPTION"
+                    else None
+                ),
             )
+            if resolved.asset_type == "OPTION":
+                self._subscribe_option_contract(resolved.symbol)
             if self._forward_test_account is not None:
                 fill_result = self._forward_test_account.record_buy(
                     symbol=resolved.symbol,
@@ -1291,6 +1532,8 @@ class TradingWorkflow:
         entry_quote: Optional[OptionQuoteSnapshot] = None,
         max_unrealized_profit: Optional[float] = None,
         max_unrealized_loss: Optional[float] = None,
+        max_unrealized_profit_pct: Optional[float] = None,
+        max_unrealized_loss_pct: Optional[float] = None,
     ) -> None:
         """Append one buy/sell leg to the account transactions CSV."""
         if self._transaction_ledger is None:
@@ -1317,6 +1560,8 @@ class TradingWorkflow:
                     entry_quote=entry_quote,
                     max_unrealized_profit=max_unrealized_profit,
                     max_unrealized_loss=max_unrealized_loss,
+                    max_unrealized_profit_pct=max_unrealized_profit_pct,
+                    max_unrealized_loss_pct=max_unrealized_loss_pct,
                 )
             )
         except Exception:
@@ -1496,7 +1741,7 @@ class TradingWorkflow:
         )
 
     def _reconcile_restored_positions_with_trend(self) -> None:
-        """Close restored options that no longer match Supertrend after warmup."""
+        """Close restored options that no longer match the Gaussian MA bias."""
         if not self._config.app.options.enabled:
             return
 
@@ -1514,35 +1759,38 @@ class TradingWorkflow:
                 )
                 continue
 
-            trend = snapshot.values.get("supertrend_trend")
-            if trend is None:
+            gauss_ma = snapshot.values.get("gaussian_ma")
+            if gauss_ma is None:
                 logger.info(
-                    "Keeping restored %s; supertrend not ready for reconciliation",
+                    "Keeping restored %s; Gaussian MA not ready for reconciliation",
                     position.symbol,
-                )
-                continue
-
-            contract_type = option_contract_type(position.symbol)
-            if option_position_aligned_with_supertrend(contract_type, float(trend)):
-                trend_label = "bullish" if float(trend) > 0 else "bearish"
-                logger.info(
-                    "Restored %s %s matches supertrend %s; keeping position open",
-                    symbol,
-                    position.symbol,
-                    trend_label,
                 )
                 continue
 
             underlying_spot = self.indicator_coordinator.latest_close(symbol, timeframe)
             if underlying_spot is None:
-                underlying_spot = position.underlying_entry_price or position.average_entry_price
+                underlying_spot = (
+                    position.underlying_entry_price or position.average_entry_price
+                )
 
-            trend_label = "bullish" if float(trend) > 0 else "bearish"
+            contract_type = option_contract_type(position.symbol)
+            bias_label = "bullish" if float(underlying_spot) >= float(gauss_ma) else "bearish"
+            if option_position_aligned_with_gaussian(
+                contract_type, float(underlying_spot), float(gauss_ma)
+            ):
+                logger.info(
+                    "Restored %s %s matches Gaussian MA bias (%s); keeping position open",
+                    symbol,
+                    position.symbol,
+                    bias_label,
+                )
+                continue
+
             logger.info(
-                "Reconciling %s: closing stale %s (supertrend now %s)",
+                "Reconciling %s: closing stale %s (Gaussian MA bias now %s)",
                 position.symbol,
                 contract_type,
-                trend_label,
+                bias_label,
             )
             self._flatten_open_option_position(
                 position=position,
@@ -1551,7 +1799,7 @@ class TradingWorkflow:
                 closed_at=datetime.now(timezone.utc),
                 strategy_name="reconciliation",
                 conditions_met=(
-                    f"startup reconciliation: {contract_type} open but supertrend {trend_label}"
+                    f"startup reconciliation: {contract_type} open but Gaussian MA {bias_label}"
                 ),
                 send_email=self._trade_emailer is not None,
             )
@@ -1583,18 +1831,19 @@ class TradingWorkflow:
 
         max_unrealized_profit = position.max_unrealized_profit
         max_unrealized_loss = position.max_unrealized_loss
+        max_unrealized_profit_pct = position.max_unrealized_profit_pct
+        max_unrealized_loss_pct = position.max_unrealized_loss_pct
         if position.asset_type == "OPTION":
             exit_unrealized = self._option_unrealized_pnl(position, exit_mark)
-            max_unrealized_profit = (
-                exit_unrealized
-                if max_unrealized_profit is None
-                else max(max_unrealized_profit, exit_unrealized)
+            exit_unrealized_pct = self._option_unrealized_pnl_pct(
+                position, exit_unrealized
             )
-            max_unrealized_loss = (
-                exit_unrealized
-                if max_unrealized_loss is None
-                else min(max_unrealized_loss, exit_unrealized)
-            )
+            if max_unrealized_profit is None or exit_unrealized > max_unrealized_profit:
+                max_unrealized_profit = exit_unrealized
+                max_unrealized_profit_pct = exit_unrealized_pct
+            if max_unrealized_loss is None or exit_unrealized < max_unrealized_loss:
+                max_unrealized_loss = exit_unrealized
+                max_unrealized_loss_pct = exit_unrealized_pct
 
         if self._forward_test_account is not None:
             fill_result = self._forward_test_account.record_sell(
@@ -1653,8 +1902,11 @@ class TradingWorkflow:
             entry_quote=position.entry_quote,
             max_unrealized_profit=max_unrealized_profit,
             max_unrealized_loss=max_unrealized_loss,
+            max_unrealized_profit_pct=max_unrealized_profit_pct,
+            max_unrealized_loss_pct=max_unrealized_loss_pct,
         )
         self.position_tracker.close_position(position.symbol)
+        self._unsubscribe_option_contract(position.symbol)
         logger.info(
             "Closed %s (%s) at mark=%.2f",
             position.symbol,
@@ -1690,6 +1942,8 @@ class TradingWorkflow:
                 time_bought=position.opened_at,
                 max_unrealized_profit=max_unrealized_profit,
                 max_unrealized_loss=max_unrealized_loss,
+                max_unrealized_profit_pct=max_unrealized_profit_pct,
+                max_unrealized_loss_pct=max_unrealized_loss_pct,
             )
         except Exception:
             logger.exception(
@@ -1966,6 +2220,14 @@ class TradingWorkflow:
         self.bus.publish(Topics.ORDER_FILL, fill, source="order_manager")
         updated = self.position_tracker.on_fill(fill)
         self._record_live_fill_transaction(fill, position_before)
+
+        if fill.asset_type.upper() == "OPTION":
+            if updated is not None and fill.side == OrderSide.BUY:
+                self._apply_option_trailing_stop(fill.symbol)
+                self._subscribe_option_contract(fill.symbol)
+            elif updated is None:
+                self._unsubscribe_option_contract(fill.symbol)
+
         if (
             updated is not None
             and self._config.managed_exits

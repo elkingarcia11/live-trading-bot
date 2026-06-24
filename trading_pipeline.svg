@@ -1,0 +1,434 @@
+<svg width="680" viewBox="0 0 680 1060" xmlns="http://www.w3.org/2000/svg" role="img" style="background:#ffffff; font-family: system-ui, -apple-system, sans-serif;">
+<title>Trading Pipeline Architecture</title>
+<desc>Flow diagram of the full live trading pipeline from data ingestion through execution and recording, with supporting layers for persistence, backfill, and infrastructure.</desc>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <style>
+    text { font-family: system-ui, -apple-system, sans-serif; }
+    .th { font-size: 13px; font-weight: 600; fill: #1a1a1a; }
+    .ts { font-size: 11px; font-weight: 400; fill: #555555; }
+    .group-label { font-size: 10px; font-weight: 600; fill: #888888; letter-spacing: 0.04em; }
+    .lane-bg { fill: #f7f7f5; stroke: #deddd8; stroke-width: 0.5; }
+    .leader { stroke: #aaaaaa; stroke-width: 0.5; stroke-dasharray: 4 3; fill: none; }
+    .arr { stroke: #aaaaaa; stroke-width: 1; fill: none; }
+
+    /* Blue - Ingest/Streaming */
+    .c-blue rect { fill: #E6F1FB; stroke: #185FA5; stroke-width: 0.5; }
+    .c-blue .th { fill: #0C447C; }
+    .c-blue .ts { fill: #185FA5; }
+
+    /* Teal - Indicators/Strategy */
+    .c-teal rect { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 0.5; }
+    .c-teal .th { fill: #085041; }
+    .c-teal .ts { fill: #0F6E56; }
+
+    /* Coral - Options/Sizing */
+    .c-coral rect { fill: #FAECE7; stroke: #993C1D; stroke-width: 0.5; }
+    .c-coral .th { fill: #712B13; }
+    .c-coral .ts { fill: #993C1D; }
+
+    /* Purple - Orchestration */
+    .c-purple rect { fill: #EEEDFE; stroke: #534AB7; stroke-width: 0.5; }
+    .c-purple .th { fill: #3C3489; }
+    .c-purple .ts { fill: #534AB7; }
+
+    /* Gray - Infrastructure */
+    .c-gray rect { fill: #F1EFE8; stroke: #5F5E5A; stroke-width: 0.5; }
+    .c-gray .th { fill: #444441; }
+    .c-gray .ts { fill: #5F5E5A; }
+
+    /* Amber - Historical/Warmup */
+    .c-amber rect { fill: #FAEEDA; stroke: #854F0B; stroke-width: 0.5; }
+    .c-amber .th { fill: #633806; }
+    .c-amber .ts { fill: #854F0B; }
+
+    /* Green - Forward Test */
+    .c-green rect { fill: #EAF3DE; stroke: #3B6D11; stroke-width: 0.5; }
+    .c-green .th { fill: #27500A; }
+    .c-green .ts { fill: #3B6D11; }
+
+    /* Pink - OAuth */
+    .c-pink rect { fill: #FBEAF0; stroke: #993556; stroke-width: 0.5; }
+    .c-pink .th { fill: #72243E; }
+    .c-pink .ts { fill: #993556; }
+  </style>
+</defs>
+
+<!-- SECTION BACKGROUNDS -->
+<rect class="lane-bg" x="10" y="10" width="660" height="500" rx="10"/>
+<text class="group-label" x="26" y="28">LIVE TRADING PIPELINE</text>
+
+<rect class="lane-bg" x="10" y="524" width="320" height="120" rx="8"/>
+<text class="group-label" x="26" y="542">BROKER / EXECUTION</text>
+
+<rect class="lane-bg" x="344" y="524" width="326" height="120" rx="8"/>
+<text class="group-label" x="360" y="542">MARKET DATA</text>
+
+<rect class="lane-bg" x="10" y="658" width="320" height="100" rx="8"/>
+<text class="group-label" x="26" y="676">HISTORICAL / BACKFILL</text>
+
+<rect class="lane-bg" x="344" y="658" width="326" height="100" rx="8"/>
+<text class="group-label" x="360" y="676">PERSISTENCE</text>
+
+<rect class="lane-bg" x="10" y="772" width="660" height="90" rx="8"/>
+<text class="group-label" x="26" y="790">CROSS-CUTTING INFRASTRUCTURE</text>
+
+<rect class="lane-bg" x="10" y="876" width="420" height="80" rx="8"/>
+<text class="group-label" x="26" y="893">FORWARD TEST / NOTIFICATIONS</text>
+
+<rect class="lane-bg" x="444" y="876" width="226" height="80" rx="8"/>
+<text class="group-label" x="460" y="893">OAUTH SETUP</text>
+
+<!-- ROW 1: Auth + Ingest -->
+<g class="c-gray">
+  <rect x="30" y="38" width="130" height="46" rx="6"/>
+  <text class="th" x="95" y="57" text-anchor="middle" dominant-baseline="central">config.py</text>
+  <text class="ts" x="95" y="73" text-anchor="middle" dominant-baseline="central">Loads AppConfig</text>
+</g>
+
+<g class="c-gray">
+  <rect x="176" y="38" width="140" height="46" rx="6"/>
+  <text class="th" x="246" y="57" text-anchor="middle" dominant-baseline="central">schwab_auth.py</text>
+  <text class="ts" x="246" y="73" text-anchor="middle" dominant-baseline="central">OAuth token refresh</text>
+</g>
+
+<g class="c-blue">
+  <rect x="332" y="38" width="152" height="46" rx="6"/>
+  <text class="th" x="408" y="57" text-anchor="middle" dominant-baseline="central">schwab_streamer.py</text>
+  <text class="ts" x="408" y="73" text-anchor="middle" dominant-baseline="central">WebSocket 1m bars</text>
+</g>
+
+<g class="c-blue">
+  <rect x="500" y="38" width="160" height="46" rx="6"/>
+  <text class="th" x="580" y="57" text-anchor="middle" dominant-baseline="central">stream_connection</text>
+  <text class="ts" x="580" y="73" text-anchor="middle" dominant-baseline="central">WS lifecycle mgmt</text>
+</g>
+
+<line x1="160" y1="61" x2="174" y2="61" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="316" y1="61" x2="330" y2="61" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="484" y1="61" x2="498" y2="61" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- ROW 2: Stream processing -->
+<g class="c-blue">
+  <rect x="30" y="104" width="152" height="46" rx="6"/>
+  <text class="th" x="106" y="123" text-anchor="middle" dominant-baseline="central">stream_data_processor</text>
+  <text class="ts" x="106" y="139" text-anchor="middle" dominant-baseline="central">Validates/dedupes bars</text>
+</g>
+
+<g class="c-blue">
+  <rect x="198" y="104" width="128" height="46" rx="6"/>
+  <text class="th" x="262" y="123" text-anchor="middle" dominant-baseline="central">ohlc_sanity.py</text>
+  <text class="ts" x="262" y="139" text-anchor="middle" dominant-baseline="central">Repairs outlier OHLC</text>
+</g>
+
+<g class="c-blue">
+  <rect x="342" y="104" width="136" height="46" rx="6"/>
+  <text class="th" x="410" y="123" text-anchor="middle" dominant-baseline="central">bar_alignment.py</text>
+  <text class="ts" x="410" y="139" text-anchor="middle" dominant-baseline="central">UTC bucket floors</text>
+</g>
+
+<g class="c-blue">
+  <rect x="494" y="104" width="148" height="46" rx="6"/>
+  <text class="th" x="568" y="123" text-anchor="middle" dominant-baseline="central">data_aggregator.py</text>
+  <text class="ts" x="568" y="139" text-anchor="middle" dominant-baseline="central">Rolls 1m → 3m+ bars</text>
+</g>
+
+<line x1="580" y1="84" x2="580" y2="96" stroke="#aaaaaa" stroke-width="0.8" fill="none"/>
+<path d="M580 96 L106 96 L106 102" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa" fill="none"/>
+<line x1="182" y1="127" x2="196" y2="127" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="326" y1="127" x2="340" y2="127" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="478" y1="127" x2="492" y2="127" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- ROW 3: Indicators + Strategy -->
+<g class="c-teal">
+  <rect x="30" y="170" width="160" height="46" rx="6"/>
+  <text class="th" x="110" y="189" text-anchor="middle" dominant-baseline="central">indicator_calculator</text>
+  <text class="ts" x="110" y="205" text-anchor="middle" dominant-baseline="central">DEMA/RSI/MACD math</text>
+</g>
+
+<g class="c-teal">
+  <rect x="206" y="170" width="160" height="46" rx="6"/>
+  <text class="th" x="286" y="189" text-anchor="middle" dominant-baseline="central">indicator_coordinator</text>
+  <text class="ts" x="286" y="205" text-anchor="middle" dominant-baseline="central">Bar buffers + dispatch</text>
+</g>
+
+<g class="c-teal">
+  <rect x="382" y="170" width="140" height="46" rx="6"/>
+  <text class="th" x="452" y="189" text-anchor="middle" dominant-baseline="central">strategy_registry</text>
+  <text class="ts" x="452" y="205" text-anchor="middle" dominant-baseline="central">Rule definitions</text>
+</g>
+
+<g class="c-teal">
+  <rect x="538" y="170" width="130" height="46" rx="6"/>
+  <text class="th" x="603" y="189" text-anchor="middle" dominant-baseline="central">signal_evaluator</text>
+  <text class="ts" x="603" y="205" text-anchor="middle" dominant-baseline="central">BUY/SELL/HOLD</text>
+</g>
+
+<line x1="642" y1="150" x2="642" y2="162" stroke="#aaaaaa" stroke-width="0.8" fill="none"/>
+<path d="M642 162 L110 162 L110 168" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa" fill="none"/>
+<line x1="190" y1="193" x2="204" y2="193" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="366" y1="193" x2="380" y2="193" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="522" y1="193" x2="536" y2="193" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- ROW 4: Sizing + Options -->
+<g class="c-coral">
+  <rect x="30" y="236" width="130" height="46" rx="6"/>
+  <text class="th" x="95" y="255" text-anchor="middle" dominant-baseline="central">position_sizer</text>
+  <text class="ts" x="95" y="271" text-anchor="middle" dominant-baseline="central">Share/contract qty</text>
+</g>
+
+<g class="c-coral">
+  <rect x="176" y="236" width="130" height="46" rx="6"/>
+  <text class="th" x="241" y="255" text-anchor="middle" dominant-baseline="central">option_selector</text>
+  <text class="ts" x="241" y="271" text-anchor="middle" dominant-baseline="central">ATM OCC symbol</text>
+</g>
+
+<g class="c-coral">
+  <rect x="322" y="236" width="130" height="46" rx="6"/>
+  <text class="th" x="387" y="255" text-anchor="middle" dominant-baseline="central">option_quote.py</text>
+  <text class="ts" x="387" y="271" text-anchor="middle" dominant-baseline="central">Bid/ask + Greeks</text>
+</g>
+
+<g class="c-coral">
+  <rect x="468" y="236" width="160" height="46" rx="6"/>
+  <text class="th" x="548" y="255" text-anchor="middle" dominant-baseline="central">position_reconciliation</text>
+  <text class="ts" x="548" y="271" text-anchor="middle" dominant-baseline="central">Validates direction</text>
+</g>
+
+<line x1="668" y1="216" x2="668" y2="228" stroke="#aaaaaa" stroke-width="0.8" fill="none"/>
+<path d="M668 228 L95 228 L95 234" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa" fill="none"/>
+<line x1="160" y1="259" x2="174" y2="259" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="306" y1="259" x2="320" y2="259" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="452" y1="259" x2="466" y2="259" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- ROW 5: Orchestration -->
+<g class="c-purple">
+  <rect x="30" y="302" width="140" height="46" rx="6"/>
+  <text class="th" x="100" y="321" text-anchor="middle" dominant-baseline="central">workflow.py</text>
+  <text class="ts" x="100" y="337" text-anchor="middle" dominant-baseline="central">Orchestrator + RiskGuard</text>
+</g>
+
+<g class="c-purple">
+  <rect x="186" y="302" width="140" height="46" rx="6"/>
+  <text class="th" x="256" y="321" text-anchor="middle" dominant-baseline="central">order_manager.py</text>
+  <text class="ts" x="256" y="337" text-anchor="middle" dominant-baseline="central">Submits + tracks orders</text>
+</g>
+
+<g class="c-purple">
+  <rect x="342" y="302" width="140" height="46" rx="6"/>
+  <text class="th" x="412" y="321" text-anchor="middle" dominant-baseline="central">position_tracker.py</text>
+  <text class="ts" x="412" y="337" text-anchor="middle" dominant-baseline="central">P&amp;L, stops, exits</text>
+</g>
+
+<g class="c-gray">
+  <rect x="498" y="302" width="130" height="46" rx="6"/>
+  <text class="th" x="563" y="321" text-anchor="middle" dominant-baseline="central">event_bus.py</text>
+  <text class="ts" x="563" y="337" text-anchor="middle" dominant-baseline="central">In-process pub/sub</text>
+</g>
+
+<line x1="628" y1="282" x2="628" y2="294" stroke="#aaaaaa" stroke-width="0.8" fill="none"/>
+<path d="M628 294 L100 294 L100 300" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa" fill="none"/>
+<line x1="170" y1="325" x2="184" y2="325" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="326" y1="325" x2="340" y2="325" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="482" y1="325" x2="496" y2="325" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- ROW 6: Logging -->
+<g class="c-gray">
+  <rect x="30" y="368" width="140" height="46" rx="6"/>
+  <text class="th" x="100" y="387" text-anchor="middle" dominant-baseline="central">trade_logger.py</text>
+  <text class="ts" x="100" y="403" text-anchor="middle" dominant-baseline="central">JSON-lines audit trail</text>
+</g>
+
+<g class="c-gray">
+  <rect x="186" y="368" width="140" height="46" rx="6"/>
+  <text class="th" x="256" y="387" text-anchor="middle" dominant-baseline="central">health_monitor.py</text>
+  <text class="ts" x="256" y="403" text-anchor="middle" dominant-baseline="central">Feed latency watchdog</text>
+</g>
+
+<g class="c-gray">
+  <rect x="342" y="368" width="164" height="46" rx="6"/>
+  <text class="th" x="424" y="387" text-anchor="middle" dominant-baseline="central">session_ohlcv_recorder</text>
+  <text class="ts" x="424" y="403" text-anchor="middle" dominant-baseline="central">Flushes bars on shutdown</text>
+</g>
+
+<g class="c-gray">
+  <rect x="522" y="368" width="140" height="46" rx="6"/>
+  <text class="th" x="592" y="387" text-anchor="middle" dominant-baseline="central">transaction_ledger</text>
+  <text class="ts" x="592" y="403" text-anchor="middle" dominant-baseline="central">Append-only CSV</text>
+</g>
+
+<line x1="100" y1="348" x2="100" y2="366" class="leader" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="256" y1="348" x2="256" y2="366" class="leader" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="412" y1="348" x2="424" y2="366" class="leader" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="563" y1="348" x2="592" y2="366" class="leader" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- ROW 7: Warmup -->
+<g class="c-amber">
+  <rect x="30" y="434" width="148" height="46" rx="6"/>
+  <text class="th" x="104" y="453" text-anchor="middle" dominant-baseline="central">workflow_warmup.py</text>
+  <text class="ts" x="104" y="469" text-anchor="middle" dominant-baseline="central">Backfills + replay</text>
+</g>
+<text class="ts" x="252" y="462" dominant-baseline="central">feeds → live pipeline at startup</text>
+
+<!-- BROKER / EXECUTION -->
+<g class="c-coral">
+  <rect x="26" y="552" width="140" height="42" rx="6"/>
+  <text class="th" x="96" y="571" text-anchor="middle" dominant-baseline="central">schwab_order_builder</text>
+  <text class="ts" x="96" y="585" text-anchor="middle" dominant-baseline="central">Order JSON builder</text>
+</g>
+
+<g class="c-coral">
+  <rect x="180" y="552" width="140" height="42" rx="6"/>
+  <text class="th" x="250" y="571" text-anchor="middle" dominant-baseline="central">schwab_broker_gateway</text>
+  <text class="ts" x="250" y="585" text-anchor="middle" dominant-baseline="central">Place/poll/cancel orders</text>
+</g>
+
+<g class="c-coral">
+  <rect x="26" y="604" width="132" height="34" rx="6"/>
+  <text class="th" x="92" y="621" text-anchor="middle" dominant-baseline="central">schwab_trader_client</text>
+</g>
+
+<g class="c-coral">
+  <rect x="172" y="604" width="140" height="34" rx="6"/>
+  <text class="th" x="242" y="621" text-anchor="middle" dominant-baseline="central">schwab_account_sync</text>
+</g>
+
+<line x1="166" y1="573" x2="178" y2="573" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="92" y1="596" x2="92" y2="602" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="250" y1="596" x2="242" y2="602" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- MARKET DATA -->
+<g class="c-blue">
+  <rect x="360" y="552" width="118" height="36" rx="6"/>
+  <text class="th" x="419" y="570" text-anchor="middle" dominant-baseline="central">ohlcv_schema.py</text>
+</g>
+
+<g class="c-blue">
+  <rect x="490" y="552" width="168" height="36" rx="6"/>
+  <text class="th" x="574" y="570" text-anchor="middle" dominant-baseline="central">market_data_transformer</text>
+</g>
+
+<g class="c-blue">
+  <rect x="360" y="600" width="160" height="34" rx="6"/>
+  <text class="th" x="440" y="617" text-anchor="middle" dominant-baseline="central">market_data_api_client</text>
+</g>
+
+<g class="c-blue">
+  <rect x="534" y="600" width="126" height="34" rx="6"/>
+  <text class="th" x="597" y="617" text-anchor="middle" dominant-baseline="central">schwab_mkt_data</text>
+</g>
+
+<line x1="478" y1="570" x2="488" y2="570" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="440" y1="588" x2="440" y2="598" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+<line x1="524" y1="617" x2="532" y2="617" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- HISTORICAL / BACKFILL -->
+<g class="c-amber">
+  <rect x="26" y="686" width="118" height="34" rx="6"/>
+  <text class="th" x="85" y="703" text-anchor="middle" dominant-baseline="central">gap_detector.py</text>
+</g>
+
+<g class="c-amber">
+  <rect x="158" y="686" width="140" height="34" rx="6"/>
+  <text class="th" x="228" y="703" text-anchor="middle" dominant-baseline="central">backfill_executor.py</text>
+</g>
+
+<g class="c-amber">
+  <rect x="26" y="730" width="160" height="20" rx="5"/>
+  <text class="ts" x="106" y="740" text-anchor="middle" dominant-baseline="central">historical_orchestrator.py</text>
+</g>
+
+<line x1="144" y1="703" x2="156" y2="703" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- PERSISTENCE -->
+<g class="c-teal">
+  <rect x="360" y="686" width="160" height="34" rx="6"/>
+  <text class="th" x="440" y="703" text-anchor="middle" dominant-baseline="central">cloud_storage_repo</text>
+</g>
+
+<g class="c-teal">
+  <rect x="534" y="686" width="126" height="34" rx="6"/>
+  <text class="th" x="597" y="703" text-anchor="middle" dominant-baseline="central">local_storage_repo</text>
+</g>
+
+<line x1="520" y1="703" x2="532" y2="703" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- INFRASTRUCTURE -->
+<g class="c-gray">
+  <rect x="26" y="800" width="130" height="42" rx="6"/>
+  <text class="th" x="91" y="819" text-anchor="middle" dominant-baseline="central">event_bus.py</text>
+  <text class="ts" x="91" y="834" text-anchor="middle" dominant-baseline="central">Central pub/sub backbone</text>
+</g>
+
+<g class="c-gray">
+  <rect x="172" y="800" width="130" height="42" rx="6"/>
+  <text class="th" x="237" y="819" text-anchor="middle" dominant-baseline="central">trade_logger.py</text>
+  <text class="ts" x="237" y="834" text-anchor="middle" dominant-baseline="central">Durable audit trail</text>
+</g>
+
+<g class="c-gray">
+  <rect x="318" y="800" width="130" height="42" rx="6"/>
+  <text class="th" x="383" y="819" text-anchor="middle" dominant-baseline="central">health_monitor.py</text>
+  <text class="ts" x="383" y="834" text-anchor="middle" dominant-baseline="central">Feed + reconnect watch</text>
+</g>
+
+<!-- FORWARD TEST / NOTIFICATIONS -->
+<g class="c-green">
+  <rect x="26" y="904" width="148" height="34" rx="6"/>
+  <text class="th" x="100" y="921" text-anchor="middle" dominant-baseline="central">forward_test_account</text>
+</g>
+
+<g class="c-green">
+  <rect x="190" y="904" width="100" height="34" rx="6"/>
+  <text class="th" x="240" y="921" text-anchor="middle" dominant-baseline="central">emailer.py</text>
+</g>
+
+<g class="c-green">
+  <rect x="306" y="904" width="108" height="34" rx="6"/>
+  <text class="th" x="360" y="921" text-anchor="middle" dominant-baseline="central">session_scheduler</text>
+</g>
+
+<!-- OAUTH -->
+<g class="c-pink">
+  <rect x="462" y="904" width="118" height="34" rx="6"/>
+  <text class="th" x="521" y="921" text-anchor="middle" dominant-baseline="central">schwab_oauth.py</text>
+</g>
+
+<g class="c-pink">
+  <rect x="594" y="904" width="62" height="34" rx="6"/>
+  <text class="th" x="625" y="921" text-anchor="middle" dominant-baseline="central">authorize</text>
+</g>
+
+<line x1="580" y1="921" x2="592" y2="921" class="arr" marker-end="url(#arrow)" stroke="#aaaaaa"/>
+
+<!-- LEGEND -->
+<rect class="lane-bg" x="10" y="950" width="660" height="100" rx="8"/>
+<text class="group-label" x="26" y="968">LEGEND</text>
+
+<rect x="26" y="976" width="14" height="14" rx="3" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text class="ts" x="46" y="984" dominant-baseline="central">Ingest / streaming</text>
+
+<rect x="150" y="976" width="14" height="14" rx="3" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text class="ts" x="170" y="984" dominant-baseline="central">Indicators / strategy</text>
+
+<rect x="290" y="976" width="14" height="14" rx="3" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text class="ts" x="310" y="984" dominant-baseline="central">Options / sizing</text>
+
+<rect x="430" y="976" width="14" height="14" rx="3" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text class="ts" x="450" y="984" dominant-baseline="central">Orchestration</text>
+
+<rect x="26" y="1002" width="14" height="14" rx="3" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text class="ts" x="46" y="1010" dominant-baseline="central">Historical / warmup</text>
+
+<rect x="150" y="1002" width="14" height="14" rx="3" fill="#EAF3DE" stroke="#3B6D11" stroke-width="0.5"/>
+<text class="ts" x="170" y="1010" dominant-baseline="central">Forward test</text>
+
+<rect x="290" y="1002" width="14" height="14" rx="3" fill="#FBEAF0" stroke="#993556" stroke-width="0.5"/>
+<text class="ts" x="310" y="1010" dominant-baseline="central">OAuth setup</text>
+
+<rect x="430" y="1002" width="14" height="14" rx="3" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text class="ts" x="450" y="1010" dominant-baseline="central">Infrastructure / config</text>
+
+</svg>

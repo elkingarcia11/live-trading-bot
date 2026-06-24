@@ -47,6 +47,63 @@ def test_parse_login_denied_response() -> None:
     assert login_events[0].response_code == 3
 
 
+def test_parse_levelone_option_mark_from_numeric_fields() -> None:
+    parser = SchwabStreamMessageParser()
+    payload = {
+        "data": [
+            {
+                "service": "LEVELONE_OPTIONS",
+                "command": "SUBS",
+                "content": [
+                    {"key": "SPY   260622C00450000", "2": 4.9, "3": 5.1, "37": 5.0}
+                ],
+            }
+        ]
+    }
+    events = parser.parse(json.dumps(payload))
+    quotes = [e for e in events if e.event_type == StreamEventType.OPTION_QUOTE]
+    assert len(quotes) == 1
+    assert quotes[0].payload is not None
+    assert quotes[0].payload["symbol"] == "SPY   260622C00450000"
+    assert quotes[0].payload["mark"] == 5.0
+
+
+def test_parse_levelone_option_mark_falls_back_to_midpoint() -> None:
+    parser = SchwabStreamMessageParser()
+    payload = {
+        "data": [
+            {
+                "service": "LEVELONE_OPTIONS",
+                "command": "SUBS",
+                "content": [{"key": "SPY   260622P00450000", "2": 4.0, "3": 6.0}],
+            }
+        ]
+    }
+    events = parser.parse(json.dumps(payload))
+    quotes = [e for e in events if e.event_type == StreamEventType.OPTION_QUOTE]
+    assert len(quotes) == 1
+    assert quotes[0].payload is not None
+    assert quotes[0].payload["mark"] == 5.0
+
+
+def test_parse_levelone_option_subscribe_success() -> None:
+    parser = SchwabStreamMessageParser()
+    payload = {
+        "response": [
+            {
+                "service": "LEVELONE_OPTIONS",
+                "command": "ADD",
+                "requestid": "5",
+                "content": {"code": 0, "msg": "ADD command succeeded"},
+            }
+        ]
+    }
+    events = parser.parse(json.dumps(payload))
+    assert any(
+        event.event_type == StreamEventType.OPTION_SUBSCRIBE_SUCCESS for event in events
+    )
+
+
 def test_parse_add_subscription_success() -> None:
     parser = SchwabStreamMessageParser()
     payload = {

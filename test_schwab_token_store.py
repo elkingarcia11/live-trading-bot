@@ -16,8 +16,9 @@ from schwab_auth import (
 )
 
 
-def test_normalize_authorization_code_strips_suffix() -> None:
-    assert normalize_authorization_code("abc123@metadata") == "abc123"
+def test_normalize_authorization_code_preserves_trailing_at() -> None:
+    assert normalize_authorization_code("C0.abc123@") == "C0.abc123@"
+    assert normalize_authorization_code("  C0.abc123@  ") == "C0.abc123@"
 
 
 def test_tokens_round_trip_payload() -> None:

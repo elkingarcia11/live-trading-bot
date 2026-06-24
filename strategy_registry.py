@@ -22,6 +22,7 @@ class SignalAction(Enum):
     BUY = "buy"
     SELL = "sell"
     HOLD = "hold"
+    EXIT = "exit"
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,24 @@ def supertrend_signals(ctx: StrategyEvaluationContext) -> SignalAction:
     return SignalAction.HOLD
 
 
+def gaussian_bands(ctx: StrategyEvaluationContext) -> SignalAction:
+    """Gaussian MA + ATR band crossings.
+
+    Buy a call when price crosses above the upper band, exit it when price falls
+    back below the upper band. Buy a put when price crosses below the lower band,
+    exit it when price climbs back above the lower band.
+    """
+    if ctx.indicators.get("gaussian_buy_signal"):
+        return SignalAction.BUY
+    if ctx.indicators.get("gaussian_sell_signal"):
+        return SignalAction.SELL
+    if ctx.indicators.get("gaussian_exit_long") or ctx.indicators.get(
+        "gaussian_exit_short"
+    ):
+        return SignalAction.EXIT
+    return SignalAction.HOLD
+
+
 def dema_trend(ctx: StrategyEvaluationContext) -> SignalAction:
     """Buy above DEMA, sell below DEMA."""
     dema = ctx.indicators.get("dema")
@@ -173,6 +192,19 @@ def build_default_registry(*, strategy_timeframe: str = "5m") -> StrategyRegistr
             rule=supertrend_signals,
             timeframe=strategy_timeframe,
             required_indicators=("supertrend_buy_signal", "supertrend_sell_signal"),
+        )
+    )
+    registry.register(
+        StrategyDefinition(
+            name="gaussian_bands",
+            rule=gaussian_bands,
+            timeframe=strategy_timeframe,
+            required_indicators=(
+                "gaussian_buy_signal",
+                "gaussian_sell_signal",
+                "gaussian_exit_long",
+                "gaussian_exit_short",
+            ),
         )
     )
     registry.register(

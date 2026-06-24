@@ -17,7 +17,9 @@ import pandas as pd
 
 from ohlcv_schema import OHLCV_COLUMNS, ensure_standard_ohlcv
 
-SUPPORTED_INDICATORS = frozenset({"dema", "supertrend", "rsi", "macd", "sma", "ema"})
+SUPPORTED_INDICATORS = frozenset(
+    {"dema", "supertrend", "rsi", "macd", "sma", "ema", "gaussian_bands"}
+)
 
 DEFAULT_DEMA_PERIOD = 200
 DEFAULT_DEMA_SOURCE = "close"
@@ -25,6 +27,14 @@ DEFAULT_SUPERTREND_ATR_PERIOD = 12
 DEFAULT_SUPERTREND_SOURCE = "hl2"
 DEFAULT_SUPERTREND_MULTIPLIER = 3.0
 DEFAULT_SUPERTREND_CHANGE_ATR = True
+
+DEFAULT_GAUSSIAN_LENGTH = 20
+DEFAULT_GAUSSIAN_SIGMA_DIVISOR = 3.0
+DEFAULT_GAUSSIAN_ATR_PERIOD = 7
+DEFAULT_GAUSSIAN_ATR_MULTIPLIER = 1.3
+DEFAULT_GAUSSIAN_SQUEEZE_FILTER = True
+DEFAULT_GAUSSIAN_SQUEEZE_MA_PERIOD = 20
+DEFAULT_GAUSSIAN_SQUEEZE_RATIO = 0.75
 
 
 class IndicatorCalculator:
@@ -73,6 +83,27 @@ class IndicatorCalculator:
                 fast=int(params.get("fast", 12)),
                 slow=int(params.get("slow", 26)),
                 signal=int(params.get("signal", 9)),
+            )
+        if indicator == "gaussian_bands":
+            return self.gaussian_bands(
+                normalized,
+                length=int(params.get("length", DEFAULT_GAUSSIAN_LENGTH)),
+                sigma_divisor=float(
+                    params.get("sigma_divisor", DEFAULT_GAUSSIAN_SIGMA_DIVISOR)
+                ),
+                atr_period=int(params.get("atr_period", DEFAULT_GAUSSIAN_ATR_PERIOD)),
+                multiplier=float(
+                    params.get("multiplier", DEFAULT_GAUSSIAN_ATR_MULTIPLIER)
+                ),
+                squeeze_filter=bool(
+                    params.get("squeeze_filter", DEFAULT_GAUSSIAN_SQUEEZE_FILTER)
+                ),
+                squeeze_ma_period=int(
+                    params.get("squeeze_ma_period", DEFAULT_GAUSSIAN_SQUEEZE_MA_PERIOD)
+                ),
+                squeeze_ratio=float(
+                    params.get("squeeze_ratio", DEFAULT_GAUSSIAN_SQUEEZE_RATIO)
+                ),
             )
         if indicator == "sma":
             period = int(params.get("period", 20))
@@ -266,6 +297,94 @@ class IndicatorCalculator:
             "supertrend_dn": pd.Series(dn, index=bars.index, name="supertrend_dn"),
             "supertrend_buy_signal": buy_signal.rename("supertrend_buy_signal"),
             "supertrend_sell_signal": sell_signal.rename("supertrend_sell_signal"),
+        }
+
+    def gaussian_bands(
+        self,
+        bars: pd.DataFrame,
+        *,
+        length: int = DEFAULT_GAUSSIAN_LENGTH,
+        sigma_divisor: float = DEFAULT_GAUSSIAN_SIGMA_DIVISOR,
+        atr_period: int = DEFAULT_GAUSSIAN_ATR_PERIOD,
+        multiplier: float = DEFAULT_GAUSSIAN_ATR_MULTIPLIER,
+        squeeze_filter: bool = DEFAULT_GAUSSIAN_SQUEEZE_FILTER,
+        squeeze_ma_period: int = DEFAULT_GAUSSIAN_SQUEEZE_MA_PERIOD,
+        squeeze_ratio: float = DEFAULT_GAUSSIAN_SQUEEZE_RATIO,
+    ) -> dict[str, pd.Series]:
+        """Calculate a Gaussian-weighted moving average with ATR bands.
+
+        Matches the TradingView "Gaussian MA-EZ with ATR Bands" indicator:
+            x = i / (length / sigmaDiv); w = exp(-0.5 * x^2)   (weights, normalized)
+            gwma = sum(close[i] * w[i])
+            upper = gwma + atr * multiplier; lower = gwma - atr * multiplier
+
+        Emits one-shot crossover signals used to enter/exit calls and puts:
+            buy  (open call)  -> close crosses above the upper band
+            exit (close call) -> close crosses back below the upper band
+            sell (open put)   -> close crosses below the lower band
+            exit (close put)  -> close crosses back above the lower band
+
+        A volatility squeeze filter (ATR below its moving average) suppresses new
+        entries but never blocks exits.
+        """
+        if length < 2:
+            raise ValueError("length must be at least 2")
+        if sigma_divisor < 1.0:
+            raise ValueError("sigma_divisor must be at least 1.0")
+        if atr_period <= 0:
+            raise ValueError("atr_period must be positive")
+        if multiplier <= 0:
+            raise ValueError("multiplier must be positive")
+        if squeeze_ma_period <= 0:
+            raise ValueError("squeeze_ma_period must be positive")
+
+        close = bars["close"].astype(float)
+
+        offsets = np.arange(length, dtype=float)
+        weights = np.exp(-0.5 * (offsets / (length / sigma_divisor)) ** 2)
+        weights = weights / weights.sum()
+
+        gwma = sum(close.shift(i) * weights[i] for i in range(length))
+        gwma = gwma.rename("gaussian_ma")
+
+        tr = self._true_range(bars)
+        atr = tr.ewm(alpha=1 / atr_period, min_periods=atr_period, adjust=False).mean()
+
+        upper = (gwma + atr * multiplier).rename("gaussian_upper")
+        lower = (gwma - atr * multiplier).rename("gaussian_lower")
+
+        if squeeze_filter:
+            atr_ma = atr.rolling(window=squeeze_ma_period).mean()
+            is_low_vol = atr < atr_ma * squeeze_ratio
+        else:
+            is_low_vol = pd.Series(False, index=bars.index)
+        is_low_vol = is_low_vol.fillna(False).rename("gaussian_squeeze")
+
+        prev_close = close.shift(1)
+        prev_upper = upper.shift(1)
+        prev_lower = lower.shift(1)
+
+        cross_above_upper = (prev_close <= prev_upper) & (close > upper)
+        cross_under_upper = (prev_close >= prev_upper) & (close < upper)
+        cross_above_lower = (prev_close <= prev_lower) & (close > lower)
+        cross_under_lower = (prev_close >= prev_lower) & (close < lower)
+
+        entry_allowed = ~is_low_vol
+        buy_signal = (cross_above_upper & entry_allowed).rename("gaussian_buy_signal")
+        sell_signal = (cross_under_lower & entry_allowed).rename("gaussian_sell_signal")
+        exit_long = cross_under_upper.rename("gaussian_exit_long")
+        exit_short = cross_above_lower.rename("gaussian_exit_short")
+
+        return {
+            "gaussian_ma": gwma,
+            "gaussian_upper": upper,
+            "gaussian_lower": lower,
+            "gaussian_atr": atr.rename("gaussian_atr"),
+            "gaussian_squeeze": is_low_vol,
+            "gaussian_buy_signal": buy_signal,
+            "gaussian_sell_signal": sell_signal,
+            "gaussian_exit_long": exit_long,
+            "gaussian_exit_short": exit_short,
         }
 
     def _resolve_source(self, bars: pd.DataFrame, source: str) -> pd.Series:

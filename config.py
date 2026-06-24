@@ -18,12 +18,24 @@ from typing import Any, Literal, Optional
 from indicator_calculator import (
     DEFAULT_DEMA_PERIOD,
     DEFAULT_DEMA_SOURCE,
+    DEFAULT_GAUSSIAN_ATR_MULTIPLIER,
+    DEFAULT_GAUSSIAN_ATR_PERIOD,
+    DEFAULT_GAUSSIAN_LENGTH,
+    DEFAULT_GAUSSIAN_SIGMA_DIVISOR,
+    DEFAULT_GAUSSIAN_SQUEEZE_FILTER,
+    DEFAULT_GAUSSIAN_SQUEEZE_MA_PERIOD,
+    DEFAULT_GAUSSIAN_SQUEEZE_RATIO,
     DEFAULT_SUPERTREND_ATR_PERIOD,
     DEFAULT_SUPERTREND_CHANGE_ATR,
     DEFAULT_SUPERTREND_MULTIPLIER,
     DEFAULT_SUPERTREND_SOURCE,
 )
-from indicator_coordinator import IndicatorJob, build_dema_job, build_supertrend_job
+from indicator_coordinator import (
+    IndicatorJob,
+    build_dema_job,
+    build_gaussian_bands_job,
+    build_supertrend_job,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +83,22 @@ class SupertrendConfig:
 
 
 @dataclass(frozen=True)
+class GaussianBandsConfig:
+    length: int = DEFAULT_GAUSSIAN_LENGTH
+    sigma_divisor: float = DEFAULT_GAUSSIAN_SIGMA_DIVISOR
+    atr_period: int = DEFAULT_GAUSSIAN_ATR_PERIOD
+    multiplier: float = DEFAULT_GAUSSIAN_ATR_MULTIPLIER
+    squeeze_filter: bool = DEFAULT_GAUSSIAN_SQUEEZE_FILTER
+    squeeze_ma_period: int = DEFAULT_GAUSSIAN_SQUEEZE_MA_PERIOD
+    squeeze_ratio: float = DEFAULT_GAUSSIAN_SQUEEZE_RATIO
+
+
+@dataclass(frozen=True)
 class IndicatorConfig:
     max_bars: int = 500
     dema: Optional[DemaConfig] = field(default_factory=DemaConfig)
     supertrend: Optional[SupertrendConfig] = field(default_factory=SupertrendConfig)
+    gaussian_bands: Optional[GaussianBandsConfig] = None
 
     def build_jobs(self, timeframe: str) -> tuple[IndicatorJob, ...]:
         jobs: list[IndicatorJob] = []
@@ -94,6 +118,19 @@ class IndicatorConfig:
                     source=self.supertrend.source,
                     multiplier=self.supertrend.multiplier,
                     change_atr=self.supertrend.change_atr,
+                )
+            )
+        if self.gaussian_bands is not None:
+            jobs.append(
+                build_gaussian_bands_job(
+                    timeframe,
+                    length=self.gaussian_bands.length,
+                    sigma_divisor=self.gaussian_bands.sigma_divisor,
+                    atr_period=self.gaussian_bands.atr_period,
+                    multiplier=self.gaussian_bands.multiplier,
+                    squeeze_filter=self.gaussian_bands.squeeze_filter,
+                    squeeze_ma_period=self.gaussian_bands.squeeze_ma_period,
+                    squeeze_ratio=self.gaussian_bands.squeeze_ratio,
                 )
             )
         return tuple(jobs)
@@ -199,6 +236,8 @@ class OptionsSettings:
     simulated_premium: float = 5.0
     strike_count: int = 5
     commission_per_contract: float = 0.65
+    stream_contract_marks: bool = True
+    trailing_stop_pct: Optional[float] = 0.15
 
 @dataclass(frozen=True)
 class EmailSettings:
@@ -404,6 +443,7 @@ def _parse_indicator_config(payload: dict[str, Any]) -> IndicatorConfig:
         max_bars=int(payload.get("max_bars", 500)),
         dema=_parse_dema_config(payload.get("dema")),
         supertrend=_parse_supertrend_config(payload.get("supertrend")),
+        gaussian_bands=_parse_gaussian_bands_config(payload.get("gaussian_bands")),
     )
 
 
@@ -432,6 +472,26 @@ def _parse_supertrend_config(payload: Any) -> Optional[SupertrendConfig]:
         source=str(payload.get("source", DEFAULT_SUPERTREND_SOURCE)),
         multiplier=float(payload.get("multiplier", DEFAULT_SUPERTREND_MULTIPLIER)),
         change_atr=bool(payload.get("change_atr", DEFAULT_SUPERTREND_CHANGE_ATR)),
+    )
+
+
+def _parse_gaussian_bands_config(payload: Any) -> Optional[GaussianBandsConfig]:
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError("indicators.gaussian_bands must be an object")
+    if not payload.get("enabled", True):
+        return None
+    return GaussianBandsConfig(
+        length=int(payload.get("length", DEFAULT_GAUSSIAN_LENGTH)),
+        sigma_divisor=float(payload.get("sigma_divisor", DEFAULT_GAUSSIAN_SIGMA_DIVISOR)),
+        atr_period=int(payload.get("atr_period", DEFAULT_GAUSSIAN_ATR_PERIOD)),
+        multiplier=float(payload.get("multiplier", DEFAULT_GAUSSIAN_ATR_MULTIPLIER)),
+        squeeze_filter=bool(payload.get("squeeze_filter", DEFAULT_GAUSSIAN_SQUEEZE_FILTER)),
+        squeeze_ma_period=int(
+            payload.get("squeeze_ma_period", DEFAULT_GAUSSIAN_SQUEEZE_MA_PERIOD)
+        ),
+        squeeze_ratio=float(payload.get("squeeze_ratio", DEFAULT_GAUSSIAN_SQUEEZE_RATIO)),
     )
 
 
@@ -560,6 +620,9 @@ def _parse_options_settings(payload: dict[str, Any]) -> OptionsSettings:
     contract_type = str(payload.get("contract_type", "CALL")).upper()
     if contract_type not in {"CALL", "PUT"}:
         raise ValueError("options.contract_type must be CALL or PUT")
+    trailing_stop_pct = _optional_float(payload.get("trailing_stop_pct", 0.15))
+    if trailing_stop_pct is not None and not 0.0 < trailing_stop_pct < 1.0:
+        raise ValueError("options.trailing_stop_pct must be between 0 and 1 (exclusive)")
     return OptionsSettings(
         enabled=bool(payload.get("enabled", True)),
         days_to_expiration=int(payload.get("days_to_expiration", 2)),
@@ -567,6 +630,8 @@ def _parse_options_settings(payload: dict[str, Any]) -> OptionsSettings:
         simulated_premium=float(payload.get("simulated_premium", 5.0)),
         strike_count=int(payload.get("strike_count", 5)),
         commission_per_contract=float(payload.get("commission_per_contract", 0.65)),
+        stream_contract_marks=bool(payload.get("stream_contract_marks", True)),
+        trailing_stop_pct=trailing_stop_pct,
     )
 
 
