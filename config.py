@@ -149,6 +149,7 @@ class WorkflowSettings:
     eod_enabled: bool = True
     eod_flatten_time_utc: str = "19:59"
     eod_shutdown_time_utc: str = "20:00"
+    no_new_trades_after_utc: str = "19:58"
 
 
 @dataclass(frozen=True)
@@ -524,6 +525,7 @@ def _parse_workflow_settings(
         eod_enabled=bool(payload.get("eod_enabled", True)),
         eod_flatten_time_utc=str(payload.get("eod_flatten_time_utc", "19:59")),
         eod_shutdown_time_utc=str(payload.get("eod_shutdown_time_utc", "20:00")),
+        no_new_trades_after_utc=str(payload.get("no_new_trades_after_utc", "19:58")),
     )
 
 

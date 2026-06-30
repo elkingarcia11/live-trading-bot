@@ -47,7 +47,8 @@
     "persist_session_bars": true,
     "eod_enabled": true,
     "eod_flatten_time_utc": "19:59",
-    "eod_shutdown_time_utc": "20:00"
+    "eod_shutdown_time_utc": "20:00",
+    "no_new_trades_after_utc": "19:58"
   },
   "stream": {
     "schwab_streamer_url": "",

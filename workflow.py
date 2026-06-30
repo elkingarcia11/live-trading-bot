@@ -1188,6 +1188,18 @@ class TradingWorkflow:
         """Return today's date in the configured market timezone."""
         return datetime.now(ZoneInfo(self._config.app.app.timezone)).date()
 
+    def _past_entry_cutoff(self, timestamp: datetime) -> bool:
+        """Return whether a bar timestamp is at/after the no-new-trades UTC cutoff."""
+        raw = self._config.app.workflow.no_new_trades_after_utc.strip()
+        if not raw:
+            return False
+        cutoff = parse_utc_hhmm(raw)
+        if timestamp.tzinfo is None:
+            ts_utc = timestamp.replace(tzinfo=timezone.utc)
+        else:
+            ts_utc = timestamp.astimezone(timezone.utc)
+        return ts_utc.timetz().replace(tzinfo=None) >= cutoff
+
     @staticmethod
     def _signal_opens_new_trade(
         signal: StrategySignal,
@@ -1219,11 +1231,20 @@ class TradingWorkflow:
         option_entry = option_put_entry or (
             options.enabled and signal.action == SignalAction.BUY
         )
-        if not self._live_regular_hours_seen and self._signal_opens_new_trade(
+        opens_new_trade = self._signal_opens_new_trade(
             signal,
             options_enabled=options.enabled,
             option_entry=option_entry,
-        ):
+        )
+        if opens_new_trade and self._past_entry_cutoff(signal.timestamp):
+            logger.info(
+                "Blocking %s for %s; past entry cutoff %s UTC (exits still allowed)",
+                signal.action.value,
+                signal.symbol,
+                self._config.app.workflow.no_new_trades_after_utc,
+            )
+            return
+        if not self._live_regular_hours_seen and opens_new_trade:
             logger.info(
                 "Blocking %s for %s until first regular-hours live candle",
                 signal.action.value,
