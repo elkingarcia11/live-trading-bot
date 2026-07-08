@@ -72,6 +72,22 @@ SCHWAB_CHART_EQUITY_FIELDS = OhlcvFieldMap(
     close="close",
     volume="volume",
 )
+IBKR_HISTORY_BAR_FIELDS = OhlcvFieldMap(
+    timestamp="datetime",
+    open="open",
+    high="high",
+    low="low",
+    close="close",
+    volume="volume",
+)
+IBKR_STREAM_BAR_FIELDS = OhlcvFieldMap(
+    timestamp="datetime",
+    open="open",
+    high="high",
+    low="low",
+    close="close",
+    volume="volume",
+)
 
 
 class MarketDataTransformer:

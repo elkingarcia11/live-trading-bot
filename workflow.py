@@ -12,9 +12,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
-from typing import Literal, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Literal, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -53,11 +54,23 @@ from option_selector import (
     synthetic_atm_put,
 )
 from option_quote import OptionQuoteSnapshot
+from ibkr_tws_account_sync import IbkrTwsAccountSync, IbkrTwsAccountSnapshot
+from ibkr_tws_connection import IbkrTwsRuntime
+from ibkr_tws_streamer import (
+    IbkrTwsStreamSession,
+    build_ibkr_tws_stream_processor,
+)
 from schwab_market_data_client import SchwabMarketDataClient
+from schwab_options_chain_client import SchwabOptionsChainClient
 from schwab_broker_gateway import build_broker_gateway
 from position_tracker import ExitNotification, ExitReason, Position, PositionTracker
 from signal_evaluator import SignalEvaluator, StrategySignal
-from strategy_registry import SignalAction, StrategyRegistry, build_default_registry
+from strategy_registry import (
+    SignalAction,
+    StrategyEvaluationContext,
+    StrategyRegistry,
+    build_default_registry,
+)
 from schwab_account_sync import SchwabAccountSync
 from schwab_trader_client import SchwabAccountSnapshot
 from schwab_streamer import SchwabStreamSession, build_schwab_stream_processor
@@ -65,6 +78,9 @@ from stream_connection_manager import ConnectionState, StreamConnectionManager
 from stream_data_processor import CleanBarEvent, StreamDataProcessor
 from emailer import EmailerConfig, TradeEmailer, describe_conditions_met
 from forward_test_account import ForwardTestAccount, ForwardTestFillResult
+from gex_calculator import GexSnapshot
+from gex_regime_monitor import GexRegimeMonitor
+from gex_scalp_feedback import describe_gex_scalp_status
 from market_session_scheduler import (
     EodSchedule,
     is_regular_hours_timestamp_local,
@@ -75,12 +91,24 @@ from market_session_scheduler import (
 )
 from trade_logger import RiskDecisionRecord, TradeLogger
 from transaction_ledger import TransactionLedger, TransactionRecord
+from zero_dte_contract_selector import (
+    ZeroDteSelectionCriteria,
+    select_zero_dte_contract,
+)
 from session_ohlcv_recorder import SessionOhlcvRecorder
-from workflow_warmup import build_storage_repository, load_stored_bars, warm_start_pipeline
+from workflow_warmup import (
+    build_storage_repository,
+    indicator_warmup_needed,
+    load_stored_bars,
+    warm_start_gex,
+    warm_start_pipeline,
+)
 
 logger = logging.getLogger(__name__)
 
-StreamProvider = Literal["generic", "schwab"]
+_GEX_HOLD_LOG_INTERVAL_SECONDS = 300.0
+
+StreamProvider = Literal["generic", "schwab", "ibkr"]
 
 
 @dataclass(frozen=True)
@@ -238,8 +266,33 @@ class RiskGuard:
         self,
         *,
         max_position_quantity: float = 100.0,
+        max_trades_per_day: Optional[int] = None,
+        max_daily_loss_dollars: Optional[float] = None,
     ) -> None:
         self._max_position_quantity = max_position_quantity
+        self._max_trades_per_day = max_trades_per_day
+        self._max_daily_loss_dollars = max_daily_loss_dollars
+        self._trades_today = 0
+        self._daily_realized_pnl = 0.0
+        self._trade_date: Optional[date] = None
+
+    def reset_daily_counters(self, trade_date: date) -> None:
+        """Reset per-day trade counters when the session date changes."""
+        if self._trade_date == trade_date:
+            return
+        self._trade_date = trade_date
+        self._trades_today = 0
+        self._daily_realized_pnl = 0.0
+
+    def record_closed_trade_pnl(self, trade_date: date, pnl: float) -> None:
+        """Track realized P&L from a closed trade for the daily loss limit."""
+        self.reset_daily_counters(trade_date)
+        self._daily_realized_pnl += pnl
+
+    def record_opened_trade(self, trade_date: date) -> None:
+        """Increment the daily trade count after a new entry is approved."""
+        self.reset_daily_counters(trade_date)
+        self._trades_today += 1
 
     def evaluate(
         self,
@@ -257,6 +310,32 @@ class RiskGuard:
                 reason="hold signal requires no order",
                 strategy_name=signal.strategy_name,
             )
+
+        if signal.action in {SignalAction.BUY, SignalAction.SELL} and (
+            self._max_trades_per_day is not None or self._max_daily_loss_dollars is not None
+        ):
+            trade_date = signal.timestamp.date()
+            self.reset_daily_counters(trade_date)
+            if (
+                self._max_trades_per_day is not None
+                and self._trades_today >= self._max_trades_per_day
+            ):
+                return RiskDecisionRecord(
+                    symbol=signal.symbol,
+                    approved=False,
+                    reason="max trades per day reached",
+                    strategy_name=signal.strategy_name,
+                )
+            if (
+                self._max_daily_loss_dollars is not None
+                and self._daily_realized_pnl <= -abs(self._max_daily_loss_dollars)
+            ):
+                return RiskDecisionRecord(
+                    symbol=signal.symbol,
+                    approved=False,
+                    reason="daily max loss reached",
+                    strategy_name=signal.strategy_name,
+                )
 
         if order_quantity <= 0:
             return RiskDecisionRecord(
@@ -351,9 +430,35 @@ class TradingWorkflow:
                 on_error_external=self._on_stream_error,
                 on_option_quote=self._on_option_quote,
             )
+            self._ibkr_tws_runtime = None
+            self._ibkr_stream = None
             self._stream_manager = None
+        elif config.stream_provider == "ibkr":
+            self._schwab_stream = None
+            self._stream_manager = None
+            ibkr = config.app.ibkr
+            self._ibkr_tws_runtime = IbkrTwsRuntime.from_config()
+            self.stream_processor = build_ibkr_tws_stream_processor(
+                symbols=self._symbols,
+                consumers=[self._on_clean_bar],
+                timeframe=config.market_config.stream_timeframe,
+                stream_settings=config.app.stream,
+            )
+            self._ibkr_stream = IbkrTwsStreamSession(
+                self._ibkr_tws_runtime,
+                symbols=self._symbols,
+                processor=self.stream_processor,
+                exchange=ibkr.exchange,
+                currency=ibkr.currency,
+                tick_by_tick_type=ibkr.tick_by_tick_type,
+                on_open_external=self._on_stream_connected,
+                on_close_external=self._on_stream_closed,
+                on_error_external=self._on_stream_error,
+            )
         else:
             self._schwab_stream = None
+            self._ibkr_tws_runtime = None
+            self._ibkr_stream = None
             self.stream_processor = StreamDataProcessor(
                 symbols=self._symbols,
                 consumers=[self._on_clean_bar],
@@ -377,11 +482,18 @@ class TradingWorkflow:
         self.signal_evaluator = SignalEvaluator(self.strategy_registry)
         self.risk_guard = RiskGuard(
             max_position_quantity=config.max_position_quantity,
+            max_trades_per_day=(
+                config.app.gex.max_trades_per_day if config.app.gex.enabled else None
+            ),
+            max_daily_loss_dollars=(
+                config.app.gex.max_daily_loss_dollars if config.app.gex.enabled else None
+            ),
         )
 
         resolved_broker = broker or build_broker_gateway(
             use_in_memory=config.broker_use_in_memory,
             fill_price=config.broker_fill_price,
+            ibkr_runtime=self._ibkr_tws_runtime,
         )
         self.order_manager = OrderManager(
             resolved_broker,
@@ -428,25 +540,49 @@ class TradingWorkflow:
         self._account_sync = (
             SchwabAccountSync.from_env()
             if config.stream_provider == "schwab"
-            else None
+            else (
+                IbkrTwsAccountSync.from_runtime(self._ibkr_tws_runtime)
+                if self._ibkr_tws_runtime is not None
+                else (
+                    IbkrTwsAccountSync.from_runtime(IbkrTwsRuntime.from_config())
+                    if config.app.broker.provider == "ibkr"
+                    else None
+                )
+            )
         )
-        self._account_snapshot: Optional[SchwabAccountSnapshot] = None
+        self._account_snapshot: Optional[
+            SchwabAccountSnapshot | IbkrTwsAccountSnapshot
+        ] = None
         self._market_data_client: Optional[SchwabMarketDataClient] = None
         self._session_recorder: Optional[SessionOhlcvRecorder] = None
         self._logged_first_live_bar = False
         self._live_regular_hours_seen = False
         self._flattening_contracts: set[str] = set()
+        self._gex_monitor: Optional[GexRegimeMonitor] = None
+        self._volume_history: dict[str, deque[float]] = {
+            symbol: deque(maxlen=max(config.app.gex.volume_lookback_bars, 1))
+            for symbol in self._symbols
+        }
+        self._gex_strategy_state: dict[str, dict[str, object]] = {
+            symbol: {} for symbol in self._symbols
+        }
+        self._gex_status_log: dict[str, tuple[str, float]] = {}
+        self._gex_waiting_snapshot_logged: set[str] = set()
+        if config.app.gex.enabled:
+            self._init_gex_monitor()
         if config.persist_session_bars:
             try:
                 storage = build_storage_repository(config.app)
-                persist_timeframes = tuple(
-                    dict.fromkeys(
-                        (
-                            config.market_config.stream_timeframe,
-                            config.app.historical.timeframe,
+                persist_timeframes = (config.market_config.stream_timeframe,)
+                if indicator_warmup_needed(config.app, config.strategies):
+                    persist_timeframes = tuple(
+                        dict.fromkeys(
+                            (
+                                config.market_config.stream_timeframe,
+                                config.app.historical.timeframe,
+                            )
                         )
                     )
-                )
                 self._session_recorder = SessionOhlcvRecorder(
                     storage,
                     timeframes=persist_timeframes,
@@ -469,8 +605,16 @@ class TradingWorkflow:
 
         self.trade_logger.start()
         self.health_monitor.start()
-        if self._config.warmup_from_storage:
+        warm_start_gex(self)
+        if self._config.warmup_from_storage and indicator_warmup_needed(
+            self._config.app,
+            self._config.strategies,
+        ):
             warm_start_pipeline(self)
+        elif self._config.warmup_from_storage:
+            logger.info(
+                "Skipping 3m historical warmup (GEX-only workflow with no active indicators)"
+            )
         self._reconcile_restored_positions_with_trend()
         self._subscribe_open_option_contracts()
         if self._schwab_stream is not None:
@@ -481,6 +625,14 @@ class TradingWorkflow:
             )
             self._schwab_stream.refresh_streamer_info()
             self._schwab_stream.connect()
+        elif self._ibkr_stream is not None:
+            self._connect_ibkr_runtime()
+            logger.info(
+                "Connecting IBKR TWS tick stream for %s (%s bars)",
+                ", ".join(self._symbols),
+                self._config.market_config.stream_timeframe,
+            )
+            self._ibkr_stream.connect()
         else:
             logger.info("Connecting market data stream at %s", self._config.websocket_url)
             self.stream_manager.connect()
@@ -489,6 +641,16 @@ class TradingWorkflow:
         self._start_health_checks()
         if self._config.eod_schedule.enabled:
             self._start_eod_scheduler()
+        if self._gex_monitor is not None:
+            if self._config.app.gex.poll_on_startup:
+                try:
+                    logger.info("Running startup GEX chain poll before live stream")
+                    self._gex_monitor.poll_once()
+                except Exception:
+                    logger.exception(
+                        "Startup GEX poll failed; background monitor will retry"
+                    )
+            self._gex_monitor.start()
         self._started = True
         logger.info("TradingWorkflow started for %s", ", ".join(self._symbols))
 
@@ -516,8 +678,14 @@ class TradingWorkflow:
             self._health_thread.join(timeout=2.0)
         if self._schwab_stream is not None:
             self._schwab_stream.disconnect()
-        else:
+        elif self._ibkr_stream is not None:
+            self._ibkr_stream.disconnect()
+            if self._ibkr_tws_runtime is not None:
+                self._ibkr_tws_runtime.disconnect_session()
+        elif self._stream_manager is not None:
             self.stream_manager.disconnect()
+        if self._gex_monitor is not None:
+            self._gex_monitor.stop()
         if self._forward_test_account is not None:
             self._forward_test_account.save()
         if self._session_recorder is not None:
@@ -541,6 +709,24 @@ class TradingWorkflow:
     def config(self) -> WorkflowConfig:
         """Return the workflow runtime configuration."""
         return self._config
+
+    def seed_gex_volume_history(
+        self,
+        symbol: str,
+        volumes: Sequence[float],
+    ) -> int:
+        """Preload the rolling 1m volume buffer used by gex_scalp."""
+        if not volumes:
+            return 0
+        symbol = symbol.upper()
+        maxlen = max(self._config.app.gex.volume_lookback_bars, 1)
+        history = self._volume_history.setdefault(
+            symbol,
+            deque(maxlen=maxlen),
+        )
+        for volume in volumes[-maxlen:]:
+            history.append(float(volume))
+        return len(history)
 
     def replay_warmup_bar(self, bar: CleanBarEvent) -> None:
         """Replay one stored 1m bar through aggregation and indicators only."""
@@ -702,8 +888,39 @@ class TradingWorkflow:
 
     @property
     def connection_state(self) -> ConnectionState:
-        """Return the current WebSocket connection state."""
-        return self.stream_manager.state
+        """Return the current stream connection state."""
+        if self._stream_manager is not None:
+            return self.stream_manager.state
+        if self._ibkr_stream is not None and self._ibkr_tws_runtime is not None:
+            return (
+                ConnectionState.CONNECTED
+                if self._ibkr_tws_runtime.isConnected()
+                else ConnectionState.DISCONNECTED
+            )
+        if self._schwab_stream is not None:
+            return ConnectionState.CONNECTED
+        return ConnectionState.DISCONNECTED
+
+    def _connect_ibkr_runtime(self) -> None:
+        """Connect the shared IBKR TWS runtime if it is not already open."""
+        if self._ibkr_tws_runtime is None:
+            raise RuntimeError("IBKR TWS runtime is not configured")
+        if self._ibkr_tws_runtime.isConnected():
+            return
+        ibkr = self._config.app.ibkr
+        self._ibkr_tws_runtime.connect_session(
+            host=ibkr.host,
+            port=ibkr.port,
+            client_id=ibkr.client_id,
+            timeout_seconds=ibkr.connect_timeout_seconds,
+        )
+        self._ibkr_tws_runtime.set_market_data_type(ibkr.market_data_type)
+
+    def _stream_endpoint(self) -> str:
+        if self._config.stream_provider == "ibkr":
+            ibkr = self._config.app.ibkr
+            return f"ibkr-tws://{ibkr.host}:{ibkr.port}"
+        return self.stream_manager.url
 
     def _wire_passive_listeners(self) -> None:
         """Start cross-cutting listeners that subscribe via the event bus."""
@@ -712,16 +929,26 @@ class TradingWorkflow:
     def _sync_broker_positions(self) -> None:
         """Load broker positions into the local position tracker."""
         if self._account_sync is None:
-            logger.warning("Broker position sync requested but Schwab sync is unavailable")
+            logger.warning("Broker position sync requested but account sync is unavailable")
             return
 
         try:
-            snapshot = self._account_sync.sync_positions(
-                self.position_tracker,
-                watchlist=self._symbols,
-                account_hash=self._config.schwab_account_hash,
-                account_number=self._config.schwab_account_number,
-            )
+            if isinstance(self._account_sync, SchwabAccountSync):
+                snapshot = self._account_sync.sync_positions(
+                    self.position_tracker,
+                    watchlist=self._symbols,
+                    account_hash=self._config.schwab_account_hash,
+                    account_number=self._config.schwab_account_number,
+                )
+                source = "schwab_account_sync"
+            else:
+                if self._ibkr_tws_runtime is not None and not self._ibkr_tws_runtime.isConnected():
+                    self._connect_ibkr_runtime()
+                snapshot = self._account_sync.sync_positions(
+                    self.position_tracker,
+                    watchlist=self._symbols,
+                )
+                source = "ibkr_tws_account_sync"
             self._account_snapshot = snapshot
             self.bus.publish(
                 Topics.POSITION_SYNC,
@@ -738,14 +965,14 @@ class TradingWorkflow:
                         for position in snapshot.positions
                     ],
                 },
-                source="schwab_account_sync",
+                source=source,
             )
         except Exception as exc:
-            logger.exception("Failed to sync Schwab account positions: %s", exc)
+            logger.exception("Failed to sync broker account positions: %s", exc)
             self.bus.publish(
                 Topics.STREAM_ERROR,
                 {"error": f"account position sync failed: {exc}"},
-                source="schwab_account_sync",
+                source=source if "source" in locals() else "account_sync",
             )
 
     def _register_indicator_jobs(self) -> None:
@@ -782,6 +1009,8 @@ class TradingWorkflow:
         if self._session_recorder is not None:
             self._session_recorder.record_clean_bar(bar)
         self._run_process_and_strategy_layers(bar)
+        self._evaluate_gex_strategies(bar)
+        self._check_gex_position_timeouts(bar)
         self._track_open_option_marks(bar)
 
     def _run_process_and_strategy_layers(self, bar: CleanBarEvent) -> None:
@@ -1103,6 +1332,199 @@ class TradingWorkflow:
             )
             self._handle_strategy_signal(signal)
 
+    def _init_gex_monitor(self) -> None:
+        """Wire the background GEX snapshot poller when enabled in config."""
+        gex = self._config.app.gex
+        try:
+            chain_client = SchwabOptionsChainClient.from_config(self._config.app)
+            self._gex_monitor = GexRegimeMonitor(
+                chain_client,
+                self.bus,
+                symbols=self._symbols,
+                poll_interval_seconds=gex.poll_interval_seconds,
+                strike_count=gex.strike_count,
+                days_to_expiration=gex.days_to_expiration,
+                risk_free_rate=gex.risk_free_rate,
+            )
+            logger.info(
+                "GEX monitor configured for %s (%sDTE, poll=%.0fs)",
+                ", ".join(self._symbols),
+                gex.days_to_expiration,
+                gex.poll_interval_seconds,
+            )
+        except Exception:
+            logger.exception("GEX monitor unavailable; gex_scalp will not receive snapshots")
+
+    def _evaluate_gex_strategies(self, bar: CleanBarEvent) -> None:
+        """Evaluate 1m-native GEX strategies on each clean stream bar."""
+        if "gex_scalp" not in self._config.strategies:
+            return
+        if self._gex_monitor is None:
+            if bar.symbol not in self._gex_waiting_snapshot_logged:
+                logger.warning(
+                    "gex_scalp %s: GEX monitor not running — enable gex.enabled in config",
+                    bar.symbol,
+                )
+                self._gex_waiting_snapshot_logged.add(bar.symbol)
+            return
+
+        gex = self._gex_monitor.get_latest(bar.symbol)
+        if gex is None:
+            if bar.symbol not in self._gex_waiting_snapshot_logged:
+                poll_s = self._config.app.gex.poll_interval_seconds
+                logger.info(
+                    "gex_scalp %s: waiting for first GEX snapshot (chain poll every %.0fs)",
+                    bar.symbol,
+                    poll_s,
+                )
+                self._gex_waiting_snapshot_logged.add(bar.symbol)
+            return
+        self._gex_waiting_snapshot_logged.discard(bar.symbol)
+
+        history = self._volume_history.setdefault(
+            bar.symbol,
+            deque(maxlen=max(self._config.app.gex.volume_lookback_bars, 1)),
+        )
+        history.append(bar.volume)
+        volume_sma = sum(history) / len(history) if history else 0.0
+
+        position = self.position_tracker.get_position_for_underlying(bar.symbol)
+        has_open_position = position is not None and abs(position.quantity) > 0
+
+        gex_settings = self._config.app.gex
+        indicators = {
+            "volume_sma": volume_sma,
+            "gex_volume_multiplier": gex_settings.volume_multiplier,
+            "gex_put_wall_break_pct": gex_settings.put_wall_break_pct,
+            "gex_stall_body_ratio": gex_settings.stall_body_ratio,
+            "gex_long_wick_ratio": gex_settings.long_wick_ratio,
+        }
+        state = self._gex_strategy_state.setdefault(bar.symbol, {})
+
+        try:
+            signal = self.signal_evaluator.evaluate(
+                symbol=bar.symbol,
+                timeframe="1m",
+                timestamp=bar.timestamp,
+                close=bar.close,
+                open=bar.open,
+                high=bar.high,
+                low=bar.low,
+                volume=bar.volume,
+                indicators=indicators,
+                strategy_name="gex_scalp",
+                gex=gex,
+                has_open_position=has_open_position,
+                state=state,
+            )
+        except ValueError as exc:
+            logger.debug("Skipping gex_scalp evaluation: %s", exc)
+            return
+
+        self.bus.publish(
+            Topics.STRATEGY_SIGNAL,
+            signal,
+            source="signal_evaluator",
+        )
+        self._log_gex_scalp_evaluation(bar, gex, signal, state)
+        self._handle_strategy_signal(signal)
+
+    def _log_gex_scalp_evaluation(
+        self,
+        bar: CleanBarEvent,
+        gex: GexSnapshot,
+        signal: StrategySignal,
+        state: dict[str, object],
+    ) -> None:
+        """Emit throttled, human-readable gex_scalp status to the console."""
+        gex_settings = self._config.app.gex
+        history = self._volume_history.get(bar.symbol, deque())
+        volume_sma = sum(history) / len(history) if history else 0.0
+        position = self.position_tracker.get_position_for_underlying(bar.symbol)
+        has_open_position = position is not None and abs(position.quantity) > 0
+
+        ctx = StrategyEvaluationContext(
+            symbol=bar.symbol,
+            timeframe="1m",
+            timestamp=bar.timestamp,
+            close=bar.close,
+            open=bar.open,
+            high=bar.high,
+            low=bar.low,
+            volume=bar.volume,
+            indicators={
+                "volume_sma": volume_sma,
+                "gex_volume_multiplier": gex_settings.volume_multiplier,
+                "gex_put_wall_break_pct": gex_settings.put_wall_break_pct,
+                "gex_stall_body_ratio": gex_settings.stall_body_ratio,
+                "gex_long_wick_ratio": gex_settings.long_wick_ratio,
+            },
+            gex=gex,
+            has_open_position=has_open_position,
+            state=state,
+        )
+        status = describe_gex_scalp_status(ctx, action=signal.action)
+
+        snapshot_age_s = (bar.timestamp - gex.timestamp).total_seconds()
+        if snapshot_age_s > gex_settings.poll_interval_seconds * 1.5:
+            status = f"{status} [GEX snapshot {snapshot_age_s:.0f}s old]"
+
+        now = time.monotonic()
+        prev = self._gex_status_log.get(bar.symbol)
+        should_log = signal.action != SignalAction.HOLD
+        if not should_log:
+            should_log = (
+                prev is None
+                or prev[0] != status
+                or (now - prev[1]) >= _GEX_HOLD_LOG_INTERVAL_SECONDS
+            )
+
+        if not should_log:
+            return
+
+        action_label = (
+            signal.action.value.upper()
+            if signal.action != SignalAction.HOLD
+            else "HOLD"
+        )
+        logger.info(
+            "gex_scalp %s @ %s close=%.2f → %s | %s",
+            bar.symbol,
+            bar.timestamp.isoformat(),
+            bar.close,
+            action_label,
+            status,
+        )
+        self._gex_status_log[bar.symbol] = (status, now)
+
+    def _check_gex_position_timeouts(self, bar: CleanBarEvent) -> None:
+        """Force-review or exit 0DTE positions that exceed the max hold timer."""
+        if "gex_scalp" not in self._config.strategies:
+            return
+
+        position = self.position_tracker.get_position_for_underlying(bar.symbol)
+        if position is None or position.asset_type != "OPTION":
+            return
+        if position.force_review_after is None:
+            return
+        if bar.timestamp < position.force_review_after:
+            return
+
+        logger.warning(
+            "GEX position %s exceeded max hold (%s); forcing exit review",
+            position.symbol,
+            position.force_review_after.isoformat(),
+        )
+        self._flatten_open_option_position(
+            position=position,
+            underlying_symbol=bar.symbol,
+            underlying_spot=bar.close,
+            closed_at=bar.timestamp,
+            strategy_name="gex_scalp",
+            conditions_met="max hold timer exceeded",
+            send_email=self._trade_emailer is not None,
+        )
+
     def _log_strategy_evaluation(
         self,
         aggregated: AggregatedBar,
@@ -1269,6 +1691,9 @@ class TradingWorkflow:
         if not decision.approved:
             logger.info("Risk guard blocked %s for %s", signal.action.value, signal.symbol)
             return
+
+        if opens_new_trade:
+            self.risk_guard.record_opened_trade(signal.timestamp.date())
 
         if self._trade_emailer is not None:
             fill_result: Optional[ForwardTestFillResult] = None
@@ -1447,6 +1872,10 @@ class TradingWorkflow:
                 if resolved.asset_type == "OPTION"
                 else signal.close
             )
+            gex_trigger, entry_iv, force_review_after = self._gex_position_metadata(
+                signal,
+                resolved.option_quote,
+            )
             self.position_tracker.open_position(
                 symbol=resolved.symbol,
                 quantity=quantity,
@@ -1459,8 +1888,12 @@ class TradingWorkflow:
                 trailing_stop_pct=(
                     self._config.app.options.trailing_stop_pct
                     if resolved.asset_type == "OPTION"
+                    and signal.strategy_name != "gex_scalp"
                     else None
                 ),
+                gex_trigger_level=gex_trigger,
+                entry_iv=entry_iv,
+                force_review_after=force_review_after,
             )
             if resolved.asset_type == "OPTION":
                 self._subscribe_option_contract(resolved.symbol)
@@ -1716,13 +2149,19 @@ class TradingWorkflow:
         *,
         contract_side: Literal["call", "put"],
     ) -> ResolvedTrade:
-        """Size and resolve a 2-DTE ATM option entry."""
-        if contract_side == "call":
+        """Size and resolve a 0DTE or configured-DTE option entry."""
+        options = self._config.app.options
+        if options.days_to_expiration == 0:
+            selected = self._select_zero_dte_contract(
+                underlying,
+                price,
+                contract_side=contract_side,
+            )
+        elif contract_side == "call":
             selected = self._select_atm_call(underlying, price)
-            right_label = "call"
         else:
             selected = self._select_atm_put(underlying, price)
-            right_label = "put"
+        right_label = contract_side
 
         balance = self._tradeable_balance()
         contracts = contracts_for_buy(
@@ -1749,7 +2188,7 @@ class TradingWorkflow:
         capped = min(float(contracts), self._config.risk.max_position_quantity)
         description = (
             f"{int(capped)} x {selected.occ_symbol} "
-            f"(ATM {selected.strike:.2f} {right_label}, {selected.days_to_expiration} DTE)"
+            f"({selected.strike:.2f} {right_label}, {selected.days_to_expiration} DTE)"
         )
         return ResolvedTrade(
             symbol=selected.occ_symbol,
@@ -1760,6 +2199,73 @@ class TradingWorkflow:
             description=description,
             option_quote=selected.quote,
         )
+
+    def _select_zero_dte_contract(
+        self,
+        underlying: str,
+        spot_price: float,
+        *,
+        contract_side: Literal["call", "put"],
+    ) -> SelectedOption:
+        """Resolve a 0DTE contract in the configured delta band."""
+        options = self._config.app.options
+        gex = self._config.app.gex
+        criteria = ZeroDteSelectionCriteria(
+            target_dte=options.days_to_expiration,
+            min_delta=gex.min_delta,
+            max_delta=gex.max_delta,
+        )
+        client = self._get_market_data_client()
+        if client is not None:
+            try:
+                chain = client.fetch_option_chain(
+                    underlying,
+                    contract_type=contract_side.upper(),
+                    strike_count=max(options.strike_count, gex.strike_count),
+                    days_to_expiration=options.days_to_expiration,
+                )
+                return select_zero_dte_contract(
+                    chain,
+                    underlying,
+                    spot_price,
+                    side=contract_side,
+                    criteria=criteria,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to fetch 0DTE %s chain for %s; using synthetic contract",
+                    contract_side,
+                    underlying,
+                )
+
+        from option_selector import synthetic_atm_option
+
+        return synthetic_atm_option(
+            underlying,
+            spot_price,
+            days_to_expiration=options.days_to_expiration,
+            mark_price=options.simulated_premium,
+            option_right="C" if contract_side == "call" else "P",
+            as_of=self._market_today(),
+        )
+
+    def _gex_position_metadata(
+        self,
+        signal: StrategySignal,
+        _quote: Optional[OptionQuoteSnapshot],
+    ) -> tuple[Optional[float], Optional[float], Optional[datetime]]:
+        """Return GEX trigger level, entry IV, and max-hold deadline for a new option."""
+        if signal.strategy_name != "gex_scalp":
+            return None, None, None
+
+        state = self._gex_strategy_state.get(signal.symbol, {})
+        trigger_level = state.get("trigger_level")
+        trigger = float(trigger_level) if trigger_level is not None else None
+        entry_iv = None
+        force_review_after = signal.timestamp + timedelta(
+            minutes=self._config.app.gex.max_hold_minutes
+        )
+        return trigger, entry_iv, force_review_after
 
     def _reconcile_restored_positions_with_trend(self) -> None:
         """Close restored options that no longer match the Gaussian MA bias."""
@@ -2217,14 +2723,21 @@ class TradingWorkflow:
             return risk.simulated_tradeable_balance
 
         try:
-            snapshot = self._account_sync.fetch_snapshot(
-                account_hash=self._config.schwab_account_hash,
-                account_number=self._config.schwab_account_number,
-            )
+            if isinstance(self._account_sync, SchwabAccountSync):
+                snapshot = self._account_sync.fetch_snapshot(
+                    account_hash=self._config.schwab_account_hash,
+                    account_number=self._config.schwab_account_number,
+                )
+                balance = snapshot.balances.cash_available_for_trading
+            else:
+                if self._ibkr_tws_runtime is not None and not self._ibkr_tws_runtime.isConnected():
+                    self._connect_ibkr_runtime()
+                snapshot = self._account_sync.fetch_snapshot()
+                balance = snapshot.balances.equity
             self._account_snapshot = snapshot
-            return snapshot.balances.cash_available_for_trading
+            return balance
         except Exception:
-            logger.exception("Failed to fetch Schwab tradeable balance")
+            logger.exception("Failed to fetch broker tradeable balance")
             if self._account_snapshot is not None:
                 return self._account_snapshot.balances.cash_available_for_trading
             return 0.0
@@ -2297,7 +2810,7 @@ class TradingWorkflow:
 
     def _on_stream_connected(self) -> None:
         """Publish stream connection events and subscribe to watchlist symbols."""
-        stream_url = self.stream_manager.url
+        stream_url = self._stream_endpoint()
         self.bus.publish(
             Topics.STREAM_CONNECTED,
             {
@@ -2308,6 +2821,8 @@ class TradingWorkflow:
             source="stream_connection_manager",
         )
         if self._config.stream_provider == "schwab":
+            return
+        if self._config.stream_provider == "ibkr":
             return
         if self._config.subscribe_on_connect:
             self._subscribe_symbols()
@@ -2338,7 +2853,10 @@ class TradingWorkflow:
         )
         self.bus.publish(
             Topics.STREAM_RECONNECTING,
-            {"url": self.stream_manager.url, "provider": self._config.stream_provider},
+            {
+                "url": self._stream_endpoint(),
+                "provider": self._config.stream_provider,
+            },
             source="stream_connection_manager",
         )
 
@@ -2546,9 +3064,12 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     app = load_config()
-    use_live_schwab = app.workflow.run_schwab_stream
+    use_live_stream = app.workflow.run_schwab_stream or app.workflow.stream_provider in {
+        "schwab",
+        "ibkr",
+    }
 
-    if use_live_schwab:
+    if use_live_stream:
         workflow = TradingWorkflow(WorkflowConfig.from_env())
         workflow.start()
         try:

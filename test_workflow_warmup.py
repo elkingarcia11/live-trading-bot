@@ -12,6 +12,8 @@ from workflow_warmup import (
     backfill_timeframe,
     bootstrap_sync_start,
     configured_sync_start,
+    fetch_recent_1m_volumes,
+    indicator_warmup_needed,
     last_completed_bar_timestamp,
     load_recent_stored_bars,
     load_stored_bars,
@@ -216,3 +218,96 @@ def test_load_recent_stored_bars_walks_back_across_partitions() -> None:
     assert len(loaded) == 3
     assert loaded.iloc[0]["timestamp"] == pd.Timestamp("2026-06-14 17:00:00", tz="UTC")
     assert float(loaded.iloc[-1]["close"]) == 3.05
+
+
+def test_indicator_warmup_not_needed_for_gex_only_without_indicators() -> None:
+    app = AppConfig()
+    object.__setattr__(app.indicators, "dema", None)
+    object.__setattr__(app.indicators, "supertrend", None)
+    object.__setattr__(app.indicators, "gaussian_bands", None)
+    assert indicator_warmup_needed(app, ("gex_scalp",)) is False
+
+
+def test_indicator_warmup_needed_when_supertrend_enabled() -> None:
+    app = AppConfig()
+    object.__setattr__(
+        app.indicators,
+        "supertrend",
+        app.indicators.supertrend.__class__(
+            atr_period=11,
+            source="hl2",
+            multiplier=1.0,
+            change_atr=True,
+        ),
+    )
+    assert indicator_warmup_needed(app, ("gex_scalp",)) is True
+
+
+def test_fetch_recent_1m_volumes_from_storage() -> None:
+    app = AppConfig()
+    end = datetime(2026, 6, 15, 17, 20, tzinfo=timezone.utc)
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.date_range(
+                end - timedelta(minutes=19),
+                end,
+                freq="1min",
+                tz="UTC",
+            ),
+            "open": 1.0,
+            "high": 1.0,
+            "low": 1.0,
+            "close": 1.0,
+            "volume": [float(i) for i in range(20)],
+        }
+    )
+    storage = MagicMock()
+    storage.exists.return_value = True
+    storage.read.return_value = frame
+
+    volumes, source = fetch_recent_1m_volumes(
+        app,
+        "SPY",
+        lookback_bars=20,
+        end=end,
+        storage=storage,
+    )
+    assert source == "storage"
+    assert len(volumes) == 20
+    assert volumes[0] == 0.0
+    assert volumes[-1] == 19.0
+
+
+def test_seed_gex_volume_history_caps_at_lookback() -> None:
+    from collections import deque
+
+    from workflow import TradingWorkflow
+
+    config = MagicMock()
+    config.app.gex.volume_lookback_bars = 5
+    config.app.gex.enabled = True
+    config.strategies = ("gex_scalp",)
+    config.symbols = ("SPY",)
+    config.warmup_from_storage = False
+    config.persist_session_bars = False
+    config.market_config.stream_timeframe = "1m"
+    config.market_config.strategy_timeframe = "1m"
+    config.market_config.aggregation_timeframes = ("1m",)
+    config.indicator_config.build_jobs.return_value = ()
+    config.sync_broker_positions_on_start = False
+    config.eod_schedule.enabled = False
+    config.managed_exits = False
+    config.app.options.enabled = False
+    config.app.broker.provider = "schwab"
+    config.stream_provider = "schwab"
+    config.run_schwab_stream = False
+    config.websocket_url = ""
+
+    workflow = object.__new__(TradingWorkflow)
+    workflow._config = config
+    workflow._symbols = ("SPY",)
+    workflow._volume_history = {"SPY": deque(maxlen=5)}
+
+    seeded = workflow.seed_gex_volume_history("SPY", list(range(10)))
+    assert seeded == 5
+    assert list(workflow._volume_history["SPY"]) == [5.0, 6.0, 7.0, 8.0, 9.0]

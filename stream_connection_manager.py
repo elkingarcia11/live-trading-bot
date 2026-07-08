@@ -13,7 +13,7 @@ import logging
 import threading
 import time
 from enum import Enum
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import websocket
 
@@ -58,6 +58,7 @@ class StreamConnectionManager:
         reconnect_backoff_seconds: float = 1.0,
         max_reconnect_backoff_seconds: float = 60.0,
         max_reconnect_attempts: Optional[int] = None,
+        sslopt: Optional[dict[str, Any]] = None,
     ) -> None:
         """Initialize a managed WebSocket connection.
 
@@ -93,6 +94,7 @@ class StreamConnectionManager:
         self._reconnect_backoff_seconds = reconnect_backoff_seconds
         self._max_reconnect_backoff_seconds = max_reconnect_backoff_seconds
         self._max_reconnect_attempts = max_reconnect_attempts
+        self._sslopt = sslopt
 
         self._state = ConnectionState.DISCONNECTED
         self._ws: Optional[websocket.WebSocketApp] = None
@@ -186,10 +188,13 @@ class StreamConnectionManager:
             )
 
             # Blocks until the socket closes or the manager is stopped.
-            self._ws.run_forever(
-                ping_interval=self._ping_interval,
-                ping_timeout=self._ping_timeout,
-            )
+            run_kwargs: dict[str, Any] = {
+                "ping_interval": self._ping_interval,
+                "ping_timeout": self._ping_timeout,
+            }
+            if self._sslopt is not None:
+                run_kwargs["sslopt"] = self._sslopt
+            self._ws.run_forever(**run_kwargs)
 
             if self._stop_event.is_set():
                 break

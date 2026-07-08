@@ -40,6 +40,7 @@ class Topics:
     STREAM_ERROR = "stream.error"
     HEALTH_ALERT = "health.alert"
     HEALTH_SNAPSHOT = "health.snapshot"
+    GEX_SNAPSHOT = "gex.snapshot"
 
 
 @dataclass(frozen=True)

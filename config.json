@@ -7,8 +7,8 @@
   "market": {
     "symbols": ["SPY"],
     "stream_timeframe": "1m",
-    "strategy_timeframe": "3m",
-    "aggregation_timeframes": ["3m", "1h", "1d"]
+    "strategy_timeframe": "1m",
+    "aggregation_timeframes": ["1h", "1d"]
   },
   "indicators": {
     "max_bars": 500,
@@ -25,7 +25,7 @@
       "change_atr": true
     },
     "gaussian_bands": {
-      "enabled": true,
+      "enabled": false,
       "length": 20,
       "sigma_divisor": 3.0,
       "atr_period": 7,
@@ -35,14 +35,14 @@
       "squeeze_ratio": 0.75
     }
   },
-  "strategies": ["gaussian_bands"],
+  "strategies": ["gex_scalp"],
   "workflow": {
     "run_schwab_stream": true,
     "stream_provider": "schwab",
     "websocket_url": "",
     "subscribe_on_connect": true,
     "audit_log_path": "logs/audit.jsonl",
-    "warmup_from_storage": true,
+    "warmup_from_storage": false,
     "startup_sync_lookback_days": 30,
     "persist_session_bars": true,
     "eod_enabled": true,
@@ -65,9 +65,9 @@
     "dedup_window": 500
   },
   "historical": {
-    "timeframe": "3m",
+    "timeframe": "1m",
     "frequency_type": "minute",
-    "frequency": 3,
+    "frequency": 1,
     "need_extended_hours": true,
     "need_previous_close": false,
     "sync_start_date": "2024-01-01",
@@ -101,14 +101,15 @@
     "position_size_pct": 0.3,
     "position_size_max_dollars": 15000,
     "simulated_tradeable_balance": 3000,
-    "max_position_quantity": 10000,
+    "max_position_quantity": 10,
     "managed_exits": false,
     "stop_loss": null,
     "take_profit": null,
     "trailing_stop_distance": null
   },
   "broker": {
-    "use_in_memory": true,
+    "provider": "schwab",
+    "use_in_memory": false,
     "simulated_fill_price": 100,
     "preview_orders": false,
     "sync_positions_on_start": false,
@@ -117,13 +118,32 @@
   },
   "options": {
     "enabled": true,
-    "days_to_expiration": 2,
+    "days_to_expiration": 0,
     "contract_type": "CALL",
-    "simulated_premium": 5.0,
-    "strike_count": 5,
+    "simulated_premium": 2.5,
+    "strike_count": 20,
     "commission_per_contract": 0.65,
     "stream_contract_marks": true,
-    "trailing_stop_pct": 0.15
+    "trailing_stop_pct": null
+  },
+  "gex": {
+    "enabled": true,
+    "poll_interval_seconds": 20,
+    "poll_on_startup": true,
+    "seed_volume_history": true,
+    "strike_count": 50,
+    "days_to_expiration": 0,
+    "risk_free_rate": 0.05,
+    "volume_lookback_bars": 20,
+    "volume_multiplier": 1.5,
+    "put_wall_break_pct": 0.001,
+    "stall_body_ratio": 0.25,
+    "long_wick_ratio": 0.55,
+    "max_hold_minutes": 10,
+    "max_trades_per_day": 5,
+    "max_daily_loss_dollars": 500,
+    "min_delta": 0.45,
+    "max_delta": 0.50
   },
   "email": {
     "forward_test": true,
@@ -162,5 +182,18 @@
     "accounts_path": "accounts",
     "orders_path": "accounts/{account_hash}/orders",
     "preview_order_path": "accounts/{account_hash}/previewOrder"
+  },
+  "ibkr": {
+    "host": "127.0.0.1",
+    "port": 4002,
+    "client_id": 1,
+    "market_data_client_id": 2,
+    "connect_timeout_seconds": 30,
+    "exchange": "SMART",
+    "currency": "USD",
+    "market_data_type": 1,
+    "tick_by_tick_type": "Last",
+    "historical_what_to_show": "TRADES",
+    "historical_use_rth": 0
   }
 }

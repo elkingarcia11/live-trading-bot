@@ -11,13 +11,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from strategy_registry import (
     SignalAction,
     StrategyEvaluationContext,
     StrategyRegistry,
 )
+
+if TYPE_CHECKING:
+    from gex_calculator import GexSnapshot
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,13 @@ class SignalEvaluator:
         close: float,
         indicators: dict[str, Any],
         strategy_name: str,
+        open: float = 0.0,
+        high: float = 0.0,
+        low: float = 0.0,
+        volume: float = 0.0,
+        gex: Optional["GexSnapshot"] = None,
+        has_open_position: bool = False,
+        state: Optional[dict[str, Any]] = None,
     ) -> StrategySignal:
         """Evaluate one strategy for the current bar and indicator snapshot.
 
@@ -95,6 +105,7 @@ class SignalEvaluator:
             )
 
         self._validate_required_indicators(strategy.required_indicators, indicators)
+        self._validate_required_gex(strategy.required_gex_fields, gex)
 
         context = StrategyEvaluationContext(
             symbol=symbol.upper(),
@@ -102,6 +113,13 @@ class SignalEvaluator:
             timestamp=timestamp,
             close=close,
             indicators=indicators,
+            open=open,
+            high=high,
+            low=low,
+            volume=volume,
+            gex=gex,
+            has_open_position=has_open_position,
+            state=state if state is not None else {},
         )
         action = strategy.rule(context)
 
@@ -124,6 +142,13 @@ class SignalEvaluator:
         close: float,
         indicators: dict[str, Any],
         active_strategies: Optional[list[str]] = None,
+        open: float = 0.0,
+        high: float = 0.0,
+        low: float = 0.0,
+        volume: float = 0.0,
+        gex: Optional["GexSnapshot"] = None,
+        has_open_position: bool = False,
+        state: Optional[dict[str, Any]] = None,
     ) -> list[StrategySignal]:
         """Evaluate one or more active strategies for the current bar.
 
@@ -148,6 +173,13 @@ class SignalEvaluator:
                 close=close,
                 indicators=indicators,
                 strategy_name=name,
+                open=open,
+                high=high,
+                low=low,
+                volume=volume,
+                gex=gex,
+                has_open_position=has_open_position,
+                state=state,
             )
             for name in strategies
             if self._registry.get(name).timeframe == timeframe
@@ -162,6 +194,21 @@ class SignalEvaluator:
         missing = [name for name in required if name not in indicators]
         if missing:
             raise ValueError(f"Missing required indicators: {missing}")
+
+    def _validate_required_gex(
+        self,
+        required: tuple[str, ...],
+        gex: Optional["GexSnapshot"],
+    ) -> None:
+        """Ensure a strategy's required GEX snapshot fields are present."""
+        if not required:
+            return
+        if gex is None:
+            raise ValueError("Missing required GEX snapshot")
+        payload = gex.to_dict()
+        missing = [name for name in required if payload.get(name) is None]
+        if missing:
+            raise ValueError(f"Missing required GEX fields: {missing}")
 
     def _hold_signal(
         self,

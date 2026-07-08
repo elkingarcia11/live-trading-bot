@@ -9,11 +9,14 @@ execution events.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, TYPE_CHECKING
 
 from enum import Enum
+
+if TYPE_CHECKING:
+    from gex_calculator import GexSnapshot
 
 
 class SignalAction(Enum):
@@ -34,6 +37,13 @@ class StrategyEvaluationContext:
     timestamp: datetime
     close: float
     indicators: dict[str, Any]
+    open: float = 0.0
+    high: float = 0.0
+    low: float = 0.0
+    volume: float = 0.0
+    gex: Optional["GexSnapshot"] = None
+    has_open_position: bool = False
+    state: dict[str, Any] = field(default_factory=dict)
 
 
 StrategyRule = Callable[[StrategyEvaluationContext], SignalAction]
@@ -47,6 +57,7 @@ class StrategyDefinition:
     rule: StrategyRule
     timeframe: str
     required_indicators: tuple[str, ...] = ()
+    required_gex_fields: tuple[str, ...] = ()
 
 
 class StrategyRegistry:
@@ -159,6 +170,114 @@ def macd_crossover(ctx: StrategyEvaluationContext) -> SignalAction:
     return SignalAction.HOLD
 
 
+def gex_scalp(ctx: StrategyEvaluationContext) -> SignalAction:
+    """Negative-GEX 0DTE scalping: put-wall breaks and magnet snaps on 1m bars."""
+    gex = ctx.gex
+    if gex is None:
+        return SignalAction.HOLD
+
+    state = ctx.state
+    volume_sma = ctx.indicators.get("volume_sma")
+    volume_mult = float(ctx.indicators.get("gex_volume_multiplier", 1.5))
+    put_wall_break_pct = float(ctx.indicators.get("gex_put_wall_break_pct", 0.001))
+    stall_body_ratio = float(ctx.indicators.get("gex_stall_body_ratio", 0.25))
+    long_wick_ratio = float(ctx.indicators.get("gex_long_wick_ratio", 0.55))
+
+    volume_spike = (
+        volume_sma is not None
+        and volume_sma > 0
+        and ctx.volume >= volume_sma * volume_mult
+    )
+
+    if ctx.has_open_position:
+        return _gex_scalp_manage_exit(
+            ctx,
+            state,
+            stall_body_ratio=stall_body_ratio,
+            long_wick_ratio=long_wick_ratio,
+        )
+
+    if gex.regime != "negative":
+        state.clear()
+        return SignalAction.HOLD
+
+    if not volume_spike:
+        return SignalAction.HOLD
+
+    if gex.put_wall is not None:
+        threshold = gex.put_wall * (1.0 - put_wall_break_pct)
+        if ctx.close < threshold:
+            state["trigger_level"] = gex.put_wall
+            state["entry_side"] = "put"
+            state["consecutive_directional"] = 0
+            return SignalAction.SELL
+
+    if gex.flip_level is not None:
+        if ctx.close > gex.flip_level and ctx.open <= gex.flip_level:
+            state["trigger_level"] = gex.flip_level
+            state["entry_side"] = "call"
+            state["consecutive_directional"] = 0
+            return SignalAction.BUY
+        if ctx.close < gex.flip_level and ctx.open >= gex.flip_level:
+            state["trigger_level"] = gex.flip_level
+            state["entry_side"] = "put"
+            state["consecutive_directional"] = 0
+            return SignalAction.SELL
+
+    return SignalAction.HOLD
+
+
+def _gex_scalp_manage_exit(
+    ctx: StrategyEvaluationContext,
+    state: dict[str, Any],
+    *,
+    stall_body_ratio: float,
+    long_wick_ratio: float,
+) -> SignalAction:
+    """Apply GEX take-profit and stop-loss rules for an open scalp."""
+    trigger = state.get("trigger_level")
+    entry_side = state.get("entry_side")
+    if trigger is None or entry_side not in {"call", "put"}:
+        return SignalAction.HOLD
+
+    if entry_side == "put" and ctx.close > float(trigger):
+        state.clear()
+        return SignalAction.EXIT
+    if entry_side == "call" and ctx.close < float(trigger):
+        state.clear()
+        return SignalAction.EXIT
+
+    bar_range = max(ctx.high - ctx.low, 1e-9)
+    body = abs(ctx.close - ctx.open)
+    bullish = ctx.close >= ctx.open
+    bearish = not bullish
+
+    if entry_side == "call":
+        upper_wick = ctx.high - max(ctx.open, ctx.close)
+        reversed_color = bearish
+        directional = bullish
+    else:
+        upper_wick = min(ctx.open, ctx.close) - ctx.low
+        reversed_color = bullish
+        directional = bearish
+
+    long_wick = upper_wick / bar_range >= long_wick_ratio
+    stalled = body / bar_range <= stall_body_ratio
+
+    consecutive = int(state.get("consecutive_directional", 0))
+    if directional:
+        consecutive += 1
+    else:
+        consecutive = 0
+    state["consecutive_directional"] = consecutive
+
+    if reversed_color or stalled or long_wick or consecutive >= 3:
+        state.clear()
+        return SignalAction.EXIT
+
+    return SignalAction.HOLD
+
+
 def build_default_registry(*, strategy_timeframe: str = "5m") -> StrategyRegistry:
     """Create a registry with the built-in example strategies."""
     registry = StrategyRegistry()
@@ -221,6 +340,15 @@ def build_default_registry(*, strategy_timeframe: str = "5m") -> StrategyRegistr
             rule=macd_crossover,
             timeframe=strategy_timeframe,
             required_indicators=("macd", "macd_signal"),
+        )
+    )
+    registry.register(
+        StrategyDefinition(
+            name="gex_scalp",
+            rule=gex_scalp,
+            timeframe="1m",
+            required_indicators=(),
+            required_gex_fields=("regime", "put_wall", "flip_level"),
         )
     )
     return registry

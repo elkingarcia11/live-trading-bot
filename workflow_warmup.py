@@ -58,6 +58,171 @@ class WarmupSummary:
     storage_timeframe: str
 
 
+@dataclass(frozen=True)
+class GexWarmupSummary:
+    """Outcome of GEX-specific startup preload."""
+
+    symbol: str
+    volumes_seeded: int
+    lookback_bars: int
+    source: str
+
+
+def indicator_warmup_needed(app: "AppConfig", strategies: tuple[str, ...]) -> bool:
+    """Return True when startup should run the full historical indicator warmup."""
+    non_gex = set(strategies) - {"gex_scalp"}
+    if non_gex:
+        return True
+    jobs = app.indicators.build_jobs(app.market.strategy_timeframe)
+    return bool(jobs)
+
+
+def fetch_recent_1m_volumes(
+    app: "AppConfig",
+    symbol: str,
+    *,
+    lookback_bars: int,
+    end: datetime,
+    storage: Optional[CloudStorageRepository] = None,
+    executor: Optional[object] = None,
+) -> tuple[list[float], str]:
+    """Load recent 1m volumes from storage, falling back to a REST backfill."""
+    symbol = symbol.upper()
+    stream_timeframe = app.market.stream_timeframe
+    lookback_bars = max(lookback_bars, 1)
+    end = _to_utc(end)
+    floor = end - warmup_lookback_duration_for_bars(
+        stream_timeframe,
+        lookback_bars + 10,
+    )
+
+    bars = _empty_ohlcv_frame()
+    source = "none"
+    if storage is not None:
+        bars = load_recent_stored_bars(
+            storage,
+            symbol,
+            stream_timeframe,
+            end=end,
+            required_bars=lookback_bars,
+            floor=floor,
+            use_daily_partitions=app.gcs.use_daily_partitions,
+        )
+        if not bars.empty:
+            source = "storage"
+
+    if len(bars) < lookback_bars and executor is not None and storage is not None:
+        request_start = max(floor, end - warmup_lookback_duration_for_bars(
+            stream_timeframe,
+            lookback_bars + 30,
+        ))
+        request = BackfillRequest(
+            symbol=symbol,
+            timeframe=stream_timeframe,
+            start=request_start,
+            end=end + timedelta(minutes=1),
+            partition_date=end.date() if app.gcs.use_daily_partitions else None,
+        )
+        try:
+            logger.info(
+                "Fetching recent 1m bars for GEX volume seed (%s): %s -> %s",
+                symbol,
+                request_start.isoformat(),
+                end.isoformat(),
+            )
+            executor.execute(request)
+            bars = load_recent_stored_bars(
+                storage,
+                symbol,
+                stream_timeframe,
+                end=end,
+                required_bars=lookback_bars,
+                floor=floor,
+                use_daily_partitions=app.gcs.use_daily_partitions,
+            )
+            if not bars.empty:
+                source = "rest"
+        except Exception:
+            logger.exception("REST fetch for GEX volume seed failed for %s", symbol)
+
+    if bars.empty:
+        return [], source
+
+    volumes = (
+        bars.sort_values("timestamp")["volume"].astype(float).tolist()[-lookback_bars:]
+    )
+    return volumes, source
+
+
+def warm_start_gex(workflow: "TradingWorkflow") -> list[GexWarmupSummary]:
+    """Seed gex_scalp volume lookback from recent 1m bars before the live stream."""
+    app = workflow.config.app
+    gex = app.gex
+    if not gex.enabled or "gex_scalp" not in workflow.config.strategies:
+        return []
+    if not gex.seed_volume_history:
+        return []
+
+    lookback_bars = max(gex.volume_lookback_bars, 1)
+    end = last_completed_minute()
+    logger.info(
+        "=== GEX startup: seeding %d-bar 1m volume lookback (through %s) ===",
+        lookback_bars,
+        end.isoformat(),
+    )
+
+    storage: Optional[CloudStorageRepository] = None
+    executor: Optional[object] = None
+    try:
+        storage = build_storage_repository(app)
+        executor = build_backfill_executor(storage, app=app)
+    except Exception:
+        logger.exception(
+            "GEX volume seed storage/backfill unavailable; continuing without preload"
+        )
+
+    summaries: list[GexWarmupSummary] = []
+    try:
+        for symbol in workflow.symbols:
+            volumes, source = fetch_recent_1m_volumes(
+                app,
+                symbol,
+                lookback_bars=lookback_bars,
+                end=end,
+                storage=storage,
+                executor=executor,
+            )
+            seeded = workflow.seed_gex_volume_history(symbol, volumes)
+            if seeded:
+                logger.info(
+                    "GEX volume seed for %s: %d/%d bar(s) from %s",
+                    symbol,
+                    seeded,
+                    lookback_bars,
+                    source,
+                )
+            else:
+                logger.warning(
+                    "GEX volume seed for %s: no 1m history available; "
+                    "volume-spike filter activates after %d live bar(s)",
+                    symbol,
+                    lookback_bars,
+                )
+            summaries.append(
+                GexWarmupSummary(
+                    symbol=symbol,
+                    volumes_seeded=seeded,
+                    lookback_bars=lookback_bars,
+                    source=source if seeded else "none",
+                )
+            )
+    finally:
+        if executor is not None:
+            close_backfill_executor(executor)
+
+    return summaries
+
+
 def warm_start_pipeline(workflow: "TradingWorkflow") -> list[WarmupSummary]:
     """Backfill gaps through the last completed bar and warm indicator buffers."""
     app = workflow.config.app
@@ -67,6 +232,7 @@ def warm_start_pipeline(workflow: "TradingWorkflow") -> list[WarmupSummary]:
     logger.info("=== Startup preload: checking GCS and backfilling gaps ===")
 
     summaries: list[WarmupSummary] = []
+    orchestrator = None
     try:
         gcs = app.gcs
         logger.info(
@@ -131,7 +297,7 @@ def warm_start_pipeline(workflow: "TradingWorkflow") -> list[WarmupSummary]:
                 )
 
             logger.info(
-                "Planning Schwab pricehistory backfill for missing %s gaps (%s -> %s)",
+                "Planning historical backfill for missing %s gaps (%s -> %s)",
                 storage_timeframe,
                 sync_start.isoformat(),
                 backfill_end.isoformat(),
@@ -270,6 +436,9 @@ def warm_start_pipeline(workflow: "TradingWorkflow") -> list[WarmupSummary]:
     else:
         logger.info("=== Startup preload finished with no symbol summaries ===")
 
+    if orchestrator is not None:
+        close_backfill_executor(orchestrator._backfill_executor)
+
     return summaries
 
 
@@ -301,7 +470,7 @@ def sync_stream_minute_tail(
     if seed_start > end_minute:
         return 0
 
-    executor = build_schwab_backfill_executor(storage, app=app)
+    executor = build_backfill_executor(storage, app=app)
     rows_written = 0
     cursor_day = seed_start.date()
     while cursor_day <= end_minute.date():
@@ -344,7 +513,7 @@ def sync_stream_minute_tail(
             continue
 
         logger.info(
-            "Fetching Schwab 1m tail for %s aggregation: %s -> %s",
+            "Fetching 1m tail for %s aggregation: %s -> %s",
             symbol,
             request_start.isoformat(),
             request_end.isoformat(),
@@ -353,6 +522,7 @@ def sync_stream_minute_tail(
         rows_written += result.rows_written
         cursor_day += timedelta(days=1)
 
+    close_backfill_executor(executor)
     return rows_written
 
 
@@ -734,6 +904,25 @@ def build_storage_repository(app: "AppConfig") -> LayeredOhlcvRepository:
     )
 
 
+def build_backfill_executor(
+    storage: CloudStorageRepository,
+    app: "AppConfig",
+):
+    """Return the market-data backfill executor for the configured provider."""
+    if app.workflow.stream_provider == "ibkr" or app.broker.provider == "ibkr":
+        from ibkr_tws_market_data_client import build_ibkr_tws_backfill_executor
+
+        return build_ibkr_tws_backfill_executor(storage, app=app)
+    return build_schwab_backfill_executor(storage, app=app)
+
+
+def close_backfill_executor(executor: object) -> None:
+    """Release any provider-specific backfill client connections."""
+    client = getattr(executor, "api_client", None)
+    if client is not None and hasattr(client, "close"):
+        client.close()
+
+
 def build_historical_orchestrator(
     app: "AppConfig",
     storage: CloudStorageRepository,
@@ -742,7 +931,7 @@ def build_historical_orchestrator(
     historical = app.historical
     return HistoricalOrchestrator(
         storage,
-        build_schwab_backfill_executor(storage, app=app),
+        build_backfill_executor(storage, app=app),
         use_daily_partitions=app.gcs.use_daily_partitions,
         session_start=_parse_utc_time(historical.session_start_utc),
         session_end=_parse_utc_time(historical.session_end_utc),

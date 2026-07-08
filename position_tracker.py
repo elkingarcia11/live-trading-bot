@@ -56,6 +56,9 @@ class Position:
     max_unrealized_loss: Optional[float] = None
     max_unrealized_profit_pct: Optional[float] = None
     max_unrealized_loss_pct: Optional[float] = None
+    gex_trigger_level: Optional[float] = None
+    entry_iv: Optional[float] = None
+    force_review_after: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,9 @@ class PositionTracker:
         underlying_symbol: Optional[str] = None,
         underlying_entry_price: Optional[float] = None,
         entry_quote: Optional[OptionQuoteSnapshot] = None,
+        gex_trigger_level: Optional[float] = None,
+        entry_iv: Optional[float] = None,
+        force_review_after: Optional[datetime] = None,
     ) -> Position:
         """Open or replace a position for a symbol.
 
@@ -185,6 +191,9 @@ class PositionTracker:
             underlying_symbol=(underlying_symbol or symbol).upper(),
             underlying_entry_price=underlying_entry_price,
             entry_quote=entry_quote,
+            gex_trigger_level=gex_trigger_level,
+            entry_iv=entry_iv,
+            force_review_after=force_review_after,
         )
 
         with self._lock:

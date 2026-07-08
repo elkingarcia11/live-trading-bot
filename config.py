@@ -42,7 +42,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path("config.json")
 DEFAULT_SYMBOLS: tuple[str, ...] = ("SPY", "QQQ", "TSLA", "AMZN", "NVDA")
 
-StreamProvider = Literal["generic", "schwab"]
+StreamProvider = Literal["generic", "schwab", "ibkr"]
+BrokerProvider = Literal["schwab", "ibkr"]
 
 _config: Optional["AppConfig"] = None
 
@@ -221,6 +222,7 @@ class RiskSettings:
 
 @dataclass(frozen=True)
 class BrokerSettings:
+    provider: BrokerProvider = "schwab"
     use_in_memory: bool = True
     simulated_fill_price: float = 100.0
     preview_orders: bool = False
@@ -239,6 +241,27 @@ class OptionsSettings:
     commission_per_contract: float = 0.65
     stream_contract_marks: bool = True
     trailing_stop_pct: Optional[float] = 0.15
+
+
+@dataclass(frozen=True)
+class GexSettings:
+    enabled: bool = False
+    poll_interval_seconds: float = 20.0
+    poll_on_startup: bool = True
+    strike_count: int = 50
+    days_to_expiration: int = 0
+    risk_free_rate: float = 0.05
+    seed_volume_history: bool = True
+    volume_lookback_bars: int = 20
+    volume_multiplier: float = 1.5
+    put_wall_break_pct: float = 0.001
+    stall_body_ratio: float = 0.25
+    long_wick_ratio: float = 0.55
+    max_hold_minutes: int = 10
+    max_trades_per_day: int = 5
+    max_daily_loss_dollars: float = 500.0
+    min_delta: float = 0.45
+    max_delta: float = 0.50
 
 @dataclass(frozen=True)
 class EmailSettings:
@@ -266,6 +289,51 @@ class HealthSettings:
     max_order_round_trip_seconds: float = 10.0
     module_silence_seconds: float = 300.0
     startup_grace_seconds: float = 180.0
+
+
+@dataclass(frozen=True)
+class IbkrSettings:
+    # TWS / IB Gateway (active workflow path)
+    host: str = "127.0.0.1"
+    port: int = 4002
+    client_id: int = 1
+    market_data_client_id: int = 2
+    connect_timeout_seconds: float = 30.0
+    exchange: str = "SMART"
+    currency: str = "USD"
+    market_data_type: int = 1
+    tick_by_tick_type: str = "Last"
+    historical_what_to_show: str = "TRADES"
+    historical_use_rth: int = 0
+    # Client Portal Web API (legacy modules only; not used by the live workflow)
+    gateway_base_url: str = "https://localhost:5000/v1/api"
+    verify_ssl: bool = False
+    tickle_interval_seconds: float = 60.0
+    request_timeout_seconds: float = 30.0
+    max_requests_per_second: float = 10.0
+    compete_for_session: bool = True
+    auth_status_path: str = "iserver/auth/status"
+    ssodh_init_path: str = "iserver/auth/ssodh/init"
+    tickle_path: str = "tickle"
+    logout_path: str = "logout"
+    secdef_search_path: str = "iserver/secdef/search"
+    portfolio_accounts_path: str = "portfolio/accounts"
+    iserver_accounts_path: str = "iserver/accounts"
+    positions_path_template: str = "portfolio/{account_id}/positions/{page_id}"
+    orders_path_template: str = "iserver/account/{account_id}/orders"
+    order_path_template: str = "iserver/account/{account_id}/order/{order_id}"
+    live_orders_path: str = "iserver/account/orders"
+    reply_path_template: str = "iserver/reply/{reply_id}"
+    listing_exchange: str = "SMART"
+    manual_indicator: bool = False
+    ext_operator: str = "live-trading-bot"
+    websocket_url: str = "wss://localhost:5000/v1/api/ws"
+    marketdata_snapshot_path: str = "iserver/marketdata/snapshot"
+    marketdata_history_path: str = "iserver/marketdata/history"
+    snapshot_fields: str = "31,7762,84,86,88"
+    stream_fields: tuple[str, ...] = ("31", "7762", "88")
+    history_source: str = "Trades"
+    history_outside_rth: bool = True
 
 
 @dataclass(frozen=True)
@@ -300,10 +368,12 @@ class AppConfig:
     risk: RiskSettings = field(default_factory=RiskSettings)
     broker: BrokerSettings = field(default_factory=BrokerSettings)
     options: OptionsSettings = field(default_factory=OptionsSettings)
+    gex: GexSettings = field(default_factory=GexSettings)
     email: EmailSettings = field(default_factory=EmailSettings)
     forward_test: ForwardTestSettings = field(default_factory=ForwardTestSettings)
     health: HealthSettings = field(default_factory=HealthSettings)
     schwab: SchwabSettings = field(default_factory=SchwabSettings)
+    ibkr: IbkrSettings = field(default_factory=IbkrSettings)
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> AppConfig:
@@ -327,8 +397,12 @@ class AppConfig:
         stream_provider = str(
             _section(payload, "workflow").get("stream_provider", "schwab")
         ).lower()
-        if stream_provider not in {"generic", "schwab"}:
-            raise ValueError("workflow.stream_provider must be 'generic' or 'schwab'")
+        if stream_provider not in {"generic", "schwab", "ibkr"}:
+            raise ValueError("workflow.stream_provider must be 'generic', 'schwab', or 'ibkr'")
+
+        broker_provider = str(_section(payload, "broker").get("provider", "schwab")).lower()
+        if broker_provider not in {"schwab", "ibkr"}:
+            raise ValueError("broker.provider must be 'schwab' or 'ibkr'")
 
         gcs_payload = _section(payload, "gcs")
         credentials_path = str(gcs_payload.get("credentials_path", "")).strip()
@@ -364,12 +438,17 @@ class AppConfig:
                 ).strip(),
             ),
             risk=_parse_risk_settings(_section(payload, "risk")),
-            broker=_parse_broker_settings(_section(payload, "broker")),
+            broker=_parse_broker_settings(
+                _section(payload, "broker"),
+                provider=broker_provider,  # type: ignore[arg-type]
+            ),
             options=_parse_options_settings(_section(payload, "options")),
+            gex=_parse_gex_settings(_section(payload, "gex")),
             email=_parse_email_settings(_section(payload, "email")),
             forward_test=_parse_forward_test_settings(_section(payload, "forward_test")),
             health=_parse_health_settings(_section(payload, "health")),
             schwab=_parse_schwab_settings(_section(payload, "schwab")),
+            ibkr=_parse_ibkr_settings(_section(payload, "ibkr")),
         )
 
 
@@ -607,8 +686,13 @@ def _parse_risk_settings(payload: dict[str, Any]) -> RiskSettings:
     )
 
 
-def _parse_broker_settings(payload: dict[str, Any]) -> BrokerSettings:
+def _parse_broker_settings(
+    payload: dict[str, Any],
+    *,
+    provider: BrokerProvider,
+) -> BrokerSettings:
     return BrokerSettings(
+        provider=provider,
         use_in_memory=bool(payload.get("use_in_memory", True)),
         simulated_fill_price=float(payload.get("simulated_fill_price", 100)),
         preview_orders=bool(payload.get("preview_orders", False)),
@@ -634,6 +718,28 @@ def _parse_options_settings(payload: dict[str, Any]) -> OptionsSettings:
         commission_per_contract=float(payload.get("commission_per_contract", 0.65)),
         stream_contract_marks=bool(payload.get("stream_contract_marks", True)),
         trailing_stop_pct=trailing_stop_pct,
+    )
+
+
+def _parse_gex_settings(payload: dict[str, Any]) -> GexSettings:
+    return GexSettings(
+        enabled=bool(payload.get("enabled", False)),
+        poll_interval_seconds=float(payload.get("poll_interval_seconds", 20)),
+        poll_on_startup=bool(payload.get("poll_on_startup", True)),
+        strike_count=int(payload.get("strike_count", 50)),
+        days_to_expiration=int(payload.get("days_to_expiration", 0)),
+        risk_free_rate=float(payload.get("risk_free_rate", 0.05)),
+        seed_volume_history=bool(payload.get("seed_volume_history", True)),
+        volume_lookback_bars=int(payload.get("volume_lookback_bars", 20)),
+        volume_multiplier=float(payload.get("volume_multiplier", 1.5)),
+        put_wall_break_pct=float(payload.get("put_wall_break_pct", 0.001)),
+        stall_body_ratio=float(payload.get("stall_body_ratio", 0.25)),
+        long_wick_ratio=float(payload.get("long_wick_ratio", 0.55)),
+        max_hold_minutes=int(payload.get("max_hold_minutes", 10)),
+        max_trades_per_day=int(payload.get("max_trades_per_day", 5)),
+        max_daily_loss_dollars=float(payload.get("max_daily_loss_dollars", 500)),
+        min_delta=float(payload.get("min_delta", 0.45)),
+        max_delta=float(payload.get("max_delta", 0.50)),
     )
 
 
@@ -703,6 +809,92 @@ def _parse_schwab_settings(payload: dict[str, Any]) -> SchwabSettings:
             payload.get("preview_order_path", "accounts/{account_hash}/previewOrder")
         ),
     )
+
+
+def _parse_ibkr_settings(payload: dict[str, Any]) -> IbkrSettings:
+    exchange = str(payload.get("exchange", payload.get("listing_exchange", "SMART")))
+    historical_use_rth = payload.get("historical_use_rth")
+    if historical_use_rth is None:
+        historical_use_rth = 0 if payload.get("history_outside_rth", True) else 1
+    return IbkrSettings(
+        host=str(payload.get("host", "127.0.0.1")),
+        port=int(payload.get("port", 4002)),
+        client_id=int(payload.get("client_id", 1)),
+        market_data_client_id=int(payload.get("market_data_client_id", 2)),
+        connect_timeout_seconds=float(payload.get("connect_timeout_seconds", 30)),
+        exchange=exchange,
+        currency=str(payload.get("currency", "USD")),
+        market_data_type=int(payload.get("market_data_type", 1)),
+        tick_by_tick_type=str(payload.get("tick_by_tick_type", "Last")),
+        historical_what_to_show=str(
+            payload.get("historical_what_to_show", payload.get("history_source", "TRADES"))
+        ).upper(),
+        historical_use_rth=int(historical_use_rth),
+        gateway_base_url=str(
+            payload.get("gateway_base_url", "https://localhost:5000/v1/api")
+        ),
+        verify_ssl=bool(payload.get("verify_ssl", False)),
+        tickle_interval_seconds=float(payload.get("tickle_interval_seconds", 60)),
+        request_timeout_seconds=float(payload.get("request_timeout_seconds", 30)),
+        max_requests_per_second=float(payload.get("max_requests_per_second", 10)),
+        compete_for_session=bool(payload.get("compete_for_session", True)),
+        auth_status_path=str(payload.get("auth_status_path", "iserver/auth/status")),
+        ssodh_init_path=str(payload.get("ssodh_init_path", "iserver/auth/ssodh/init")),
+        tickle_path=str(payload.get("tickle_path", "tickle")),
+        logout_path=str(payload.get("logout_path", "logout")),
+        secdef_search_path=str(payload.get("secdef_search_path", "iserver/secdef/search")),
+        portfolio_accounts_path=str(
+            payload.get("portfolio_accounts_path", "portfolio/accounts")
+        ),
+        iserver_accounts_path=str(
+            payload.get("iserver_accounts_path", "iserver/accounts")
+        ),
+        positions_path_template=str(
+            payload.get(
+                "positions_path_template",
+                "portfolio/{account_id}/positions/{page_id}",
+            )
+        ),
+        orders_path_template=str(
+            payload.get("orders_path_template", "iserver/account/{account_id}/orders")
+        ),
+        order_path_template=str(
+            payload.get(
+                "order_path_template",
+                "iserver/account/{account_id}/order/{order_id}",
+            )
+        ),
+        live_orders_path=str(payload.get("live_orders_path", "iserver/account/orders")),
+        reply_path_template=str(payload.get("reply_path_template", "iserver/reply/{reply_id}")),
+        listing_exchange=exchange,
+        manual_indicator=bool(payload.get("manual_indicator", False)),
+        ext_operator=str(payload.get("ext_operator", "live-trading-bot")),
+        websocket_url=str(
+            payload.get("websocket_url", "wss://localhost:5000/v1/api/ws")
+        ),
+        marketdata_snapshot_path=str(
+            payload.get("marketdata_snapshot_path", "iserver/marketdata/snapshot")
+        ),
+        marketdata_history_path=str(
+            payload.get("marketdata_history_path", "iserver/marketdata/history")
+        ),
+        snapshot_fields=str(payload.get("snapshot_fields", "31,7762,84,86,88")),
+        stream_fields=_parse_stream_fields(payload.get("stream_fields")),
+        history_source=str(payload.get("history_source", "Trades")),
+        history_outside_rth=bool(payload.get("history_outside_rth", True)),
+    )
+
+
+def _parse_stream_fields(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ("31", "7762", "88")
+    if isinstance(value, str):
+        fields = tuple(field.strip() for field in value.split(",") if field.strip())
+        return fields or ("31", "7762", "88")
+    if isinstance(value, list):
+        fields = tuple(str(field).strip() for field in value if str(field).strip())
+        return fields or ("31", "7762", "88")
+    raise ValueError("ibkr.stream_fields must be a list or comma-separated string")
 
 
 def _parse_symbols(value: Any, *, fallback: tuple[str, ...]) -> tuple[str, ...]:

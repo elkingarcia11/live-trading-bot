@@ -282,10 +282,25 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def build_broker_gateway(*, use_in_memory: bool, fill_price: float = 100.0):
+def build_broker_gateway(
+    *,
+    use_in_memory: bool,
+    fill_price: float = 100.0,
+    ibkr_runtime: Optional["IbkrTwsRuntime"] = None,
+):
     """Return the configured broker gateway for the workflow."""
     from order_manager import InMemoryBrokerGateway
 
     if use_in_memory:
         return InMemoryBrokerGateway(fill_price=fill_price)
+
+    from config import get_config
+
+    provider = get_config().broker.provider
+    if provider == "ibkr":
+        from ibkr_tws_broker_gateway import IbkrTwsBrokerGateway
+
+        if ibkr_runtime is not None:
+            return IbkrTwsBrokerGateway.from_runtime(ibkr_runtime)
+        return IbkrTwsBrokerGateway.from_env()
     return SchwabBrokerGateway.from_env()

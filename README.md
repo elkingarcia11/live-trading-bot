@@ -10,7 +10,26 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 # Fill SCHWAB_APP_KEY, SCHWAB_APP_SECRET, GMAIL_APP_PASSWORD, GOOGLE_APPLICATION_CREDENTIALS
+# Edit config.json for symbols, strategies, workflow, options, and gex settings.
 ```
+
+For the default **`gex_scalp`** strategy, set in `config.json`:
+
+```json
+"strategies": ["gex_scalp"],
+"market": {
+  "stream_timeframe": "1m",
+  "strategy_timeframe": "1m"
+},
+"options": { "enabled": true, "days_to_expiration": 0 },
+"gex": { "enabled": true, "poll_interval_seconds": 20, "seed_volume_history": true },
+"workflow": { "run_schwab_stream": true, "stream_provider": "schwab" }
+```
+
+`gex_scalp` evaluates on **1m bars** and does not need 3m/5m bar rollups or
+indicator warmup. At startup the workflow seeds a rolling 1m volume lookback and
+polls the options chain for GEX snapshots (`put_wall`, `flip_level`, regime).
+See `gex_scalping_algorithm.md` for the full design.
 
 ### Schwab OAuth (local → GCS)
 
@@ -107,6 +126,12 @@ Each module owns one layer of the pipeline. Downstream modules consume outputs f
 | `schwab_account_sync`       | Sync broker positions into `PositionTracker`                             | Order submission                               |
 | `schwab_order_builder`      | Internal orders → Schwab order JSON                                      | HTTP transport                                 |
 | `schwab_broker_gateway`     | Place, poll, cancel, preview, list orders                                | Signal evaluation                              |
+| `schwab_options_chain_client` | `GET /chains` — strikes, OI, IV per expiration                       | Greeks math, GEX math, normalization           |
+| `options_chain_transformer` | Vendor chain payload → per-strike schema                                 | HTTP, storage, greeks                          |
+| `greeks_calculator`         | Black-Scholes gamma/delta per contract                                   | Chain fetching, order logic                    |
+| `gex_calculator`            | Per-strike GEX → net GEX, flip level, put/call walls                   | Fetching, greeks math, orders                  |
+| `gex_regime_monitor`        | Poll chain on interval, publish `gex.snapshot`                           | Storage, greeks math, order logic              |
+| `zero_dte_contract_selector`| Pick 0DTE ATM/1-OTM contract from spot + delta bounds                  | Order submission, PnL                          |
 
 ### Data flow
 
@@ -134,12 +159,31 @@ SchwabStreamSession → WebSocket ADMIN LOGIN → CHART_EQUITY SUBS
         ↓ 1m OHLCV bars
 StreamDataProcessor → CleanBarEvent
         ↓ publish bar.clean
-DataAggregator → IndicatorCoordinator → SignalEvaluator
-        ↓ bar.aggregated / indicators.snapshot / strategy.signal
+        ├─ gex_scalp path (1m-native):
+        │     GexRegimeMonitor (parallel) → gex.snapshot
+        │     SignalEvaluator + latest GEX snapshot → strategy.signal
+        │
+        └─ indicator strategies (optional):
+              DataAggregator → IndicatorCoordinator → SignalEvaluator
+              ↓ bar.aggregated / indicators.snapshot / strategy.signal
+zero_dte_contract_selector (0DTE options)
+        ↓
 RiskGuard → OrderManager → SchwabBrokerGateway (or in-memory broker)
         ↓ order.updated / order.fill
 PositionTracker
 EventBus subscribers: TradeLogger, HealthMonitor
+```
+
+**GEX snapshot pipeline (parallel to bars)**
+
+```
+SchwabOptionsChainClient.fetch_chain()
+        ↓ raw vendor JSON
+options_chain_transformer → greeks_calculator
+        ↓ enriched strikes
+gex_calculator.build_snapshot()
+        ↓ gex.snapshot
+EventBus → SignalEvaluator (gex_scalp)
 ```
 
 **Live (generic WebSocket)**
@@ -217,10 +261,11 @@ session.connect()
 # session.disconnect() when done
 ```
 
-Or run the full workflow:
+Or run the full workflow (with `workflow.run_schwab_stream: true` in
+`config.json`):
 
 ```bash
-RUN_SCHWAB_STREAM=true .venv/bin/python workflow.py
+.venv/bin/python workflow.py
 ```
 
 Streamer flow (see `Schwab_Streamer_Documentation.md`):
@@ -277,12 +322,12 @@ tracker.update_price("AAPL", 183.9, timestamp=datetime.now(timezone.utc))
 from schwab_broker_gateway import SchwabBrokerGateway
 from schwab_account_sync import SchwabAccountSync
 
-# BROKER_USE_IN_MEMORY=false in .env
+# broker.use_in_memory=false and broker.account_hash in config.json
 gateway = SchwabBrokerGateway.from_env()
 sync = SchwabAccountSync.from_env()
 sync.sync_positions(tracker, watchlist=("SPY", "QQQ"))
 
-# Optional dry-run: SCHWAB_PREVIEW_ORDERS=true validates via POST /previewOrder
+# Optional dry-run: broker.preview_orders=true validates via POST /previewOrder
 ```
 
 | Schwab Trader API                        | Module                                     |
@@ -296,17 +341,29 @@ sync.sync_positions(tracker, watchlist=("SPY", "QQQ"))
 | `GET /accounts/{hash}/orders`            | `schwab_broker_gateway`                    |
 | `DELETE /accounts/{hash}/orders/{id}`    | `schwab_broker_gateway`                    |
 | `GET /marketdata/v1/pricehistory`        | `schwab_market_data_client`                |
+| `GET /marketdata/v1/chains`              | `schwab_options_chain_client`              |
 
 `{hash}` is the encrypted account id from `accountNumbers`, not the plain
 account number.
 
 ### Strategy pipeline
 
+**Indicator strategies** (e.g. `dema_trend`, `gaussian_bands`):
+
 ```
 CleanBarEvent (1m)
-    → DataAggregator → AggregatedBar (5m/1h/1d)
+    → DataAggregator → AggregatedBar (3m/5m/1h/1d)
     → IndicatorCoordinator → indicator values
     → SignalEvaluator + StrategyRegistry → BUY/SELL/HOLD
+```
+
+**`gex_scalp`** (1m-native, no bar rollup required):
+
+```
+CleanBarEvent (1m) + latest GexSnapshot
+    → rolling 1m volume SMA (seeded at startup)
+    → SignalEvaluator + StrategyRegistry → BUY/SELL/EXIT/HOLD
+    → zero_dte_contract_selector → 0DTE option contract
 ```
 
 ```python
@@ -359,16 +416,20 @@ the backbone and passive audit/health listeners.
 
 **Run modes**
 
-| Command                                     | What it does                                                |
-| ------------------------------------------- | ----------------------------------------------------------- |
-| `python workflow.py`                        | Offline simulation — replays synthetic 1m bars (no network) |
-| `RUN_SCHWAB_STREAM=true python workflow.py` | Live Schwab `CHART_EQUITY` WebSocket feed                   |
-| `BROKER_USE_IN_MEMORY=false`                | Routes orders to Schwab (use with preview mode first)       |
+| Command              | What it does                                                                 |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `python workflow.py` | Live stream when `workflow.run_schwab_stream: true` (default in repo config) |
+| `python workflow.py` | Offline simulation when `workflow.run_schwab_stream: false`                |
+
+Broker routing is controlled in `config.json`:
+
+- `broker.use_in_memory: true` — simulated fills (safe for development)
+- `broker.use_in_memory: false` — live Schwab/IBKR orders (`broker.preview_orders: true` first)
 
 ```python
 from workflow import DEFAULT_SYMBOLS, TradingWorkflow, WorkflowConfig
 
-# Schwab live stream (default STREAM_PROVIDER=schwab in .env)
+# Live workflow (reads config.json + .env secrets)
 workflow = TradingWorkflow(WorkflowConfig.from_env())
 workflow.start()
 # workflow.stop()
@@ -395,8 +456,10 @@ workflow = TradingWorkflow(
 # workflow.process_clean_bar(clean_bar_event)
 ```
 
-Key `.env` groups: secrets only (`SCHWAB_*`, `GMAIL_APP_PASSWORD`, `GOOGLE_*`).
-All other settings live in `config.json`. See `.env.example` for the full list.
+Key `.env` groups: secrets only (`SCHWAB_*`, `GMAIL_APP_PASSWORD`, `GOOGLE_*`,
+optional `CONFIG_PATH`). All other settings — including `workflow`,
+`strategies`, `options`, and `gex` — live in `config.json`. See
+`.env.example` for the full list.
 
 ### Infrastructure (pub/sub, audit, observability)
 
@@ -440,6 +503,7 @@ Canonical topics live in `event_bus.Topics`. Important audit topics:
 | `order.fill`      | `FillEvent`          |
 | `position.exit`   | `ExitNotification`   |
 | `bar.clean`       | `CleanBarEvent`      |
+| `gex.snapshot`    | `GexSnapshot`        |
 
 `TradeLogger` writes append-only JSON Lines to durable local storage. Swap the
 bus implementation later (Redis Streams, NATS, etc.) without changing producers.
