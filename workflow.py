@@ -47,6 +47,8 @@ from option_selector import (
     contract_quote_from_chain,
     days_to_expiration_for_occ,
     option_contract_type,
+    option_is_expired,
+    parse_occ_symbol,
     resolve_option_exit_from_chain,
     select_atm_call_from_chain,
     select_atm_put_from_chain,
@@ -83,6 +85,8 @@ from gex_regime_monitor import GexRegimeMonitor
 from gex_scalp_feedback import describe_gex_scalp_status
 from market_session_scheduler import (
     EodSchedule,
+    flatten_deadline_utc,
+    is_at_or_past_flatten_time,
     is_regular_hours_timestamp_local,
     parse_hhmm,
     parse_utc_hhmm,
@@ -536,6 +540,7 @@ class TradingWorkflow:
         self._shutdown_requested = threading.Event()
         self._eod_flattened_on: Optional[date] = None
         self._eod_shutdown_on: Optional[date] = None
+        self._zero_dte_flattened_on: Optional[date] = None
         self._started = False
         self._account_sync = (
             SchwabAccountSync.from_env()
@@ -615,6 +620,7 @@ class TradingWorkflow:
             logger.info(
                 "Skipping 3m historical warmup (GEX-only workflow with no active indicators)"
             )
+        self._reconcile_expired_restored_positions()
         self._reconcile_restored_positions_with_trend()
         self._subscribe_open_option_contracts()
         if self._schwab_stream is not None:
@@ -1010,6 +1016,7 @@ class TradingWorkflow:
             self._session_recorder.record_clean_bar(bar)
         self._run_process_and_strategy_layers(bar)
         self._evaluate_gex_strategies(bar)
+        self._enforce_zero_dte_session_close(bar)
         self._check_gex_position_timeouts(bar)
         self._track_open_option_marks(bar)
 
@@ -1496,6 +1503,49 @@ class TradingWorkflow:
             status,
         )
         self._gex_status_log[bar.symbol] = (status, now)
+
+    def _enforce_zero_dte_session_close(self, bar: CleanBarEvent) -> None:
+        """Flatten same-day (0DTE) options before the regular session close."""
+        schedule = self._config.eod_schedule
+        bar_ts = (
+            bar.timestamp.replace(tzinfo=timezone.utc)
+            if bar.timestamp.tzinfo is None
+            else bar.timestamp.astimezone(timezone.utc)
+        )
+        bar_day = bar_ts.date()
+        if self._zero_dte_flattened_on == bar_day:
+            return
+        if not is_at_or_past_flatten_time(bar.timestamp, schedule=schedule):
+            return
+
+        as_of = self._market_today()
+        closed_any = False
+        for position in list(self.position_tracker.list_positions()):
+            if position.asset_type != "OPTION":
+                continue
+            dte = days_to_expiration_for_occ(position.symbol, as_of=as_of)
+            if dte is None or dte != 0:
+                continue
+
+            underlying = (position.underlying_symbol or bar.symbol).upper()
+            logger.warning(
+                "0DTE session close: flattening %s before market close (bar=%s)",
+                position.symbol,
+                bar.timestamp.isoformat(),
+            )
+            self._flatten_open_option_position(
+                position=position,
+                underlying_symbol=underlying,
+                underlying_spot=bar.close,
+                closed_at=bar.timestamp,
+                strategy_name="zero_dte_close",
+                conditions_met="0DTE flatten before regular session close",
+                send_email=self._trade_emailer is not None,
+            )
+            closed_any = True
+
+        if closed_any:
+            self._zero_dte_flattened_on = bar_day
 
     def _check_gex_position_timeouts(self, bar: CleanBarEvent) -> None:
         """Force-review or exit 0DTE positions that exceed the max hold timer."""
@@ -2262,10 +2312,67 @@ class TradingWorkflow:
         trigger_level = state.get("trigger_level")
         trigger = float(trigger_level) if trigger_level is not None else None
         entry_iv = None
-        force_review_after = signal.timestamp + timedelta(
+        bar_day = signal.timestamp.astimezone(timezone.utc).date()
+        max_hold_deadline = signal.timestamp + timedelta(
             minutes=self._config.app.gex.max_hold_minutes
         )
+        flatten_deadline = flatten_deadline_utc(
+            bar_day,
+            schedule=self._config.eod_schedule,
+        )
+        force_review_after = min(max_hold_deadline, flatten_deadline)
         return trigger, entry_iv, force_review_after
+
+    def _reconcile_expired_restored_positions(self) -> None:
+        """Drop restored options whose OCC expiration date has already passed."""
+        closed_at = datetime.now(timezone.utc)
+        as_of = self._market_today()
+        for position in list(self.position_tracker.list_positions()):
+            if position.asset_type != "OPTION":
+                continue
+            if not option_is_expired(position.symbol, as_of=as_of):
+                continue
+
+            parsed = parse_occ_symbol(position.symbol)
+            expiration = (
+                parsed.expiration_date.isoformat()
+                if parsed is not None
+                else "unknown"
+            )
+            underlying = position.underlying_symbol or position.symbol
+            logger.warning(
+                "Removing expired restored position %s (expiration %s)",
+                position.symbol,
+                expiration,
+            )
+
+            fill_result: Optional[ForwardTestFillResult] = None
+            if self._forward_test_account is not None:
+                try:
+                    fill_result = self._forward_test_account.expire_open_position(
+                        symbol=position.symbol,
+                        underlying_symbol=underlying,
+                        asset_type=position.asset_type,
+                        closed_at=closed_at,
+                    )
+                except ValueError:
+                    logger.exception(
+                        "Failed to expire forward-test position %s",
+                        position.symbol,
+                    )
+                    continue
+
+            self.position_tracker.close_position(position.symbol)
+            self._unsubscribe_option_contract(position.symbol)
+            if fill_result is not None:
+                logger.info(
+                    "Expired %s worthless; realized P&L %+.2f | %s",
+                    position.symbol,
+                    fill_result.trade_pnl or 0.0,
+                    self._forward_test_account.summary_line()
+                    if self._forward_test_account is not None
+                    else "",
+                )
 
     def _reconcile_restored_positions_with_trend(self) -> None:
         """Close restored options that no longer match the Gaussian MA bias."""

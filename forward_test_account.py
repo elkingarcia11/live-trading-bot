@@ -370,6 +370,58 @@ class ForwardTestAccount:
             self._persist_locked()
             return result
 
+    def expire_open_position(
+        self,
+        *,
+        symbol: str,
+        underlying_symbol: str,
+        asset_type: str,
+        closed_at: datetime,
+    ) -> ForwardTestFillResult:
+        """Write off an expired option at zero and realize the remaining loss."""
+        symbol = symbol.upper()
+        underlying_symbol = underlying_symbol.upper()
+        timestamp = _to_utc(closed_at).isoformat()
+
+        with self._lock:
+            position = _find_open_position(self._state.open_positions, symbol)
+            if position is None:
+                raise ValueError(f"no forward-test position to expire for {symbol}")
+
+            sell_qty = position.quantity
+            entry_notional = _trade_notional(sell_qty, position.entry_price, asset_type)
+            entry_commission = self._option_commission(sell_qty, asset_type)
+            trade_pnl = -entry_notional - entry_commission
+
+            self._state.realized_pnl += trade_pnl
+            self._state.sell_count += 1
+            self._state.open_positions = [
+                open_position
+                for open_position in self._state.open_positions
+                if open_position.symbol != symbol
+            ]
+            self._state.trades.append(
+                ForwardTestTradeRecord(
+                    action="EXPIRE",
+                    symbol=symbol,
+                    underlying_symbol=underlying_symbol,
+                    quantity=sell_qty,
+                    price=0.0,
+                    amount=0.0,
+                    realized_pnl=trade_pnl,
+                    cash_after=self._state.cash_balance,
+                    timestamp=timestamp,
+                )
+            )
+            result = ForwardTestFillResult(
+                cash_balance=self._state.cash_balance,
+                realized_pnl=self._state.realized_pnl,
+                trade_pnl=trade_pnl,
+                amount=0.0,
+            )
+            self._persist_locked()
+            return result
+
     def _option_commission(self, quantity: float, asset_type: str) -> float:
         """Return the per-contract commission for an options trade."""
         if asset_type.upper() != "OPTION":

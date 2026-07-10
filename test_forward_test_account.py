@@ -106,3 +106,33 @@ def test_forward_test_account_sizes_from_remaining_cash() -> None:
         opened_at=datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc),
     )
     assert account.cash_balance == 2500.0
+
+
+def test_forward_test_account_expires_open_option_worthless() -> None:
+    account = ForwardTestAccount(
+        initial_balance=3000.0,
+        store=None,
+        persist_state=False,
+        option_commission_per_contract=0.65,
+    )
+    opened_at = datetime(2026, 6, 30, 19, 57, tzinfo=timezone.utc)
+    account.record_buy(
+        symbol="SPY   260702P00746000",
+        underlying_symbol="SPY",
+        quantity=1,
+        price=5.0,
+        asset_type="OPTION",
+        opened_at=opened_at,
+    )
+    assert account.cash_balance == 2499.35
+
+    expired = account.expire_open_position(
+        symbol="SPY   260702P00746000",
+        underlying_symbol="SPY",
+        asset_type="OPTION",
+        closed_at=datetime(2026, 7, 3, 20, 0, tzinfo=timezone.utc),
+    )
+    assert expired.trade_pnl == -500.65
+    assert account.cash_balance == 2499.35
+    assert account.realized_pnl == -500.65
+    assert account.equity_estimate == 2499.35

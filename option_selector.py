@@ -77,6 +77,12 @@ def days_to_expiration_for_occ(symbol: str, *, as_of: Optional[date] = None) -> 
     return (parsed.expiration_date - today).days
 
 
+def option_is_expired(symbol: str, *, as_of: Optional[date] = None) -> bool:
+    """Return True when the OCC expiration date is before ``as_of``."""
+    dte = days_to_expiration_for_occ(symbol, as_of=as_of)
+    return dte is not None and dte < 0
+
+
 def build_occ_symbol(
     underlying: str,
     expiration: date,

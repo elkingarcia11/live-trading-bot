@@ -85,7 +85,22 @@ def should_flatten_positions(
         return False
     if flattened_on == now.date():
         return False
+    return is_at_or_past_flatten_time(now, schedule=schedule)
+
+
+def is_at_or_past_flatten_time(now: datetime, *, schedule: EodSchedule) -> bool:
+    """Return True when ``now`` is at or after the configured flatten time (UTC)."""
+    if not schedule.enabled:
+        return False
+    now = _to_utc(now)
+    if schedule.trading_days_only and not is_trading_day(now.date()):
+        return False
     return now.time() >= schedule.flatten_time_utc
+
+
+def flatten_deadline_utc(day: date, *, schedule: EodSchedule) -> datetime:
+    """Return the UTC datetime when same-day positions must be flattened."""
+    return datetime.combine(day, schedule.flatten_time_utc, tzinfo=timezone.utc)
 
 
 def should_shutdown(

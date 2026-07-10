@@ -9,6 +9,7 @@ from option_selector import (
     contract_mark_from_chain,
     contract_quote_from_chain,
     option_contract_type,
+    option_is_expired,
     parse_occ_symbol,
     resolve_option_exit_from_chain,
     select_atm_call_from_chain,
@@ -290,6 +291,13 @@ def test_parse_occ_symbol_for_padded_schwab_put() -> None:
     assert parsed.expiration_date == date(2026, 6, 18)
     assert parsed.option_right == "P"
     assert parsed.strike == 752.0
+
+
+def test_option_is_expired_when_expiration_is_before_as_of() -> None:
+    symbol = "SPY   260702P00746000"
+    assert option_is_expired(symbol, as_of=date(2026, 7, 9)) is True
+    assert option_is_expired(symbol, as_of=date(2026, 7, 2)) is False
+    assert option_is_expired(symbol, as_of=date(2026, 7, 1)) is False
 
 
 def test_find_contract_matches_padded_occ_symbols() -> None:

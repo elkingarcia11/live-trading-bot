@@ -6,6 +6,8 @@ from datetime import date, datetime, time, timezone
 
 from market_session_scheduler import (
     EodSchedule,
+    flatten_deadline_utc,
+    is_at_or_past_flatten_time,
     is_regular_hours_timestamp,
     is_regular_hours_timestamp_local,
     should_flatten_positions,
@@ -44,6 +46,21 @@ def test_eod_actions_skip_weekends() -> None:
 
     assert should_flatten_positions(saturday, schedule=schedule, flattened_on=None) is False
     assert should_shutdown(saturday, schedule=schedule, shutdown_on=None) is False
+
+
+def test_is_at_or_past_flatten_time_on_weekday() -> None:
+    schedule = EodSchedule(flatten_time_utc=time(19, 59))
+    before = datetime(2026, 6, 16, 19, 58, tzinfo=timezone.utc)
+    at = datetime(2026, 6, 16, 19, 59, tzinfo=timezone.utc)
+
+    assert is_at_or_past_flatten_time(before, schedule=schedule) is False
+    assert is_at_or_past_flatten_time(at, schedule=schedule) is True
+
+
+def test_flatten_deadline_utc_combines_day_and_time() -> None:
+    schedule = EodSchedule(flatten_time_utc=time(19, 59))
+    deadline = flatten_deadline_utc(date(2026, 6, 16), schedule=schedule)
+    assert deadline == datetime(2026, 6, 16, 19, 59, tzinfo=timezone.utc)
 
 
 def test_is_regular_hours_timestamp_inside_session() -> None:
