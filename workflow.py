@@ -645,10 +645,11 @@ class TradingWorkflow:
             if self._config.app.gex.poll_on_startup:
                 try:
                     logger.info("Running startup GEX chain poll before live stream")
-                    self._gex_monitor.poll_once()
+                    self._gex_monitor.poll_once(reason="startup")
+                    self._gex_monitor.mark_past_slots_fired()
                 except Exception:
                     logger.exception(
-                        "Startup GEX poll failed; background monitor will retry"
+                        "Startup GEX poll failed; scheduled refreshes will retry"
                     )
             self._gex_monitor.start()
         self._started = True
@@ -1333,7 +1334,7 @@ class TradingWorkflow:
             self._handle_strategy_signal(signal)
 
     def _init_gex_monitor(self) -> None:
-        """Wire the background GEX snapshot poller when enabled in config."""
+        """Wire the scheduled GEX level refresher when enabled in config."""
         gex = self._config.app.gex
         try:
             chain_client = SchwabOptionsChainClient.from_config(self._config.app)
@@ -1345,12 +1346,16 @@ class TradingWorkflow:
                 strike_count=gex.strike_count,
                 days_to_expiration=gex.days_to_expiration,
                 risk_free_rate=gex.risk_free_rate,
+                level_refresh_times_local=gex.level_refresh_times_local,
+                timezone_name=self._config.app.app.timezone,
             )
+            slots = ", ".join(gex.level_refresh_times_local)
             logger.info(
-                "GEX monitor configured for %s (%sDTE, poll=%.0fs)",
+                "GEX monitor configured for %s (%sDTE, level refresh at %s %s)",
                 ", ".join(self._symbols),
                 gex.days_to_expiration,
-                gex.poll_interval_seconds,
+                slots,
+                self._config.app.app.timezone,
             )
         except Exception:
             logger.exception("GEX monitor unavailable; gex_scalp will not receive snapshots")
@@ -1368,18 +1373,22 @@ class TradingWorkflow:
                 self._gex_waiting_snapshot_logged.add(bar.symbol)
             return
 
-        gex = self._gex_monitor.get_latest(bar.symbol)
-        if gex is None:
+        anchored = self._gex_monitor.get_latest(bar.symbol)
+        if anchored is None:
             if bar.symbol not in self._gex_waiting_snapshot_logged:
-                poll_s = self._config.app.gex.poll_interval_seconds
+                slots = ", ".join(self._config.app.gex.level_refresh_times_local)
                 logger.info(
-                    "gex_scalp %s: waiting for first GEX snapshot (chain poll every %.0fs)",
+                    "gex_scalp %s: waiting for first GEX level snapshot "
+                    "(refresh schedule: %s)",
                     bar.symbol,
-                    poll_s,
+                    slots,
                 )
                 self._gex_waiting_snapshot_logged.add(bar.symbol)
             return
         self._gex_waiting_snapshot_logged.discard(bar.symbol)
+
+        # Keep walls/flip from the scheduled snapshot; reclassify regime vs live spot.
+        gex = anchored.with_live_spot(bar.close)
 
         history = self._volume_history.setdefault(
             bar.symbol,
@@ -1465,9 +1474,13 @@ class TradingWorkflow:
         )
         status = describe_gex_scalp_status(ctx, action=signal.action)
 
-        snapshot_age_s = (bar.timestamp - gex.timestamp).total_seconds()
-        if snapshot_age_s > gex_settings.poll_interval_seconds * 1.5:
-            status = f"{status} [GEX snapshot {snapshot_age_s:.0f}s old]"
+        levels_age_m = (bar.timestamp - gex.timestamp).total_seconds() / 60.0
+        if levels_age_m >= 1.0:
+            status = (
+                f"{status} [levels anchored {levels_age_m:.0f}m ago @ "
+                f"put={gex.put_wall if gex.put_wall is not None else 'n/a'} "
+                f"flip={gex.flip_level if gex.flip_level is not None else 'n/a'}]"
+            )
 
         now = time.monotonic()
         prev = self._gex_status_log.get(bar.symbol)

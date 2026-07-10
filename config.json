@@ -130,6 +130,7 @@
     "enabled": true,
     "poll_interval_seconds": 20,
     "poll_on_startup": true,
+    "level_refresh_times_local": ["09:35", "11:30", "15:00"],
     "seed_volume_history": true,
     "strike_count": 50,
     "days_to_expiration": 0,
