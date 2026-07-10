@@ -61,9 +61,13 @@ gex_regime_monitor.publish("gex.snapshot")
 EventBus
 ```
 
-Poll interval: chain data doesn't need 1-second refresh — every 15–30s is
-plenty, since OI barely moves intraday. Don't hammer the endpoint at 1m-bar
-speed; it buys you nothing and burns rate limit budget.
+**Level refresh schedule (not continuous polling):** structural levels
+(`put_wall`, `flip_level`, call wall) should be anchored at meaningful session
+events — default `09:35` (shortly after US open), `11:30` (Europe cash close),
+and `15:00` (power hour) in market local time — then held fixed until the next
+slot. Continuous 15–30s polling makes walls/flip chase spot and blunts breakout
+triggers. Live 1m close still reclassifies regime against those frozen levels.
+Optional startup poll seeds levels if the bot joins mid-session.
 
 ### 2b. Live trading pipeline (existing, with a new consumer)
 

@@ -22,14 +22,23 @@ For the default **`gex_scalp`** strategy, set in `config.json`:
   "strategy_timeframe": "1m"
 },
 "options": { "enabled": true, "days_to_expiration": 0 },
-"gex": { "enabled": true, "poll_interval_seconds": 20, "seed_volume_history": true },
+"gex": {
+  "enabled": true,
+  "poll_on_startup": true,
+  "level_refresh_times_local": ["09:35", "11:30", "15:00"],
+  "seed_volume_history": true
+},
 "workflow": { "run_schwab_stream": true, "stream_provider": "schwab" }
 ```
 
 `gex_scalp` evaluates on **1m bars** and does not need 3m/5m bar rollups or
-indicator warmup. At startup the workflow seeds a rolling 1m volume lookback and
-polls the options chain for GEX snapshots (`put_wall`, `flip_level`, regime).
-See `gex_scalping_algorithm.md` for the full design.
+indicator warmup. Structural levels (`put_wall`, `flip_level`, call wall) are
+anchored on a schedule — default shortly after the US open (`09:35`), Europe
+cash close (`11:30`), and power hour (`15:00`) in `app.timezone` — not polled
+every few seconds.
+Live spot still reclassifies regime against those frozen levels. At startup the
+workflow seeds a rolling 1m volume lookback and can take an immediate chain
+snapshot (`poll_on_startup`). See `gex_scalping_algorithm.md` for the full design.
 
 ### Schwab OAuth (local → GCS)
 
@@ -130,7 +139,8 @@ Each module owns one layer of the pipeline. Downstream modules consume outputs f
 | `options_chain_transformer` | Vendor chain payload → per-strike schema                                 | HTTP, storage, greeks                          |
 | `greeks_calculator`         | Black-Scholes gamma/delta per contract                                   | Chain fetching, order logic                    |
 | `gex_calculator`            | Per-strike GEX → net GEX, flip level, put/call walls                   | Fetching, greeks math, orders                  |
-| `gex_regime_monitor`        | Poll chain on interval, publish `gex.snapshot`                           | Storage, greeks math, order logic              |
+| `gex_regime_monitor`        | Refresh chain on schedule, publish anchored `gex.snapshot`               | Storage, greeks math, order logic              |
+| `gex_level_schedule`        | Local HH:MM refresh slots (open / Europe close, etc.)                    | HTTP, strategy rules                           |
 | `zero_dte_contract_selector`| Pick 0DTE ATM/1-OTM contract from spot + delta bounds                  | Order submission, PnL                          |
 
 ### Data flow
@@ -177,13 +187,16 @@ EventBus subscribers: TradeLogger, HealthMonitor
 **GEX snapshot pipeline (parallel to bars)**
 
 ```
+Scheduled refresh (e.g. 09:35 + 11:30 + 15:00 America/New_York)
+        ↓
 SchwabOptionsChainClient.fetch_chain()
         ↓ raw vendor JSON
 options_chain_transformer → greeks_calculator
         ↓ enriched strikes
-gex_calculator.build_snapshot()
+gex_calculator.build_snapshot()  → anchored put_wall / flip / call_wall
         ↓ gex.snapshot
 EventBus → SignalEvaluator (gex_scalp)
+        ↑ live 1m close reclassifies regime vs frozen levels
 ```
 
 **Live (generic WebSocket)**

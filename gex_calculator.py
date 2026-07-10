@@ -40,6 +40,21 @@ class GexSnapshot:
             "call_wall": self.call_wall,
         }
 
+    def with_live_spot(self, spot: float) -> "GexSnapshot":
+        """Return a copy with live spot and regime, keeping anchored levels."""
+        regime = classify_regime(spot, self.flip_level, self.net_gex)
+        return GexSnapshot(
+            symbol=self.symbol,
+            timestamp=self.timestamp,
+            spot=spot,
+            net_gex=self.net_gex,
+            regime=regime,
+            flip_level=self.flip_level,
+            put_wall=self.put_wall,
+            call_wall=self.call_wall,
+            per_strike_gex=self.per_strike_gex,
+        )
+
 
 def call_gex(
     gamma: float,

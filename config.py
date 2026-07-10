@@ -248,6 +248,9 @@ class GexSettings:
     enabled: bool = False
     poll_interval_seconds: float = 20.0
     poll_on_startup: bool = True
+    # Local HH:MM times (app.timezone) when structural walls/flip are recomputed.
+    # Default: after US open, Europe cash close (~11:30 ET), and power hour.
+    level_refresh_times_local: tuple[str, ...] = ("09:35", "11:30", "15:00")
     strike_count: int = 50
     days_to_expiration: int = 0
     risk_free_rate: float = 0.05
@@ -722,10 +725,20 @@ def _parse_options_settings(payload: dict[str, Any]) -> OptionsSettings:
 
 
 def _parse_gex_settings(payload: dict[str, Any]) -> GexSettings:
+    refresh_raw = payload.get("level_refresh_times_local", ("09:35", "11:30", "15:00"))
+    if isinstance(refresh_raw, str):
+        refresh_times = tuple(
+            part.strip() for part in refresh_raw.split(",") if part.strip()
+        )
+    else:
+        refresh_times = tuple(str(item).strip() for item in refresh_raw if str(item).strip())
+    if not refresh_times:
+        refresh_times = ("09:35", "11:30", "15:00")
     return GexSettings(
         enabled=bool(payload.get("enabled", False)),
         poll_interval_seconds=float(payload.get("poll_interval_seconds", 20)),
         poll_on_startup=bool(payload.get("poll_on_startup", True)),
+        level_refresh_times_local=refresh_times,
         strike_count=int(payload.get("strike_count", 50)),
         days_to_expiration=int(payload.get("days_to_expiration", 0)),
         risk_free_rate=float(payload.get("risk_free_rate", 0.05)),
