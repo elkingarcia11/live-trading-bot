@@ -45,6 +45,7 @@ class Position:
     trailing_stop_distance: Optional[float] = None
     trailing_stop_price: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
+    stop_loss_pct: Optional[float] = None
     max_mark_price: Optional[float] = None
     last_mark_price: Optional[float] = None
     last_updated_at: Optional[datetime] = None
@@ -125,6 +126,7 @@ class PositionTracker:
         take_profit: Optional[float] = None,
         trailing_stop_distance: Optional[float] = None,
         trailing_stop_pct: Optional[float] = None,
+        stop_loss_pct: Optional[float] = None,
         asset_type: str = "EQUITY",
         underlying_symbol: Optional[str] = None,
         underlying_entry_price: Optional[float] = None,
@@ -145,6 +147,8 @@ class PositionTracker:
             trailing_stop_distance: Optional trailing stop distance in price units.
             trailing_stop_pct: Optional percentage (0-1) trailing stop measured
                 from the peak mark observed after entry. Used for option marks.
+            stop_loss_pct: Optional percentage (0-1) hard stop from entry mark
+                (e.g. 0.10 exits when mark <= entry * 0.90).
 
         Returns:
             The created position.
@@ -159,6 +163,8 @@ class PositionTracker:
             raise ValueError("entry_price must be positive")
         if trailing_stop_pct is not None and not 0.0 < trailing_stop_pct < 1.0:
             raise ValueError("trailing_stop_pct must be between 0 and 1 (exclusive)")
+        if stop_loss_pct is not None and not 0.0 < stop_loss_pct < 1.0:
+            raise ValueError("stop_loss_pct must be between 0 and 1 (exclusive)")
 
         self._validate_risk_levels(
             quantity=quantity,
@@ -184,6 +190,7 @@ class PositionTracker:
             trailing_stop_distance=trailing_stop_distance,
             trailing_stop_price=trailing_stop_price,
             trailing_stop_pct=trailing_stop_pct,
+            stop_loss_pct=stop_loss_pct,
             max_mark_price=entry_price,
             last_mark_price=entry_price,
             last_updated_at=opened_at or datetime.now(timezone.utc),
@@ -254,6 +261,7 @@ class PositionTracker:
                 trailing_stop_distance=current.trailing_stop_distance,
             ),
             trailing_stop_pct=current.trailing_stop_pct,
+            stop_loss_pct=current.stop_loss_pct,
             max_mark_price=fill.price,
             last_mark_price=fill.price,
             last_updated_at=fill.timestamp,
@@ -308,6 +316,7 @@ class PositionTracker:
                 trailing_stop_distance=position.trailing_stop_distance,
                 trailing_stop_price=trailing_stop_price,
                 trailing_stop_pct=position.trailing_stop_pct,
+                stop_loss_pct=position.stop_loss_pct,
                 max_mark_price=position.max_mark_price,
                 last_mark_price=mark_price,
                 last_updated_at=timestamp,
@@ -379,12 +388,13 @@ class PositionTracker:
         unrealized_pnl_pct: Optional[float] = None,
         timestamp: Optional[datetime] = None,
     ) -> Optional[ExitNotification]:
-        """Record a streamed/polled option mark and check the peak-mark trailing stop.
+        """Record a streamed/polled option mark and check stop / trailing exits.
 
         Updates the latest mark, running max unrealized profit/loss (in both
         dollar and percentage terms), and the peak mark observed since entry.
-        When ``trailing_stop_pct`` is set, returns a ``TRAILING_STOP``
-        notification once the mark falls that far below the peak.
+        When ``stop_loss_pct`` is set, returns ``STOP_LOSS`` once the mark falls
+        that far below the entry. When ``trailing_stop_pct`` is set, returns
+        ``TRAILING_STOP`` once the mark falls that far below the peak.
 
         Args:
             symbol: OCC option symbol.
@@ -395,7 +405,7 @@ class PositionTracker:
             timestamp: Optional time of the mark update.
 
         Returns:
-            A trailing-stop exit notification when the threshold is breached,
+            A stop/trailing exit notification when a threshold is breached,
             otherwise None. Registered exit handlers are NOT invoked; the caller
             is responsible for routing the exit (paper vs live).
         """
@@ -426,6 +436,20 @@ class PositionTracker:
 
             if position.max_mark_price is None or mark_price > position.max_mark_price:
                 position.max_mark_price = mark_price
+
+            # Hard stop from entry mark takes priority over trailing stop.
+            if position.stop_loss_pct is not None and position.average_entry_price > 0:
+                stop_threshold = position.average_entry_price * (
+                    1.0 - position.stop_loss_pct
+                )
+                if mark_price <= stop_threshold:
+                    return ExitNotification(
+                        symbol=position.symbol,
+                        reason=ExitReason.STOP_LOSS,
+                        mark_price=mark_price,
+                        position=position,
+                        triggered_at=timestamp,
+                    )
 
             pct = position.trailing_stop_pct
             if pct is None or position.max_mark_price is None:

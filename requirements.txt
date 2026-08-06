@@ -1,3 +1,4 @@
+databento>=0.40.0
 google-cloud-storage>=2.14.0
 ibapi>=9.81.1
 pandas>=2.1.0

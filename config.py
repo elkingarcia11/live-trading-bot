@@ -34,6 +34,7 @@ from indicator_coordinator import (
     IndicatorJob,
     build_dema_job,
     build_gaussian_bands_job,
+    build_gaussian_ma_job,
     build_supertrend_job,
 )
 
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path("config.json")
 DEFAULT_SYMBOLS: tuple[str, ...] = ("SPY", "QQQ", "TSLA", "AMZN", "NVDA")
 
-StreamProvider = Literal["generic", "schwab", "ibkr"]
+StreamProvider = Literal["generic", "schwab", "ibkr", "databento"]
 BrokerProvider = Literal["schwab", "ibkr"]
 
 _config: Optional["AppConfig"] = None
@@ -95,11 +96,30 @@ class GaussianBandsConfig:
 
 
 @dataclass(frozen=True)
+class GaussianMaLegConfig:
+    length: int = DEFAULT_GAUSSIAN_LENGTH
+    sigma_divisor: float = DEFAULT_GAUSSIAN_SIGMA_DIVISOR
+
+
+@dataclass(frozen=True)
+class GaussianMaConfig:
+    """Dual recent-biased Gaussian MAs (TradingView Gaussian MA-EZ)."""
+
+    slow: GaussianMaLegConfig = field(
+        default_factory=lambda: GaussianMaLegConfig(length=20, sigma_divisor=10.0)
+    )
+    fast: GaussianMaLegConfig = field(
+        default_factory=lambda: GaussianMaLegConfig(length=20, sigma_divisor=7.0)
+    )
+
+
+@dataclass(frozen=True)
 class IndicatorConfig:
     max_bars: int = 500
     dema: Optional[DemaConfig] = field(default_factory=DemaConfig)
     supertrend: Optional[SupertrendConfig] = field(default_factory=SupertrendConfig)
     gaussian_bands: Optional[GaussianBandsConfig] = None
+    gaussian_ma: Optional[GaussianMaConfig] = None
 
     def build_jobs(self, timeframe: str) -> tuple[IndicatorJob, ...]:
         jobs: list[IndicatorJob] = []
@@ -134,6 +154,23 @@ class IndicatorConfig:
                     squeeze_ratio=self.gaussian_bands.squeeze_ratio,
                 )
             )
+        if self.gaussian_ma is not None:
+            jobs.append(
+                build_gaussian_ma_job(
+                    timeframe,
+                    length=self.gaussian_ma.slow.length,
+                    sigma_divisor=self.gaussian_ma.slow.sigma_divisor,
+                    output_key="gaussian_ma_slow",
+                )
+            )
+            jobs.append(
+                build_gaussian_ma_job(
+                    timeframe,
+                    length=self.gaussian_ma.fast.length,
+                    sigma_divisor=self.gaussian_ma.fast.sigma_divisor,
+                    output_key="gaussian_ma_fast",
+                )
+            )
         return tuple(jobs)
 
 
@@ -144,13 +181,24 @@ class WorkflowSettings:
     websocket_url: str = ""
     subscribe_on_connect: bool = True
     audit_log_path: str = "logs/audit.jsonl"
+    # Load prior OHLCV from GCS on startup (before stream connect / before 4:00 ET).
     warmup_from_storage: bool = True
+    # Block new entries until this many strategy-TF bars exist (storage replay + live).
+    min_warmup_bars: int = 100
     startup_sync_lookback_days: int = 30
     persist_session_bars: bool = True
     eod_enabled: bool = True
     eod_flatten_time_utc: str = "19:59"
     eod_shutdown_time_utc: str = "20:00"
-    no_new_trades_after_utc: str = "19:58"
+    # Preferred DST-safe clocks (America/New_York). Empty => use UTC fields above.
+    # Flatten at RTH close (16:00 ET); shutdown can stay at post-market end (20:00 ET).
+    eod_flatten_time_local: str = "16:00"
+    eod_shutdown_time_local: str = "20:00"
+    # New entries only inside [entry_start_local, entry_end_local) market-local time.
+    # Default 09:30-16:00 ET => last open allowed through 15:59 ET.
+    entry_start_local: str = "09:30"
+    entry_end_local: str = "16:00"
+    no_new_trades_after_utc: str = ""
 
 
 @dataclass(frozen=True)
@@ -184,8 +232,11 @@ class HistoricalSettings:
     session_end_utc: str = "21:00"
     session_start_local: str = "09:30"
     session_end_local: str = "16:00"
+    # US equities Databento window (Eastern): pre-market 4:00 through post-market 20:00.
+    extended_session_start_local: str = "04:00"
+    extended_session_end_local: str = "20:00"
     extended_session_start_utc: str = "08:00"
-    extended_session_end_utc: str = "01:00"
+    extended_session_end_utc: str = "00:00"
     trading_days_only: bool = True
 
 
@@ -241,6 +292,8 @@ class OptionsSettings:
     commission_per_contract: float = 0.65
     stream_contract_marks: bool = True
     trailing_stop_pct: Optional[float] = 0.15
+    # Fixed stop from option entry mark (e.g. 0.10 = exit if mark <= entry * 0.90).
+    stop_loss_pct: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -292,6 +345,18 @@ class HealthSettings:
     max_order_round_trip_seconds: float = 10.0
     module_silence_seconds: float = 300.0
     startup_grace_seconds: float = 180.0
+
+
+@dataclass(frozen=True)
+class DatabentoSettings:
+    """Live/historical tick ingest settings for Databento."""
+
+    # Prefer DATABENTO_API_KEY env; this field is an optional non-secret fallback.
+    api_key: str = ""
+    dataset: str = "EQUS.MINI"
+    schema: str = "trades"
+    stype_in: str = "raw_symbol"
+    ticks_per_bar: int = 50
 
 
 @dataclass(frozen=True)
@@ -377,6 +442,7 @@ class AppConfig:
     health: HealthSettings = field(default_factory=HealthSettings)
     schwab: SchwabSettings = field(default_factory=SchwabSettings)
     ibkr: IbkrSettings = field(default_factory=IbkrSettings)
+    databento: DatabentoSettings = field(default_factory=DatabentoSettings)
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> AppConfig:
@@ -400,8 +466,10 @@ class AppConfig:
         stream_provider = str(
             _section(payload, "workflow").get("stream_provider", "schwab")
         ).lower()
-        if stream_provider not in {"generic", "schwab", "ibkr"}:
-            raise ValueError("workflow.stream_provider must be 'generic', 'schwab', or 'ibkr'")
+        if stream_provider not in {"generic", "schwab", "ibkr", "databento"}:
+            raise ValueError(
+                "workflow.stream_provider must be 'generic', 'schwab', 'ibkr', or 'databento'"
+            )
 
         broker_provider = str(_section(payload, "broker").get("provider", "schwab")).lower()
         if broker_provider not in {"schwab", "ibkr"}:
@@ -452,6 +520,7 @@ class AppConfig:
             health=_parse_health_settings(_section(payload, "health")),
             schwab=_parse_schwab_settings(_section(payload, "schwab")),
             ibkr=_parse_ibkr_settings(_section(payload, "ibkr")),
+            databento=_parse_databento_settings(_section(payload, "databento")),
         )
 
 
@@ -495,6 +564,8 @@ def _parse_app_settings(payload: dict[str, Any]) -> AppSettings:
 
 
 def _parse_market_config(payload: dict[str, Any]) -> MarketConfig:
+    from tick_bar_builder import is_tick_timeframe
+
     stream_timeframe = str(payload.get("stream_timeframe", "1m"))
     strategy_timeframe = str(payload.get("strategy_timeframe", "3m"))
     aggregation_timeframes = _parse_timeframes(
@@ -505,12 +576,23 @@ def _parse_market_config(payload: dict[str, Any]) -> MarketConfig:
         stream_timeframe,
         aggregation_timeframes,
     )
-    if strategy_timeframe not in aggregation_timeframes:
+    # Stream-native strategies (e.g. gex_scalp on 50t) do not need rollups.
+    if (
+        strategy_timeframe != stream_timeframe
+        and strategy_timeframe not in aggregation_timeframes
+    ):
         logger.warning(
             "strategy_timeframe %s is not in aggregation_timeframes %s; "
             "indicators and strategies will not run until it is included",
             strategy_timeframe,
             aggregation_timeframes,
+        )
+    if is_tick_timeframe(stream_timeframe) and strategy_timeframe != stream_timeframe:
+        logger.warning(
+            "Tick stream_timeframe %s with strategy_timeframe %s: "
+            "gex_scalp evaluates on stream bars; keep these equal for tick workflows",
+            stream_timeframe,
+            strategy_timeframe,
         )
 
     return MarketConfig(
@@ -527,6 +609,7 @@ def _parse_indicator_config(payload: dict[str, Any]) -> IndicatorConfig:
         dema=_parse_dema_config(payload.get("dema")),
         supertrend=_parse_supertrend_config(payload.get("supertrend")),
         gaussian_bands=_parse_gaussian_bands_config(payload.get("gaussian_bands")),
+        gaussian_ma=_parse_gaussian_ma_config(payload.get("gaussian_ma")),
     )
 
 
@@ -578,6 +661,46 @@ def _parse_gaussian_bands_config(payload: Any) -> Optional[GaussianBandsConfig]:
     )
 
 
+def _parse_gaussian_ma_leg(
+    payload: Any,
+    *,
+    default_length: int,
+    default_sigma: float,
+    field_name: str,
+) -> GaussianMaLegConfig:
+    if payload is None:
+        return GaussianMaLegConfig(length=default_length, sigma_divisor=default_sigma)
+    if not isinstance(payload, dict):
+        raise ValueError(f"indicators.gaussian_ma.{field_name} must be an object")
+    return GaussianMaLegConfig(
+        length=int(payload.get("length", default_length)),
+        sigma_divisor=float(payload.get("sigma_divisor", default_sigma)),
+    )
+
+
+def _parse_gaussian_ma_config(payload: Any) -> Optional[GaussianMaConfig]:
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError("indicators.gaussian_ma must be an object")
+    if not payload.get("enabled", True):
+        return None
+    return GaussianMaConfig(
+        slow=_parse_gaussian_ma_leg(
+            payload.get("slow"),
+            default_length=20,
+            default_sigma=10.0,
+            field_name="slow",
+        ),
+        fast=_parse_gaussian_ma_leg(
+            payload.get("fast"),
+            default_length=20,
+            default_sigma=7.0,
+            field_name="fast",
+        ),
+    )
+
+
 def _parse_strategies(value: Any) -> tuple[str, ...]:
     if value is None:
         return ("dema_trend",)
@@ -602,12 +725,17 @@ def _parse_workflow_settings(
         subscribe_on_connect=bool(payload.get("subscribe_on_connect", True)),
         audit_log_path=str(payload.get("audit_log_path", "logs/audit.jsonl")),
         warmup_from_storage=bool(payload.get("warmup_from_storage", True)),
+        min_warmup_bars=max(1, int(payload.get("min_warmup_bars", 100))),
         startup_sync_lookback_days=int(payload.get("startup_sync_lookback_days", 30)),
         persist_session_bars=bool(payload.get("persist_session_bars", True)),
         eod_enabled=bool(payload.get("eod_enabled", True)),
         eod_flatten_time_utc=str(payload.get("eod_flatten_time_utc", "19:59")),
         eod_shutdown_time_utc=str(payload.get("eod_shutdown_time_utc", "20:00")),
-        no_new_trades_after_utc=str(payload.get("no_new_trades_after_utc", "19:58")),
+        eod_flatten_time_local=str(payload.get("eod_flatten_time_local", "16:00")),
+        eod_shutdown_time_local=str(payload.get("eod_shutdown_time_local", "20:00")),
+        entry_start_local=str(payload.get("entry_start_local", "09:30")),
+        entry_end_local=str(payload.get("entry_end_local", "16:00")),
+        no_new_trades_after_utc=str(payload.get("no_new_trades_after_utc", "")),
     )
 
 
@@ -655,10 +783,16 @@ def _parse_historical_settings(payload: dict[str, Any]) -> HistoricalSettings:
         session_end_utc=str(payload.get("session_end_utc", "21:00")),
         session_start_local=str(payload.get("session_start_local", "09:30")),
         session_end_local=str(payload.get("session_end_local", "16:00")),
+        extended_session_start_local=str(
+            payload.get("extended_session_start_local", "04:00")
+        ),
+        extended_session_end_local=str(
+            payload.get("extended_session_end_local", "20:00")
+        ),
         extended_session_start_utc=str(
             payload.get("extended_session_start_utc", "08:00")
         ),
-        extended_session_end_utc=str(payload.get("extended_session_end_utc", "01:00")),
+        extended_session_end_utc=str(payload.get("extended_session_end_utc", "00:00")),
         trading_days_only=bool(payload.get("trading_days_only", True)),
     )
 
@@ -712,6 +846,9 @@ def _parse_options_settings(payload: dict[str, Any]) -> OptionsSettings:
     trailing_stop_pct = _optional_float(payload.get("trailing_stop_pct", 0.15))
     if trailing_stop_pct is not None and not 0.0 < trailing_stop_pct < 1.0:
         raise ValueError("options.trailing_stop_pct must be between 0 and 1 (exclusive)")
+    stop_loss_pct = _optional_float(payload.get("stop_loss_pct"))
+    if stop_loss_pct is not None and not 0.0 < stop_loss_pct < 1.0:
+        raise ValueError("options.stop_loss_pct must be between 0 and 1 (exclusive)")
     return OptionsSettings(
         enabled=bool(payload.get("enabled", True)),
         days_to_expiration=int(payload.get("days_to_expiration", 2)),
@@ -721,6 +858,7 @@ def _parse_options_settings(payload: dict[str, Any]) -> OptionsSettings:
         commission_per_contract=float(payload.get("commission_per_contract", 0.65)),
         stream_contract_marks=bool(payload.get("stream_contract_marks", True)),
         trailing_stop_pct=trailing_stop_pct,
+        stop_loss_pct=stop_loss_pct,
     )
 
 
@@ -821,6 +959,16 @@ def _parse_schwab_settings(payload: dict[str, Any]) -> SchwabSettings:
         preview_order_path=str(
             payload.get("preview_order_path", "accounts/{account_hash}/previewOrder")
         ),
+    )
+
+
+def _parse_databento_settings(payload: dict[str, Any]) -> DatabentoSettings:
+    return DatabentoSettings(
+        api_key=str(payload.get("api_key", "")).strip(),
+        dataset=str(payload.get("dataset", "EQUS.MINI")).strip() or "EQUS.MINI",
+        schema=str(payload.get("schema", "trades")).strip() or "trades",
+        stype_in=str(payload.get("stype_in", "raw_symbol")).strip() or "raw_symbol",
+        ticks_per_bar=max(int(payload.get("ticks_per_bar", 50)), 1),
     )
 
 
@@ -952,6 +1100,18 @@ def _higher_aggregation_timeframes(
     timeframes: tuple[str, ...],
 ) -> tuple[str, ...]:
     """Drop rollups at or below the stream interval (e.g. 1m when streaming 1m)."""
+    from tick_bar_builder import is_tick_timeframe
+
+    # Tick bars are not time-bucketed; minute/hour/day rollups do not apply.
+    if is_tick_timeframe(stream_timeframe):
+        if timeframes:
+            logger.warning(
+                "Ignoring aggregation_timeframes %s for tick stream_timeframe %s",
+                list(timeframes),
+                stream_timeframe,
+            )
+        return ()
+
     stream_minutes = _timeframe_to_minutes(stream_timeframe)
     filtered = tuple(
         timeframe

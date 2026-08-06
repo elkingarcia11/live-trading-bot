@@ -37,8 +37,10 @@ def test_backfill_timeframe_uses_historical_setting() -> None:
 
 def test_warmup_required_bar_count_for_supertrend_only() -> None:
     app = AppConfig()
-    object.__setattr__(app.indicators, "max_bars", 100)
+    object.__setattr__(app.indicators, "max_bars", 500)
     object.__setattr__(app.indicators, "dema", None)
+    object.__setattr__(app.indicators, "gaussian_bands", None)
+    object.__setattr__(app.indicators, "gaussian_ma", None)
     object.__setattr__(
         app.indicators,
         "supertrend",
@@ -49,13 +51,30 @@ def test_warmup_required_bar_count_for_supertrend_only() -> None:
             change_atr=True,
         ),
     )
+    object.__setattr__(app.workflow, "min_warmup_bars", 100)
+    assert warmup_required_bar_count(app) == 100
+
+
+def test_warmup_required_bar_count_includes_gaussian_ma_floor() -> None:
+    from config import GaussianMaConfig
+
+    app = AppConfig()
+    object.__setattr__(app.indicators, "max_bars", 500)
+    object.__setattr__(app.indicators, "dema", None)
+    object.__setattr__(app.indicators, "supertrend", None)
+    object.__setattr__(app.indicators, "gaussian_bands", None)
+    object.__setattr__(app.indicators, "gaussian_ma", GaussianMaConfig())
+    object.__setattr__(app.workflow, "min_warmup_bars", 100)
     assert warmup_required_bar_count(app) == 100
 
 
 def test_warmup_lookback_duration_for_3m() -> None:
     app = AppConfig()
-    object.__setattr__(app.indicators, "max_bars", 100)
+    object.__setattr__(app.indicators, "max_bars", 500)
     object.__setattr__(app.indicators, "dema", None)
+    object.__setattr__(app.indicators, "gaussian_bands", None)
+    object.__setattr__(app.indicators, "gaussian_ma", None)
+    object.__setattr__(app.workflow, "min_warmup_bars", 100)
     object.__setattr__(
         app.indicators,
         "supertrend",
@@ -225,6 +244,7 @@ def test_indicator_warmup_not_needed_for_gex_only_without_indicators() -> None:
     object.__setattr__(app.indicators, "dema", None)
     object.__setattr__(app.indicators, "supertrend", None)
     object.__setattr__(app.indicators, "gaussian_bands", None)
+    object.__setattr__(app.indicators, "gaussian_ma", None)
     assert indicator_warmup_needed(app, ("gex_scalp",)) is False
 
 

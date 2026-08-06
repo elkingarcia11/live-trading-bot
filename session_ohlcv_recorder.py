@@ -1,8 +1,9 @@
-"""Buffer live session OHLCV bars and flush them to GCS on shutdown.
+"""Buffer live session OHLCV bars and merge them into historical storage.
 
-Responsibility: Persist streamed 1m bars and completed aggregated bars from a
-live session so future startups can load them from storage. Does not fetch
-historical data or evaluate strategies.
+Responsibility: Persist streamed bars from a live session by merging into the
+existing local+GCS OHLCV history (append/dedupe by timestamp). History is
+cumulative across days — flushes never wipe prior sessions. Does not fetch
+vendor historical data or evaluate strategies.
 """
 
 from __future__ import annotations
@@ -92,7 +93,7 @@ class SessionOhlcvRecorder:
         )
 
     def flush(self) -> SessionFlushSummary:
-        """Merge buffered rows into existing GCS partitions and upload."""
+        """Merge buffered rows into the cumulative historical store and upload."""
         with self._lock:
             pending = {
                 key: list(bucket.rows)
@@ -102,7 +103,7 @@ class SessionOhlcvRecorder:
             self._buffers.clear()
 
         if not pending:
-            logger.info("Session OHLCV flush: no buffered bars to save")
+            logger.info("Session OHLCV flush: no new bars to merge into history")
             return SessionFlushSummary(
                 rows_buffered=0,
                 rows_written=0,
@@ -111,7 +112,8 @@ class SessionOhlcvRecorder:
 
         rows_buffered = sum(len(rows) for rows in pending.values())
         logger.info(
-            "Flushing %d buffered session bar(s) across %d symbol/timeframe bucket(s) to GCS",
+            "Merging %d new session bar(s) across %d symbol/timeframe bucket(s) "
+            "into cumulative OHLCV history (local+GCS)",
             rows_buffered,
             len(pending),
         )
@@ -210,6 +212,7 @@ class SessionOhlcvRecorder:
             if self._use_daily_partitions
             else self._storage.exists(symbol, timeframe)
         )
+        existing_rows = 0
         if exists:
             try:
                 existing = self._storage.read(
@@ -217,6 +220,7 @@ class SessionOhlcvRecorder:
                     timeframe,
                     partition_date=partition_date,
                 )
+                existing_rows = len(existing)
             except FileNotFoundError:
                 existing = pd.DataFrame(columns=list(OHLCV_COLUMNS))
             merged = pd.concat([existing, incoming], ignore_index=True)
@@ -228,12 +232,22 @@ class SessionOhlcvRecorder:
             .sort_values("timestamp")
             .reset_index(drop=True)
         )
-        return self._storage.write(
+        uri = self._storage.write(
             symbol,
             timeframe,
             merged,
             partition_date=partition_date,
         )
+        logger.info(
+            "OHLCV history %s %s%s: prior=%d incoming=%d merged=%d",
+            symbol,
+            timeframe,
+            f"/{partition_date.isoformat()}" if partition_date is not None else "",
+            existing_rows,
+            len(incoming),
+            len(merged),
+        )
+        return uri
 
 
 def _rows_to_frame(rows: list[dict[str, object]]) -> pd.DataFrame:

@@ -39,7 +39,10 @@ from order_manager import (
     OrderSide,
     TradingSignal,
 )
-from position_reconciliation import option_position_aligned_with_gaussian
+from position_reconciliation import (
+    option_position_aligned_with_gaussian,
+    option_position_aligned_with_gaussian_crossover,
+)
 from position_sizer import contracts_for_buy, shares_for_buy
 from option_selector import (
     SelectedOption,
@@ -58,6 +61,10 @@ from option_selector import (
 from option_quote import OptionQuoteSnapshot
 from ibkr_tws_account_sync import IbkrTwsAccountSync, IbkrTwsAccountSnapshot
 from ibkr_tws_connection import IbkrTwsRuntime
+from databento_streamer import (
+    DatabentoStreamSession,
+    build_databento_stream_processor,
+)
 from ibkr_tws_streamer import (
     IbkrTwsStreamSession,
     build_ibkr_tws_stream_processor,
@@ -87,6 +94,7 @@ from market_session_scheduler import (
     EodSchedule,
     flatten_deadline_utc,
     is_at_or_past_flatten_time,
+    is_local_session_timestamp,
     is_regular_hours_timestamp_local,
     parse_hhmm,
     parse_utc_hhmm,
@@ -104,15 +112,15 @@ from workflow_warmup import (
     build_storage_repository,
     indicator_warmup_needed,
     load_stored_bars,
+    prepare_trading_day_from_storage,
     warm_start_gex,
-    warm_start_pipeline,
 )
 
 logger = logging.getLogger(__name__)
 
 _GEX_HOLD_LOG_INTERVAL_SECONDS = 300.0
 
-StreamProvider = Literal["generic", "schwab", "ibkr"]
+StreamProvider = Literal["generic", "schwab", "ibkr", "databento"]
 
 
 @dataclass(frozen=True)
@@ -233,6 +241,10 @@ class WorkflowConfig:
         return self.app.workflow.warmup_from_storage
 
     @property
+    def min_warmup_bars(self) -> int:
+        return max(1, int(self.app.workflow.min_warmup_bars))
+
+    @property
     def persist_session_bars(self) -> bool:
         return self.app.workflow.persist_session_bars
 
@@ -240,11 +252,24 @@ class WorkflowConfig:
     def eod_schedule(self) -> EodSchedule:
         workflow = self.app.workflow
         historical = self.app.historical
+        flatten_local = (
+            parse_hhmm(workflow.eod_flatten_time_local)
+            if workflow.eod_flatten_time_local.strip()
+            else None
+        )
+        shutdown_local = (
+            parse_hhmm(workflow.eod_shutdown_time_local)
+            if workflow.eod_shutdown_time_local.strip()
+            else None
+        )
         return EodSchedule(
             enabled=workflow.eod_enabled,
             flatten_time_utc=parse_utc_hhmm(workflow.eod_flatten_time_utc),
             shutdown_time_utc=parse_utc_hhmm(workflow.eod_shutdown_time_utc),
             trading_days_only=historical.trading_days_only,
+            market_timezone=self.app.app.timezone,
+            flatten_time_local=flatten_local,
+            shutdown_time_local=shutdown_local,
         )
 
     @property
@@ -436,9 +461,11 @@ class TradingWorkflow:
             )
             self._ibkr_tws_runtime = None
             self._ibkr_stream = None
+            self._databento_stream = None
             self._stream_manager = None
         elif config.stream_provider == "ibkr":
             self._schwab_stream = None
+            self._databento_stream = None
             self._stream_manager = None
             ibkr = config.app.ibkr
             self._ibkr_tws_runtime = IbkrTwsRuntime.from_config()
@@ -459,10 +486,29 @@ class TradingWorkflow:
                 on_close_external=self._on_stream_closed,
                 on_error_external=self._on_stream_error,
             )
+        elif config.stream_provider == "databento":
+            self._schwab_stream = None
+            self._ibkr_tws_runtime = None
+            self._ibkr_stream = None
+            self._stream_manager = None
+            self.stream_processor = build_databento_stream_processor(
+                symbols=self._symbols,
+                consumers=[self._on_clean_bar],
+                timeframe=config.market_config.stream_timeframe,
+                stream_settings=config.app.stream,
+            )
+            self._databento_stream = DatabentoStreamSession.from_env(
+                symbols=self._symbols,
+                processor=self.stream_processor,
+                on_open_external=self._on_stream_connected,
+                on_close_external=self._on_stream_closed,
+                on_error_external=self._on_stream_error,
+            )
         else:
             self._schwab_stream = None
             self._ibkr_tws_runtime = None
             self._ibkr_stream = None
+            self._databento_stream = None
             self.stream_processor = StreamDataProcessor(
                 symbols=self._symbols,
                 consumers=[self._on_clean_bar],
@@ -542,19 +588,14 @@ class TradingWorkflow:
         self._eod_shutdown_on: Optional[date] = None
         self._zero_dte_flattened_on: Optional[date] = None
         self._started = False
-        self._account_sync = (
-            SchwabAccountSync.from_env()
-            if config.stream_provider == "schwab"
-            else (
-                IbkrTwsAccountSync.from_runtime(self._ibkr_tws_runtime)
-                if self._ibkr_tws_runtime is not None
-                else (
-                    IbkrTwsAccountSync.from_runtime(IbkrTwsRuntime.from_config())
-                    if config.app.broker.provider == "ibkr"
-                    else None
-                )
-            )
-        )
+        # Account sync follows the execution broker, not the market-data stream.
+        if config.app.broker.provider == "schwab":
+            self._account_sync = SchwabAccountSync.from_env()
+        elif config.app.broker.provider == "ibkr":
+            runtime = self._ibkr_tws_runtime or IbkrTwsRuntime.from_config()
+            self._account_sync = IbkrTwsAccountSync.from_runtime(runtime)
+        else:
+            self._account_sync = None
         self._account_snapshot: Optional[
             SchwabAccountSnapshot | IbkrTwsAccountSnapshot
         ] = None
@@ -571,6 +612,8 @@ class TradingWorkflow:
         self._gex_strategy_state: dict[str, dict[str, object]] = {
             symbol: {} for symbol in self._symbols
         }
+        self._strategy_state: dict[tuple[str, str], dict[str, object]] = {}
+        self._warmup_ready_logged: set[str] = set()
         self._gex_status_log: dict[str, tuple[str, float]] = {}
         self._gex_waiting_snapshot_logged: set[str] = set()
         if config.app.gex.enabled:
@@ -610,19 +653,15 @@ class TradingWorkflow:
 
         self.trade_logger.start()
         self.health_monitor.start()
-        warm_start_gex(self)
-        if self._config.warmup_from_storage and indicator_warmup_needed(
-            self._config.app,
-            self._config.strategies,
-        ):
-            warm_start_pipeline(self)
-        elif self._config.warmup_from_storage:
-            logger.info(
-                "Skipping 3m historical warmup (GEX-only workflow with no active indicators)"
-            )
+        # Load prior-day OHLCV / GEX volume context from GCS before live ingest.
+        if self._config.warmup_from_storage:
+            prepare_trading_day_from_storage(self)
+        else:
+            warm_start_gex(self)
         self._reconcile_expired_restored_positions()
         self._reconcile_restored_positions_with_trend()
         self._subscribe_open_option_contracts()
+        self._wait_until_stream_session_open()
         if self._schwab_stream is not None:
             logger.info(
                 "Connecting Schwab live stream for %s (%s bars)",
@@ -639,6 +678,13 @@ class TradingWorkflow:
                 self._config.market_config.stream_timeframe,
             )
             self._ibkr_stream.connect()
+        elif self._databento_stream is not None:
+            logger.info(
+                "Connecting Databento trade stream for %s (%s bars)",
+                ", ".join(self._symbols),
+                self._config.market_config.stream_timeframe,
+            )
+            self._databento_stream.connect()
         else:
             logger.info("Connecting market data stream at %s", self._config.websocket_url)
             self.stream_manager.connect()
@@ -667,7 +713,7 @@ class TradingWorkflow:
         return self._shutdown_requested.is_set()
 
     def stop(self) -> None:
-        """Stop health checks and disconnect the market data stream."""
+        """Stop health checks, disconnect streams, and dump session data to GCS."""
         if not self._started:
             return
 
@@ -689,13 +735,35 @@ class TradingWorkflow:
             self._ibkr_stream.disconnect()
             if self._ibkr_tws_runtime is not None:
                 self._ibkr_tws_runtime.disconnect_session()
+        elif self._databento_stream is not None:
+            self._databento_stream.disconnect()
         elif self._stream_manager is not None:
             self.stream_manager.disconnect()
         if self._gex_monitor is not None:
             self._gex_monitor.stop()
+        self._persist_day_state_to_gcs(reason="shutdown")
+        self._started = False
+        logger.info("TradingWorkflow stopped for %s", ", ".join(self._symbols))
+
+    def _persist_day_state_to_gcs(self, *, reason: str) -> None:
+        """Merge today's session OHLCV into cumulative history; save FT state."""
+        logger.info(
+            "=== History merge (%s): appending session bars into cumulative "
+            "OHLCV store (bucket=%s prefix=%s) — prior days are kept ===",
+            reason,
+            self._config.app.gcs.bucket_name,
+            self._config.app.gcs.ohlcv_prefix,
+        )
         if self._forward_test_account is not None:
-            self._forward_test_account.save()
-        if self._session_recorder is not None:
+            try:
+                self._forward_test_account.save()
+                logger.info("History merge: forward-test account saved")
+            except Exception:
+                logger.exception("History merge: forward-test account save failed")
+        if self._session_recorder is None:
+            logger.info("History merge: session OHLCV recorder disabled; nothing to flush")
+            return
+        try:
             flushed = self.aggregator.flush()
             strategy_timeframe = self._config.market_config.strategy_timeframe
             for aggregated in flushed:
@@ -705,12 +773,50 @@ class TradingWorkflow:
             buffered = self._session_recorder.buffered_row_count
             if buffered:
                 logger.info(
-                    "Shutdown: saving %d buffered live bar(s) to GCS",
+                    "History merge: merging %d new live bar(s) into stored history",
                     buffered,
                 )
-            self._session_recorder.flush()
-        self._started = False
-        logger.info("TradingWorkflow stopped for %s", ", ".join(self._symbols))
+            summary = self._session_recorder.flush()
+            logger.info(
+                "History merge complete: new_rows=%d partitions_touched=%d uris=%s",
+                summary.rows_written,
+                summary.partitions_written,
+                list(summary.storage_uris),
+            )
+        except Exception:
+            logger.exception("History merge: session OHLCV flush failed")
+
+    def _wait_until_stream_session_open(self) -> None:
+        """If started overnight / after close, wait until the stream window opens."""
+        historical = self._config.app.historical
+        if not historical.need_extended_hours:
+            return
+        from market_session_scheduler import is_equity_streaming_session
+
+        tz_name = self._config.app.app.timezone
+        start_local = parse_hhmm(historical.extended_session_start_local)
+        end_local = parse_hhmm(historical.extended_session_end_local)
+        while not self._stop_eod.is_set():
+            now = datetime.now(timezone.utc)
+            if is_equity_streaming_session(
+                now,
+                session_start_local=start_local,
+                session_end_local=end_local,
+                market_timezone=tz_name,
+                trading_days_only=historical.trading_days_only,
+            ):
+                return
+            now_local = now.astimezone(ZoneInfo(tz_name))
+            logger.info(
+                "Day prep complete; waiting for equity stream window "
+                "%s-%s %s (now %s)",
+                start_local.strftime("%H:%M"),
+                end_local.strftime("%H:%M"),
+                tz_name,
+                now_local.strftime("%Y-%m-%d %H:%M:%S %Z"),
+            )
+            if self._stop_eod.wait(30.0):
+                return
 
     @property
     def config(self) -> WorkflowConfig:
@@ -722,7 +828,7 @@ class TradingWorkflow:
         symbol: str,
         volumes: Sequence[float],
     ) -> int:
-        """Preload the rolling 1m volume buffer used by gex_scalp."""
+        """Preload the rolling volume buffer used by gex_scalp."""
         if not volumes:
             return 0
         symbol = symbol.upper()
@@ -734,6 +840,38 @@ class TradingWorkflow:
         for volume in volumes[-maxlen:]:
             history.append(float(volume))
         return len(history)
+
+    def _has_enough_volume_history(self, symbol: str) -> bool:
+        """True when GCS+live bars have filled the GEX volume lookback window."""
+        if not self._config.app.gex.enabled:
+            return True
+        if "gex_scalp" not in self._config.strategies:
+            return True
+        needed = max(self._config.app.gex.volume_lookback_bars, 1)
+        history = self._volume_history.get(symbol.upper())
+        return history is not None and len(history) >= needed
+
+    def _warmup_bar_count(self, symbol: str) -> int:
+        """Return strategy-TF bars available from storage replay + live stream."""
+        timeframe = self._config.market_config.strategy_timeframe
+        return self.indicator_coordinator.buffered_bar_count(symbol, timeframe)
+
+    def _has_enough_warmup_bars(self, symbol: str) -> bool:
+        """True when at least ``min_warmup_bars`` strategy bars are buffered."""
+        needed = self._config.min_warmup_bars
+        have = self._warmup_bar_count(symbol)
+        ready = have >= needed
+        key = symbol.upper()
+        if ready and key not in self._warmup_ready_logged:
+            self._warmup_ready_logged.add(key)
+            logger.info(
+                "Warmup complete for %s: %d/%d %s bars ready (entries allowed)",
+                key,
+                have,
+                needed,
+                self._config.market_config.strategy_timeframe,
+            )
+        return ready
 
     def replay_warmup_bar(self, bar: CleanBarEvent) -> None:
         """Replay one stored 1m bar through aggregation and indicators only."""
@@ -763,6 +901,9 @@ class TradingWorkflow:
             )
         aggregated_bars = self.aggregator.on_bar(bar)
         strategy_timeframe = self._config.market_config.strategy_timeframe
+        # Tick/stream-native strategy TFs (e.g. 50t) skip minute rollup.
+        if bar.timeframe == strategy_timeframe:
+            self.indicator_coordinator.on_stream_bar(bar)
         for aggregated in aggregated_bars:
             if (
                 aggregated.timeframe == strategy_timeframe
@@ -904,6 +1045,12 @@ class TradingWorkflow:
                 if self._ibkr_tws_runtime.isConnected()
                 else ConnectionState.DISCONNECTED
             )
+        if self._databento_stream is not None:
+            return (
+                ConnectionState.CONNECTED
+                if self._started
+                else ConnectionState.DISCONNECTED
+            )
         if self._schwab_stream is not None:
             return ConnectionState.CONNECTED
         return ConnectionState.DISCONNECTED
@@ -927,6 +1074,9 @@ class TradingWorkflow:
         if self._config.stream_provider == "ibkr":
             ibkr = self._config.app.ibkr
             return f"ibkr-tws://{ibkr.host}:{ibkr.port}"
+        if self._config.stream_provider == "databento":
+            databento = self._config.app.databento
+            return f"databento://{databento.dataset}/{databento.schema}"
         return self.stream_manager.url
 
     def _wire_passive_listeners(self) -> None:
@@ -1024,6 +1174,22 @@ class TradingWorkflow:
     def _run_process_and_strategy_layers(self, bar: CleanBarEvent) -> None:
         """Aggregate bars, calculate indicators, and evaluate strategies."""
         started = time.perf_counter()
+        strategy_timeframe = self._config.market_config.strategy_timeframe
+
+        # Stream-native bars (e.g. 50t) never enter the 1m aggregator; update
+        # indicators and evaluate non-gex strategies directly on the strategy TF.
+        if bar.timeframe == strategy_timeframe:
+            snapshot = self.indicator_coordinator.on_stream_bar(bar)
+            if snapshot is not None:
+                duration_ms = (time.perf_counter() - started) * 1000.0
+                self.bus.publish(
+                    Topics.INDICATORS_SNAPSHOT,
+                    snapshot,
+                    source="indicator_coordinator",
+                    metadata={"duration_ms": duration_ms},
+                )
+                self._evaluate_stream_indicator_strategies(bar, snapshot)
+
         aggregated_bars = self.aggregator.on_bar(bar)
 
         for aggregated in aggregated_bars:
@@ -1120,16 +1286,32 @@ class TradingWorkflow:
             position.max_mark_price if position.max_mark_price is not None else mark,
         )
 
-        if notification is not None and notification.reason == ExitReason.TRAILING_STOP:
-            self._exit_on_trailing_stop(position, mark, timestamp)
+        if notification is None:
+            return
+        if notification.reason == ExitReason.TRAILING_STOP:
+            self._exit_on_option_risk_stop(
+                position,
+                mark,
+                timestamp,
+                reason=ExitReason.TRAILING_STOP,
+            )
+        elif notification.reason == ExitReason.STOP_LOSS:
+            self._exit_on_option_risk_stop(
+                position,
+                mark,
+                timestamp,
+                reason=ExitReason.STOP_LOSS,
+            )
 
-    def _exit_on_trailing_stop(
+    def _exit_on_option_risk_stop(
         self,
         position: Position,
         mark: float,
         closed_at: datetime,
+        *,
+        reason: ExitReason,
     ) -> None:
-        """Flatten an option position when its peak-mark trailing stop is hit."""
+        """Flatten an option when hard stop or peak-mark trailing stop is hit."""
         key = position.symbol.upper()
         if key in self._flattening_contracts:
             return
@@ -1141,60 +1323,76 @@ class TradingWorkflow:
             if spot is None:
                 spot = position.underlying_entry_price or position.average_entry_price
             peak = position.max_mark_price or mark
-            pct = position.trailing_stop_pct or 0.0
-            logger.info(
-                "Trailing stop hit for %s: mark=%.2f fell %.1f%% from peak=%.2f",
-                position.symbol,
-                mark,
-                (1.0 - (mark / peak)) * 100.0 if peak else 0.0,
-                peak,
-            )
+            if reason == ExitReason.STOP_LOSS:
+                pct = position.stop_loss_pct or 0.0
+                entry = position.average_entry_price
+                logger.info(
+                    "Stop loss hit for %s: mark=%.2f fell %.1f%% from entry=%.2f",
+                    position.symbol,
+                    mark,
+                    (1.0 - (mark / entry)) * 100.0 if entry else 0.0,
+                    entry,
+                )
+                strategy_name = "stop_loss"
+                conditions_met = (
+                    f"stop loss: mark {mark:.2f} fell {pct:.0%}+ from entry {entry:.2f}"
+                )
+            else:
+                pct = position.trailing_stop_pct or 0.0
+                logger.info(
+                    "Trailing stop hit for %s: mark=%.2f fell %.1f%% from peak=%.2f",
+                    position.symbol,
+                    mark,
+                    (1.0 - (mark / peak)) * 100.0 if peak else 0.0,
+                    peak,
+                )
+                strategy_name = "trailing_stop"
+                conditions_met = (
+                    f"trailing stop: mark {mark:.2f} fell {pct:.0%}+ from peak {peak:.2f}"
+                )
             self._flatten_open_option_position(
                 position=position,
                 underlying_symbol=underlying,
                 underlying_spot=float(spot),
                 closed_at=closed_at,
-                strategy_name="trailing_stop",
-                conditions_met=(
-                    f"trailing stop: mark {mark:.2f} fell {pct:.0%}+ from peak {peak:.2f}"
-                ),
+                strategy_name=strategy_name,
+                conditions_met=conditions_met,
                 send_email=self._trade_emailer is not None,
             )
         finally:
             self._flattening_contracts.discard(key)
 
     def _subscribe_open_option_contracts(self) -> None:
-        """Stream marks and arm trailing stops for already-open option positions."""
+        """Stream marks and arm trailing/stop exits for already-open option positions."""
         if not self._config.app.options.enabled:
             return
         for position in self.position_tracker.list_positions():
             if position.asset_type != "OPTION":
                 continue
-            self._apply_option_trailing_stop(position.symbol)
+            self._apply_option_risk_stops(position.symbol)
             self._subscribe_option_contract(position.symbol)
 
-    def _apply_option_trailing_stop(self, symbol: str) -> None:
-        """Attach the configured peak-mark trailing stop to an open option."""
+    def _apply_option_risk_stops(self, symbol: str) -> None:
+        """Attach configured peak-mark trailing stop and entry stop-loss %."""
         options = self._config.app.options
-        pct = options.trailing_stop_pct
-        if not options.enabled or pct is None:
+        trailing_pct = options.trailing_stop_pct
+        stop_pct = options.stop_loss_pct
+        if not options.enabled or (trailing_pct is None and stop_pct is None):
             return
         position = self.position_tracker.get_position(symbol)
         if position is None or position.asset_type != "OPTION":
             return
-        if position.trailing_stop_pct == pct:
+        if trailing_pct is not None and not 0.0 < trailing_pct < 1.0:
             return
-        self.position_tracker.open_position(
-            symbol=position.symbol,
-            quantity=position.quantity,
-            entry_price=position.average_entry_price,
-            opened_at=position.opened_at,
-            asset_type=position.asset_type,
-            underlying_symbol=position.underlying_symbol,
-            underlying_entry_price=position.underlying_entry_price,
-            entry_quote=position.entry_quote,
-            trailing_stop_pct=pct,
-        )
+        if stop_pct is not None and not 0.0 < stop_pct < 1.0:
+            return
+        # Mutate in place so peak mark / max PnL are preserved on restore.
+        position.trailing_stop_pct = trailing_pct
+        position.stop_loss_pct = stop_pct
+
+    def _apply_option_trailing_stop(self, symbol: str) -> None:
+        """Backward-compatible alias for :meth:`_apply_option_risk_stops`."""
+        self._apply_option_risk_stops(symbol)
 
     def _subscribe_option_contract(self, occ_symbol: str) -> None:
         """Subscribe a held option contract to the live mark stream."""
@@ -1278,9 +1476,13 @@ class TradingWorkflow:
         if snapshot is None:
             return None
 
-        if snapshot.values.get("gaussian_ma") is None:
+        if (
+            snapshot.values.get("gaussian_ma") is None
+            and snapshot.values.get("gaussian_ma_fast") is None
+            and snapshot.values.get("gaussian_ma_slow") is None
+        ):
             logger.debug(
-                "Gaussian MA not ready for %s %s @ %s (need more 3m bars in buffer)",
+                "Gaussian MA not ready for %s %s @ %s (need more bars in buffer)",
                 aggregated.symbol,
                 aggregated.timeframe,
                 aggregated.timestamp.isoformat(),
@@ -1305,6 +1507,8 @@ class TradingWorkflow:
             return
 
         for strategy_name in self._config.strategies:
+            if strategy_name == "gex_scalp":
+                continue
             strategy = self.strategy_registry.get(strategy_name)
             if not self._indicators_ready(strategy.required_indicators, snapshot.values):
                 logger.debug(
@@ -1314,14 +1518,23 @@ class TradingWorkflow:
                 )
                 continue
 
+            state = self._strategy_state.setdefault(
+                (aggregated.symbol.upper(), strategy_name),
+                {},
+            )
             try:
                 signal = self.signal_evaluator.evaluate(
                     symbol=aggregated.symbol,
                     timeframe=aggregated.timeframe,
                     timestamp=aggregated.timestamp,
                     close=aggregated.close,
+                    open=aggregated.open,
+                    high=aggregated.high,
+                    low=aggregated.low,
+                    volume=aggregated.volume,
                     indicators=snapshot.values,
                     strategy_name=strategy_name,
+                    state=state,
                 )
             except ValueError as exc:
                 logger.debug("Skipping %s evaluation: %s", strategy_name, exc)
@@ -1338,6 +1551,68 @@ class TradingWorkflow:
                 strategy_name=strategy_name,
                 signal=signal,
             )
+            self._handle_strategy_signal(signal)
+
+    def _evaluate_stream_indicator_strategies(
+        self,
+        bar: CleanBarEvent,
+        snapshot: IndicatorSnapshot,
+    ) -> None:
+        """Evaluate non-gex strategies on stream-native strategy bars (e.g. 50t)."""
+        strategy_timeframe = self._config.market_config.strategy_timeframe
+        if bar.timeframe != strategy_timeframe:
+            return
+
+        for strategy_name in self._config.strategies:
+            if strategy_name == "gex_scalp":
+                continue
+            strategy = self.strategy_registry.get(strategy_name)
+            if not self._indicators_ready(strategy.required_indicators, snapshot.values):
+                logger.debug(
+                    "Skipping %s; indicators not ready for %s",
+                    strategy_name,
+                    bar.symbol,
+                )
+                continue
+
+            state = self._strategy_state.setdefault(
+                (bar.symbol.upper(), strategy_name),
+                {},
+            )
+            try:
+                signal = self.signal_evaluator.evaluate(
+                    symbol=bar.symbol,
+                    timeframe=bar.timeframe,
+                    timestamp=bar.timestamp,
+                    close=bar.close,
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    volume=bar.volume,
+                    indicators=snapshot.values,
+                    strategy_name=strategy_name,
+                    state=state,
+                )
+            except ValueError as exc:
+                logger.debug("Skipping %s evaluation: %s", strategy_name, exc)
+                continue
+
+            self.bus.publish(
+                Topics.STRATEGY_SIGNAL,
+                signal,
+                source="signal_evaluator",
+            )
+            if signal.action != SignalAction.HOLD:
+                logger.info(
+                    "%s %s @ %s close=%.2f → %s | fast=%s slow=%s",
+                    strategy_name,
+                    bar.symbol,
+                    bar.timestamp.isoformat(),
+                    bar.close,
+                    signal.action.value.upper(),
+                    snapshot.values.get("gaussian_ma_fast"),
+                    snapshot.values.get("gaussian_ma_slow"),
+                )
             self._handle_strategy_signal(signal)
 
     def _init_gex_monitor(self) -> None:
@@ -1368,8 +1643,11 @@ class TradingWorkflow:
             logger.exception("GEX monitor unavailable; gex_scalp will not receive snapshots")
 
     def _evaluate_gex_strategies(self, bar: CleanBarEvent) -> None:
-        """Evaluate 1m-native GEX strategies on each clean stream bar."""
+        """Evaluate stream-native GEX strategies on each clean stream bar."""
         if "gex_scalp" not in self._config.strategies:
+            return
+        strategy_timeframe = self._config.market_config.strategy_timeframe
+        if bar.timeframe != strategy_timeframe:
             return
         if self._gex_monitor is None:
             if bar.symbol not in self._gex_waiting_snapshot_logged:
@@ -1420,7 +1698,7 @@ class TradingWorkflow:
         try:
             signal = self.signal_evaluator.evaluate(
                 symbol=bar.symbol,
-                timeframe="1m",
+                timeframe=strategy_timeframe,
                 timestamp=bar.timestamp,
                 close=bar.close,
                 open=bar.open,
@@ -1461,7 +1739,7 @@ class TradingWorkflow:
 
         ctx = StrategyEvaluationContext(
             symbol=bar.symbol,
-            timeframe="1m",
+            timeframe=bar.timeframe,
             timestamp=bar.timestamp,
             close=bar.close,
             open=bar.open,
@@ -1626,6 +1904,16 @@ class TradingWorkflow:
     @staticmethod
     def _strategy_log_context(values: dict[str, object]) -> tuple[str, str]:
         """Return a (label, detail) pair describing indicator state for logs."""
+        gauss_fast = values.get("gaussian_ma_fast")
+        gauss_slow = values.get("gaussian_ma_slow")
+        if gauss_fast is not None or gauss_slow is not None:
+            parts: list[str] = []
+            if gauss_fast is not None:
+                parts.append(f"fast={float(gauss_fast):.2f}")
+            if gauss_slow is not None:
+                parts.append(f"slow={float(gauss_slow):.2f}")
+            return "gma", " " + " ".join(parts)
+
         gauss_ma = values.get("gaussian_ma")
         if gauss_ma is not None:
             upper = values.get("gaussian_upper")
@@ -1673,8 +1961,22 @@ class TradingWorkflow:
         """Return today's date in the configured market timezone."""
         return datetime.now(ZoneInfo(self._config.app.app.timezone)).date()
 
+    def _is_entry_window(self, timestamp: datetime) -> bool:
+        """Return whether new trades may open at ``timestamp`` (market-local wall clock)."""
+        workflow = self._config.app.workflow
+        historical = self._config.app.historical
+        start_raw = workflow.entry_start_local.strip() or historical.session_start_local
+        end_raw = workflow.entry_end_local.strip() or historical.session_end_local
+        return is_local_session_timestamp(
+            timestamp,
+            session_start_local=parse_hhmm(start_raw),
+            session_end_local=parse_hhmm(end_raw),
+            market_timezone=self._config.app.app.timezone,
+            trading_days_only=historical.trading_days_only,
+        )
+
     def _past_entry_cutoff(self, timestamp: datetime) -> bool:
-        """Return whether a bar timestamp is at/after the no-new-trades UTC cutoff."""
+        """Optional legacy UTC cutoff; empty config disables it."""
         raw = self._config.app.workflow.no_new_trades_after_utc.strip()
         if not raw:
             return False
@@ -1708,6 +2010,24 @@ class TradingWorkflow:
 
         options = self._config.app.options
         if options.enabled and signal.action in {SignalAction.BUY, SignalAction.SELL}:
+            position = self.position_tracker.get_position_for_underlying(signal.symbol)
+            if (
+                position is not None
+                and position.asset_type == "OPTION"
+                and abs(position.quantity) > 0
+            ):
+                current_side = option_contract_type(position.symbol)
+                desired_side = (
+                    "CALL" if signal.action == SignalAction.BUY else "PUT"
+                )
+                if current_side == desired_side:
+                    logger.debug(
+                        "Skipping %s for %s; already long %s",
+                        signal.action.value,
+                        signal.symbol,
+                        current_side,
+                    )
+                    return
             self._close_existing_option_on_flip(signal)
 
         position = self.position_tracker.get_position_for_underlying(signal.symbol)
@@ -1721,6 +2041,18 @@ class TradingWorkflow:
             options_enabled=options.enabled,
             option_entry=option_entry,
         )
+        if opens_new_trade and not self._is_entry_window(signal.timestamp):
+            workflow = self._config.app.workflow
+            logger.info(
+                "Blocking %s for %s; outside entry window %s-%s %s "
+                "(stream continues; exits still allowed)",
+                signal.action.value,
+                signal.symbol,
+                workflow.entry_start_local or "09:30",
+                workflow.entry_end_local or "16:00",
+                self._config.app.app.timezone,
+            )
+            return
         if opens_new_trade and self._past_entry_cutoff(signal.timestamp):
             logger.info(
                 "Blocking %s for %s; past entry cutoff %s UTC (exits still allowed)",
@@ -1729,11 +2061,30 @@ class TradingWorkflow:
                 self._config.app.workflow.no_new_trades_after_utc,
             )
             return
-        if not self._live_regular_hours_seen and opens_new_trade:
+        if opens_new_trade and not self._has_enough_warmup_bars(signal.symbol):
+            needed = self._config.min_warmup_bars
+            have = self._warmup_bar_count(signal.symbol)
             logger.info(
-                "Blocking %s for %s until first regular-hours live candle",
+                "Blocking %s for %s; waiting for warmup "
+                "(%d/%d %s bars from storage+live) before new entries",
                 signal.action.value,
                 signal.symbol,
+                have,
+                needed,
+                self._config.market_config.strategy_timeframe,
+            )
+            return
+        if opens_new_trade and not self._has_enough_volume_history(signal.symbol):
+            needed = max(self._config.app.gex.volume_lookback_bars, 1)
+            have = len(self._volume_history.get(signal.symbol, ()))
+            logger.info(
+                "Blocking %s for %s; waiting for volume history "
+                "(%d/%d %s bars from GCS+live) before new entries",
+                signal.action.value,
+                signal.symbol,
+                have,
+                needed,
+                self._config.market_config.stream_timeframe,
             )
             return
 
@@ -1951,7 +2302,11 @@ class TradingWorkflow:
                 trailing_stop_pct=(
                     self._config.app.options.trailing_stop_pct
                     if resolved.asset_type == "OPTION"
-                    and signal.strategy_name != "gex_scalp"
+                    else None
+                ),
+                stop_loss_pct=(
+                    self._config.app.options.stop_loss_pct
+                    if resolved.asset_type == "OPTION"
                     else None
                 ),
                 gex_trigger_level=gex_trigger,
@@ -2212,18 +2567,14 @@ class TradingWorkflow:
         *,
         contract_side: Literal["call", "put"],
     ) -> ResolvedTrade:
-        """Size and resolve a 0DTE or configured-DTE option entry."""
+        """Size and resolve a configured-DTE option entry (delta band)."""
         options = self._config.app.options
-        if options.days_to_expiration == 0:
-            selected = self._select_zero_dte_contract(
-                underlying,
-                price,
-                contract_side=contract_side,
-            )
-        elif contract_side == "call":
-            selected = self._select_atm_call(underlying, price)
-        else:
-            selected = self._select_atm_put(underlying, price)
+        # Same delta-band picker for 0DTE, 2DTE, etc. (target from options.days_to_expiration).
+        selected = self._select_zero_dte_contract(
+            underlying,
+            price,
+            contract_side=contract_side,
+        )
         right_label = contract_side
 
         balance = self._tradeable_balance()
@@ -2270,7 +2621,7 @@ class TradingWorkflow:
         *,
         contract_side: Literal["call", "put"],
     ) -> SelectedOption:
-        """Resolve a 0DTE contract in the configured delta band."""
+        """Resolve a contract at the configured DTE in the GEX delta band."""
         options = self._config.app.options
         gex = self._config.app.gex
         criteria = ZeroDteSelectionCriteria(
@@ -2296,7 +2647,8 @@ class TradingWorkflow:
                 )
             except Exception:
                 logger.exception(
-                    "Failed to fetch 0DTE %s chain for %s; using synthetic contract",
+                    "Failed to fetch %sDTE %s chain for %s; using synthetic contract",
+                    options.days_to_expiration,
                     contract_side,
                     underlying,
                 )
@@ -2388,7 +2740,7 @@ class TradingWorkflow:
                 )
 
     def _reconcile_restored_positions_with_trend(self) -> None:
-        """Close restored options that no longer match the Gaussian MA bias."""
+        """Close restored options that no longer match the Gaussian MA regime."""
         if not self._config.app.options.enabled:
             return
 
@@ -2406,8 +2758,14 @@ class TradingWorkflow:
                 )
                 continue
 
-            gauss_ma = snapshot.values.get("gaussian_ma")
-            if gauss_ma is None:
+            fast = snapshot.values.get("gaussian_ma_fast")
+            slow = snapshot.values.get("gaussian_ma_slow")
+            gauss_ma = (
+                fast
+                or slow
+                or snapshot.values.get("gaussian_ma")
+            )
+            if fast is None and slow is None and gauss_ma is None:
                 logger.info(
                     "Keeping restored %s; Gaussian MA not ready for reconciliation",
                     position.symbol,
@@ -2421,10 +2779,22 @@ class TradingWorkflow:
                 )
 
             contract_type = option_contract_type(position.symbol)
-            bias_label = "bullish" if float(underlying_spot) >= float(gauss_ma) else "bearish"
-            if option_position_aligned_with_gaussian(
-                contract_type, float(underlying_spot), float(gauss_ma)
-            ):
+            if fast is not None and slow is not None:
+                aligned = option_position_aligned_with_gaussian_crossover(
+                    contract_type, float(fast), float(slow)
+                )
+                bias_label = "bullish" if float(fast) > float(slow) else "bearish"
+            else:
+                aligned = option_position_aligned_with_gaussian(
+                    contract_type, float(underlying_spot), float(gauss_ma)
+                )
+                bias_label = (
+                    "bullish"
+                    if float(underlying_spot) >= float(gauss_ma)
+                    else "bearish"
+                )
+
+            if aligned:
                 logger.info(
                     "Restored %s %s matches Gaussian MA bias (%s); keeping position open",
                     symbol,
@@ -2599,9 +2969,14 @@ class TradingWorkflow:
             )
 
     def _close_existing_option_on_flip(self, signal: StrategySignal) -> None:
-        """Flatten an open option before entering the new flip direction."""
+        """Flatten an opposite-side option before entering the new flip direction."""
         position = self.position_tracker.get_position_for_underlying(signal.symbol)
         if position is None or position.asset_type != "OPTION":
+            return
+
+        current_side = option_contract_type(position.symbol)
+        desired_side = "CALL" if signal.action == SignalAction.BUY else "PUT"
+        if current_side == desired_side:
             return
 
         self._flatten_open_option_position(
@@ -2614,9 +2989,10 @@ class TradingWorkflow:
             send_email=True,
         )
         logger.info(
-            "Closed %s before %s flip entry",
+            "Closed %s %s before %s flip entry",
+            current_side,
             position.symbol,
-            signal.action.value,
+            desired_side,
         )
 
     def _resolve_exit_underlying_price(
@@ -2940,9 +3316,7 @@ class TradingWorkflow:
             },
             source="stream_connection_manager",
         )
-        if self._config.stream_provider == "schwab":
-            return
-        if self._config.stream_provider == "ibkr":
+        if self._config.stream_provider in {"schwab", "ibkr", "databento"}:
             return
         if self._config.subscribe_on_connect:
             self._subscribe_symbols()
@@ -2989,12 +3363,26 @@ class TradingWorkflow:
         )
 
     def _start_eod_scheduler(self) -> None:
-        """Watch the clock and flatten/shutdown at configured UTC times."""
+        """Watch the clock and flatten/shutdown at configured session times."""
         schedule = self._config.eod_schedule
+        if schedule.flatten_time_local is not None:
+            flatten_label = (
+                f"{schedule.flatten_time_local.strftime('%H:%M')} "
+                f"{schedule.market_timezone}"
+            )
+        else:
+            flatten_label = f"{schedule.flatten_time_utc.strftime('%H:%M')} UTC"
+        if schedule.shutdown_time_local is not None:
+            shutdown_label = (
+                f"{schedule.shutdown_time_local.strftime('%H:%M')} "
+                f"{schedule.market_timezone}"
+            )
+        else:
+            shutdown_label = f"{schedule.shutdown_time_utc.strftime('%H:%M')} UTC"
         logger.info(
-            "EOD scheduler enabled: flatten %s UTC, shutdown %s UTC",
-            schedule.flatten_time_utc.strftime("%H:%M"),
-            schedule.shutdown_time_utc.strftime("%H:%M"),
+            "EOD scheduler enabled: flatten %s, shutdown %s",
+            flatten_label,
+            shutdown_label,
         )
         self._eod_thread = threading.Thread(
             target=self._eod_loop,
@@ -3009,22 +3397,30 @@ class TradingWorkflow:
             now = datetime.now(timezone.utc)
             schedule = self._config.eod_schedule
 
+            market_day = datetime.now(
+                ZoneInfo(self._config.app.app.timezone)
+            ).date()
             if should_flatten_positions(
                 now,
                 schedule=schedule,
                 flattened_on=self._eod_flattened_on,
             ):
-                logger.info("EOD: flattening open positions before regular close")
+                logger.info(
+                    "EOD: flattening all open positions by regular-session close"
+                )
                 self._flatten_all_positions_eod(now)
-                self._eod_flattened_on = now.date()
+                self._eod_flattened_on = market_day
 
             if should_shutdown(
                 now,
                 schedule=schedule,
                 shutdown_on=self._eod_shutdown_on,
             ):
-                logger.info("EOD: regular session ended; shutting down and flushing data")
-                self._eod_shutdown_on = now.date()
+                logger.info(
+                    "EOD: equity streaming day ended (8:00 PM ET); "
+                    "merging session bars into cumulative GCS history and shutting down"
+                )
+                self._eod_shutdown_on = market_day
                 self.stop()
                 self._shutdown_requested.set()
                 return
@@ -3187,6 +3583,7 @@ if __name__ == "__main__":
     use_live_stream = app.workflow.run_schwab_stream or app.workflow.stream_provider in {
         "schwab",
         "ibkr",
+        "databento",
     }
 
     if use_live_stream:

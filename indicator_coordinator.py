@@ -126,6 +126,25 @@ def build_gaussian_bands_job(
     )
 
 
+def build_gaussian_ma_job(
+    timeframe: str,
+    *,
+    length: int = DEFAULT_GAUSSIAN_LENGTH,
+    sigma_divisor: float = DEFAULT_GAUSSIAN_SIGMA_DIVISOR,
+    output_key: str = "gaussian_ma",
+) -> IndicatorJob:
+    """Build a Pine-style Gaussian MA job (slow/fast variants via output_key)."""
+    return IndicatorJob(
+        name="gaussian_ma",
+        timeframe=timeframe,
+        params=(
+            ("length", length),
+            ("sigma_divisor", sigma_divisor),
+            ("output_key", output_key),
+        ),
+    )
+
+
 class IndicatorCoordinator:
     """Coordinates indicator configuration, buffering, and calculation jobs."""
 
@@ -166,9 +185,13 @@ class IndicatorCoordinator:
         Returns:
             Latest indicator snapshot when jobs exist for the symbol/timeframe.
         """
+        return self.on_stream_bar(bar)
+
+    def on_stream_bar(self, bar: CleanBarEvent) -> Optional[IndicatorSnapshot]:
+        """Buffer a stream bar (1m or tick) and dispatch matching indicator jobs."""
         return self._dispatch(
             symbol=bar.symbol,
-            timeframe="1m",
+            timeframe=bar.timeframe,
             row=self._row_from_clean_bar(bar),
         )
 
@@ -217,6 +240,13 @@ class IndicatorCoordinator:
             if not buffer:
                 return None
             return float(buffer[-1]["close"])
+
+    def buffered_bar_count(self, symbol: str, timeframe: str) -> int:
+        """Return how many bars are buffered for a symbol/timeframe."""
+        key = (symbol.upper(), timeframe)
+        with self._lock:
+            buffer = self._buffers.get(key)
+            return len(buffer) if buffer is not None else 0
 
     def _dispatch(
         self,

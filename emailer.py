@@ -392,6 +392,25 @@ def describe_conditions_met(signal: StrategySignal) -> str:
             return f"MACD {relation} signal ({macd:.4f} vs {macd_signal:.4f})"
         return "MACD crossover"
 
+    if signal.strategy_name == "gaussian_ma_crossover":
+        fast = indicators.get("gaussian_ma_fast")
+        slow = indicators.get("gaussian_ma_slow")
+        if fast is not None and slow is not None:
+            if signal.action.value == "buy":
+                return (
+                    f"fast Gaussian MA crossed above slow "
+                    f"({float(fast):.4f} > {float(slow):.4f})"
+                )
+            if signal.action.value == "sell":
+                return (
+                    f"slow Gaussian MA crossed above fast "
+                    f"({float(slow):.4f} > {float(fast):.4f})"
+                )
+            return (
+                f"Gaussian MA fast={float(fast):.4f} slow={float(slow):.4f}"
+            )
+        return "Gaussian MA crossover"
+
     indicator_summary = ", ".join(
         f"{name}={value}"
         for name, value in sorted(indicators.items())

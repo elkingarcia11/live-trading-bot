@@ -86,7 +86,8 @@ def fetch_recent_1m_volumes(
     storage: Optional[CloudStorageRepository] = None,
     executor: Optional[object] = None,
 ) -> tuple[list[float], str]:
-    """Load recent 1m volumes from storage, falling back to a REST backfill."""
+    """Load recent stream-bar volumes from GCS/local storage only (no vendor fetch)."""
+    del executor  # REST/backfill removed; history is assumed to live in GCS.
     symbol = symbol.upper()
     stream_timeframe = app.market.stream_timeframe
     lookback_bars = max(lookback_bars, 1)
@@ -96,66 +97,46 @@ def fetch_recent_1m_volumes(
         lookback_bars + 10,
     )
 
-    bars = _empty_ohlcv_frame()
-    source = "none"
-    if storage is not None:
-        bars = load_recent_stored_bars(
-            storage,
-            symbol,
-            stream_timeframe,
-            end=end,
-            required_bars=lookback_bars,
-            floor=floor,
-            use_daily_partitions=app.gcs.use_daily_partitions,
-        )
-        if not bars.empty:
-            source = "storage"
+    if storage is None:
+        return [], "none"
 
-    if len(bars) < lookback_bars and executor is not None and storage is not None:
-        request_start = max(floor, end - warmup_lookback_duration_for_bars(
-            stream_timeframe,
-            lookback_bars + 30,
-        ))
-        request = BackfillRequest(
-            symbol=symbol,
-            timeframe=stream_timeframe,
-            start=request_start,
-            end=end + timedelta(minutes=1),
-            partition_date=end.date() if app.gcs.use_daily_partitions else None,
-        )
-        try:
-            logger.info(
-                "Fetching recent 1m bars for GEX volume seed (%s): %s -> %s",
-                symbol,
-                request_start.isoformat(),
-                end.isoformat(),
-            )
-            executor.execute(request)
-            bars = load_recent_stored_bars(
-                storage,
-                symbol,
-                stream_timeframe,
-                end=end,
-                required_bars=lookback_bars,
-                floor=floor,
-                use_daily_partitions=app.gcs.use_daily_partitions,
-            )
-            if not bars.empty:
-                source = "rest"
-        except Exception:
-            logger.exception("REST fetch for GEX volume seed failed for %s", symbol)
-
+    bars = load_recent_stored_bars(
+        storage,
+        symbol,
+        stream_timeframe,
+        end=end,
+        required_bars=lookback_bars,
+        floor=floor,
+        use_daily_partitions=app.gcs.use_daily_partitions,
+    )
     if bars.empty:
-        return [], source
+        return [], "none"
 
     volumes = (
         bars.sort_values("timestamp")["volume"].astype(float).tolist()[-lookback_bars:]
     )
-    return volumes, source
+    return volumes, "storage"
+
+
+def prepare_trading_day_from_storage(workflow: "TradingWorkflow") -> None:
+    """Load cumulative OHLCV history from GCS only — never fetches vendor data."""
+    app = workflow.config.app
+    logger.info(
+        "=== Day prep: loading cumulative OHLCV history from GCS only "
+        "(bucket=%s prefix=%s; no vendor fetch) ===",
+        app.gcs.bucket_name,
+        app.gcs.ohlcv_prefix,
+    )
+    warm_start_gex(workflow)
+    if indicator_warmup_needed(app, workflow.config.strategies):
+        logger.info(
+            "Day prep: indicator strategies enabled but vendor backfill is disabled; "
+            "indicators warm from live bars / existing GCS only"
+        )
 
 
 def warm_start_gex(workflow: "TradingWorkflow") -> list[GexWarmupSummary]:
-    """Seed gex_scalp volume lookback from recent 1m bars before the live stream."""
+    """Seed gex_scalp volume lookback from GCS history (no REST fetch)."""
     app = workflow.config.app
     gex = app.gex
     if not gex.enabled or "gex_scalp" not in workflow.config.strategies:
@@ -163,62 +144,72 @@ def warm_start_gex(workflow: "TradingWorkflow") -> list[GexWarmupSummary]:
     if not gex.seed_volume_history:
         return []
 
+    stream_timeframe = app.market.stream_timeframe
     lookback_bars = max(gex.volume_lookback_bars, 1)
-    end = last_completed_minute()
+    end = datetime.now(timezone.utc)
     logger.info(
-        "=== GEX startup: seeding %d-bar 1m volume lookback (through %s) ===",
+        "=== GEX startup: seeding %d-bar %s volume lookback from GCS "
+        "(through %s) ===",
         lookback_bars,
+        stream_timeframe,
         end.isoformat(),
     )
 
     storage: Optional[CloudStorageRepository] = None
-    executor: Optional[object] = None
     try:
         storage = build_storage_repository(app)
-        executor = build_backfill_executor(storage, app=app)
     except Exception:
         logger.exception(
-            "GEX volume seed storage/backfill unavailable; continuing without preload"
+            "GEX volume seed: storage unavailable; will wait for live %s bars",
+            stream_timeframe,
         )
 
     summaries: list[GexWarmupSummary] = []
-    try:
-        for symbol in workflow.symbols:
-            volumes, source = fetch_recent_1m_volumes(
-                app,
+    for symbol in workflow.symbols:
+        volumes, source = fetch_recent_1m_volumes(
+            app,
+            symbol,
+            lookback_bars=lookback_bars,
+            end=end,
+            storage=storage,
+        )
+        seeded = workflow.seed_gex_volume_history(symbol, volumes)
+        if seeded >= lookback_bars:
+            logger.info(
+                "GEX volume seed for %s: %d/%d %s bar(s) from %s — ready to trade",
                 symbol,
+                seeded,
+                lookback_bars,
+                stream_timeframe,
+                source,
+            )
+        elif seeded:
+            logger.info(
+                "GEX volume seed for %s: %d/%d %s bar(s) from %s — "
+                "waiting for %d more live bar(s) before new entries",
+                symbol,
+                seeded,
+                lookback_bars,
+                stream_timeframe,
+                source,
+                lookback_bars - seeded,
+            )
+        else:
+            logger.warning(
+                "GEX volume seed for %s: no %s history in GCS; "
+                "blocking new entries until %d live bar(s) accumulate",
+                symbol,
+                stream_timeframe,
+                lookback_bars,
+            )
+        summaries.append(
+            GexWarmupSummary(
+                symbol=symbol,
+                volumes_seeded=seeded,
                 lookback_bars=lookback_bars,
-                end=end,
-                storage=storage,
-                executor=executor,
+                source=source if seeded else "none",
             )
-            seeded = workflow.seed_gex_volume_history(symbol, volumes)
-            if seeded:
-                logger.info(
-                    "GEX volume seed for %s: %d/%d bar(s) from %s",
-                    symbol,
-                    seeded,
-                    lookback_bars,
-                    source,
-                )
-            else:
-                logger.warning(
-                    "GEX volume seed for %s: no 1m history available; "
-                    "volume-spike filter activates after %d live bar(s)",
-                    symbol,
-                    lookback_bars,
-                )
-            summaries.append(
-                GexWarmupSummary(
-                    symbol=symbol,
-                    volumes_seeded=seeded,
-                    lookback_bars=lookback_bars,
-                    source=source if seeded else "none",
-                )
-            )
-    finally:
-        if executor is not None:
-            close_backfill_executor(executor)
+        )
 
     return summaries
 
@@ -382,8 +373,8 @@ def warm_start_pipeline(workflow: "TradingWorkflow") -> list[WarmupSummary]:
             )
             if replayed < required_bars:
                 logger.warning(
-                    "Supertrend warmup incomplete for %s: replayed %d/%d bar(s); "
-                    "signals may show 'warming up' until more history is stored",
+                    "Indicator warmup incomplete for %s: replayed %d/%d bar(s); "
+                    "new entries stay blocked until live bars fill the gap",
                     symbol,
                     replayed,
                     required_bars,
@@ -735,6 +726,11 @@ def load_recent_stored_bars(
 
 def warmup_lookback_duration_for_bars(timeframe: str, required_bars: int) -> timedelta:
     """Return a time span that should cover ``required_bars`` for ``timeframe``."""
+    from tick_bar_builder import is_tick_timeframe
+
+    if is_tick_timeframe(timeframe):
+        # Tick bars are dense; walk back a few calendar days of daily partitions.
+        return timedelta(days=max(3, (required_bars // 50) + 2))
     bar_minutes = _timeframe_minutes(timeframe)
     return timedelta(minutes=required_bars * bar_minutes + bar_minutes)
 
@@ -811,8 +807,12 @@ def warmup_lookback_duration(app: "AppConfig", timeframe: str) -> timedelta:
 
 
 def warmup_required_bar_count(app: "AppConfig") -> int:
-    """Return the number of strategy-timeframe bars needed for warmup."""
-    required_bars = app.indicators.max_bars
+    """Return the number of strategy-timeframe bars needed for warmup/entry gate.
+
+    Floors at ``workflow.min_warmup_bars`` (default 100) and indicator lookbacks,
+    then caps at ``indicators.max_bars`` so the buffer can hold the load.
+    """
+    required_bars = max(1, int(app.workflow.min_warmup_bars))
 
     if app.indicators.dema is not None:
         required_bars = max(required_bars, app.indicators.dema.period)
@@ -823,7 +823,23 @@ def warmup_required_bar_count(app: "AppConfig") -> int:
             app.indicators.supertrend.atr_period + 5,
         )
 
-    return required_bars
+    if app.indicators.gaussian_bands is not None:
+        bands = app.indicators.gaussian_bands
+        required_bars = max(
+            required_bars,
+            bands.length,
+            bands.atr_period + bands.squeeze_ma_period,
+        )
+
+    if app.indicators.gaussian_ma is not None:
+        gma = app.indicators.gaussian_ma
+        required_bars = max(
+            required_bars,
+            gma.slow.length,
+            gma.fast.length,
+        )
+
+    return min(max(1, app.indicators.max_bars), required_bars)
 
 
 def latest_stored_bar_timestamp(

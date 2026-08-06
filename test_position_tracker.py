@@ -7,7 +7,12 @@ from datetime import datetime, timezone
 from position_tracker import ExitReason, PositionTracker
 
 
-def _open_option(tracker: PositionTracker, *, pct: float | None = 0.15):
+def _open_option(
+    tracker: PositionTracker,
+    *,
+    pct: float | None = 0.15,
+    stop_loss_pct: float | None = None,
+):
     return tracker.open_position(
         symbol="SPY   260622C00450000",
         quantity=2,
@@ -17,6 +22,7 @@ def _open_option(tracker: PositionTracker, *, pct: float | None = 0.15):
         underlying_symbol="SPY",
         underlying_entry_price=450.0,
         trailing_stop_pct=pct,
+        stop_loss_pct=stop_loss_pct,
     )
 
 
@@ -82,3 +88,30 @@ def test_trailing_stop_disabled_when_pct_none() -> None:
 def test_record_option_mark_no_position_returns_none() -> None:
     tracker = PositionTracker()
     assert tracker.record_option_mark("MISSING", 1.0, unrealized_pnl=0.0) is None
+
+
+def test_stop_loss_triggers_10pct_below_entry() -> None:
+    tracker = PositionTracker()
+    position = _open_option(tracker, pct=0.15, stop_loss_pct=0.10)
+
+    # Entry 5.0; 10% stop is 4.50. Soft dip does not fire.
+    assert tracker.record_option_mark(position.symbol, 4.60, unrealized_pnl=-80.0) is None
+    notification = tracker.record_option_mark(
+        position.symbol, 4.50, unrealized_pnl=-100.0
+    )
+
+    assert notification is not None
+    assert notification.reason == ExitReason.STOP_LOSS
+    assert notification.mark_price == 4.50
+
+
+def test_stop_loss_takes_priority_over_trailing() -> None:
+    tracker = PositionTracker()
+    # Peak rises then crashes through both trail and hard stop.
+    position = _open_option(tracker, pct=0.15, stop_loss_pct=0.10)
+    tracker.record_option_mark(position.symbol, 6.0, unrealized_pnl=200.0)
+    notification = tracker.record_option_mark(
+        position.symbol, 4.40, unrealized_pnl=-120.0
+    )
+    assert notification is not None
+    assert notification.reason == ExitReason.STOP_LOSS

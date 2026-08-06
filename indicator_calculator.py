@@ -18,7 +18,16 @@ import pandas as pd
 from ohlcv_schema import OHLCV_COLUMNS, ensure_standard_ohlcv
 
 SUPPORTED_INDICATORS = frozenset(
-    {"dema", "supertrend", "rsi", "macd", "sma", "ema", "gaussian_bands"}
+    {
+        "dema",
+        "supertrend",
+        "rsi",
+        "macd",
+        "sma",
+        "ema",
+        "gaussian_bands",
+        "gaussian_ma",
+    }
 )
 
 DEFAULT_DEMA_PERIOD = 200
@@ -104,6 +113,15 @@ class IndicatorCalculator:
                 squeeze_ratio=float(
                     params.get("squeeze_ratio", DEFAULT_GAUSSIAN_SQUEEZE_RATIO)
                 ),
+            )
+        if indicator == "gaussian_ma":
+            return self.gaussian_ma(
+                normalized,
+                length=int(params.get("length", DEFAULT_GAUSSIAN_LENGTH)),
+                sigma_divisor=float(
+                    params.get("sigma_divisor", DEFAULT_GAUSSIAN_SIGMA_DIVISOR)
+                ),
+                output_key=str(params.get("output_key", "gaussian_ma")),
             )
         if indicator == "sma":
             period = int(params.get("period", 20))
@@ -299,6 +317,35 @@ class IndicatorCalculator:
             "supertrend_sell_signal": sell_signal.rename("supertrend_sell_signal"),
         }
 
+    def gaussian_ma(
+        self,
+        bars: pd.DataFrame,
+        *,
+        length: int = DEFAULT_GAUSSIAN_LENGTH,
+        sigma_divisor: float = DEFAULT_GAUSSIAN_SIGMA_DIVISOR,
+        output_key: str = "gaussian_ma",
+    ) -> dict[str, pd.Series]:
+        """Calculate a recent-biased Gaussian MA (TradingView Gaussian MA-EZ).
+
+        Formula:
+            x = i / (length / sigmaDiv)
+            w = exp(-0.5 * x^2)  (normalized)
+            gwma = sum(close[i] * w[i])
+        """
+        if length < 2:
+            raise ValueError("length must be at least 2")
+        if sigma_divisor < 1.0:
+            raise ValueError("sigma_divisor must be at least 1.0")
+        if not output_key:
+            raise ValueError("output_key is required")
+
+        close = bars["close"].astype(float)
+        offsets = np.arange(length, dtype=float)
+        weights = np.exp(-0.5 * (offsets / (length / sigma_divisor)) ** 2)
+        weights = weights / weights.sum()
+        gwma = sum(close.shift(i) * weights[i] for i in range(length))
+        return {output_key: gwma.rename(output_key)}
+
     def gaussian_bands(
         self,
         bars: pd.DataFrame,
@@ -339,13 +386,12 @@ class IndicatorCalculator:
             raise ValueError("squeeze_ma_period must be positive")
 
         close = bars["close"].astype(float)
-
-        offsets = np.arange(length, dtype=float)
-        weights = np.exp(-0.5 * (offsets / (length / sigma_divisor)) ** 2)
-        weights = weights / weights.sum()
-
-        gwma = sum(close.shift(i) * weights[i] for i in range(length))
-        gwma = gwma.rename("gaussian_ma")
+        gwma = self.gaussian_ma(
+            bars,
+            length=length,
+            sigma_divisor=sigma_divisor,
+            output_key="gaussian_ma",
+        )["gaussian_ma"]
 
         tr = self._true_range(bars)
         atr = tr.ewm(alpha=1 / atr_period, min_periods=atr_period, adjust=False).mean()

@@ -25,6 +25,11 @@ def timeframe_minutes(timeframe: str) -> int:
 
     unit = timeframe[-1]
     amount = int(timeframe[:-1])
+    if unit == "t":
+        raise ValueError(
+            f"Tick timeframe {timeframe} is not convertible to minutes; "
+            "use tick_bar_builder helpers instead"
+        )
     if unit == "m":
         return amount
     if unit == "h":

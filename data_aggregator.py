@@ -99,8 +99,11 @@ class DataAggregator:
             when a bucket closes; the current bucket is returned with
             `is_complete=False`.
         """
+        if not self._target_timeframes:
+            return []
         if bar.timeframe != "1m":
-            raise ValueError(f"DataAggregator expects 1m bars, got {bar.timeframe}")
+            # Tick bars and other stream TFs skip minute rollup.
+            return []
 
         open_price, high_price, low_price, close_price = repair_ohlc_bar(
             bar.open,

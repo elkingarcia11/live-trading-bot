@@ -88,6 +88,14 @@ IBKR_STREAM_BAR_FIELDS = OhlcvFieldMap(
     close="close",
     volume="volume",
 )
+DATABENTO_STREAM_BAR_FIELDS = OhlcvFieldMap(
+    timestamp="datetime",
+    open="open",
+    high="high",
+    low="low",
+    close="close",
+    volume="volume",
+)
 
 
 class MarketDataTransformer:

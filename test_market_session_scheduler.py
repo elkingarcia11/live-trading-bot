@@ -8,6 +8,7 @@ from market_session_scheduler import (
     EodSchedule,
     flatten_deadline_utc,
     is_at_or_past_flatten_time,
+    is_equity_streaming_session,
     is_regular_hours_timestamp,
     is_regular_hours_timestamp_local,
     should_flatten_positions,
@@ -85,6 +86,38 @@ def test_is_regular_hours_timestamp_inside_session() -> None:
         )
         is False
     )
+
+
+def test_equity_streaming_session_covers_pre_rth_and_post() -> None:
+    # 2026-06-17 is a Wednesday. Times below are UTC during EDT (UTC-4).
+    premarket = datetime(2026, 6, 17, 8, 5, tzinfo=timezone.utc)  # 04:05 ET
+    rth = datetime(2026, 6, 17, 15, 0, tzinfo=timezone.utc)  # 11:00 ET
+    post = datetime(2026, 6, 17, 23, 30, tzinfo=timezone.utc)  # 19:30 ET
+    after_close = datetime(2026, 6, 18, 0, 5, tzinfo=timezone.utc)  # 20:05 ET
+    before_open = datetime(2026, 6, 17, 7, 59, tzinfo=timezone.utc)  # 03:59 ET
+
+    assert is_equity_streaming_session(premarket) is True
+    assert is_equity_streaming_session(rth) is True
+    assert is_equity_streaming_session(post) is True
+    assert is_equity_streaming_session(after_close) is False
+    assert is_equity_streaming_session(before_open) is False
+
+
+def test_eod_local_times_use_market_timezone() -> None:
+    schedule = EodSchedule(
+        flatten_time_local=time(16, 0),
+        shutdown_time_local=time(20, 0),
+        market_timezone="America/New_York",
+    )
+    # 16:00 ET on 2026-06-16 == 20:00 UTC (EDT)
+    before = datetime(2026, 6, 16, 19, 59, tzinfo=timezone.utc)
+    at_flatten = datetime(2026, 6, 16, 20, 0, tzinfo=timezone.utc)
+    at_shutdown = datetime(2026, 6, 17, 0, 0, tzinfo=timezone.utc)
+
+    assert should_flatten_positions(before, schedule=schedule, flattened_on=None) is False
+    assert should_flatten_positions(at_flatten, schedule=schedule, flattened_on=None) is True
+    assert should_shutdown(at_flatten, schedule=schedule, shutdown_on=None) is False
+    assert should_shutdown(at_shutdown, schedule=schedule, shutdown_on=None) is True
 
 
 def test_is_regular_hours_timestamp_local_honors_dst() -> None:

@@ -6,9 +6,9 @@
   },
   "market": {
     "symbols": ["SPY"],
-    "stream_timeframe": "1m",
-    "strategy_timeframe": "1m",
-    "aggregation_timeframes": ["1h", "1d"]
+    "stream_timeframe": "50t",
+    "strategy_timeframe": "50t",
+    "aggregation_timeframes": []
   },
   "indicators": {
     "max_bars": 500,
@@ -33,22 +33,38 @@
       "squeeze_filter": true,
       "squeeze_ma_period": 20,
       "squeeze_ratio": 0.75
+    },
+    "gaussian_ma": {
+      "enabled": true,
+      "slow": {
+        "length": 20,
+        "sigma_divisor": 10.0
+      },
+      "fast": {
+        "length": 20,
+        "sigma_divisor": 7.0
+      }
     }
   },
-  "strategies": ["gex_scalp"],
+  "strategies": ["gaussian_ma_crossover"],
   "workflow": {
     "run_schwab_stream": true,
-    "stream_provider": "schwab",
+    "stream_provider": "databento",
     "websocket_url": "",
     "subscribe_on_connect": true,
     "audit_log_path": "logs/audit.jsonl",
-    "warmup_from_storage": false,
+    "warmup_from_storage": true,
+    "min_warmup_bars": 100,
     "startup_sync_lookback_days": 30,
     "persist_session_bars": true,
     "eod_enabled": true,
-    "eod_flatten_time_utc": "19:59",
-    "eod_shutdown_time_utc": "20:00",
-    "no_new_trades_after_utc": "19:58"
+    "eod_flatten_time_utc": "23:59",
+    "eod_shutdown_time_utc": "00:00",
+    "eod_flatten_time_local": "16:00",
+    "eod_shutdown_time_local": "20:00",
+    "entry_start_local": "09:30",
+    "entry_end_local": "16:00",
+    "no_new_trades_after_utc": ""
   },
   "stream": {
     "schwab_streamer_url": "",
@@ -64,8 +80,14 @@
     "require_minute_alignment": false,
     "dedup_window": 500
   },
+  "databento": {
+    "dataset": "EQUS.MINI",
+    "schema": "trades",
+    "stype_in": "raw_symbol",
+    "ticks_per_bar": 50
+  },
   "historical": {
-    "timeframe": "1m",
+    "timeframe": "50t",
     "frequency_type": "minute",
     "frequency": 1,
     "need_extended_hours": true,
@@ -78,8 +100,10 @@
     "session_end_utc": "21:00",
     "session_start_local": "09:30",
     "session_end_local": "16:00",
+    "extended_session_start_local": "04:00",
+    "extended_session_end_local": "20:00",
     "extended_session_start_utc": "08:00",
-    "extended_session_end_utc": "01:00",
+    "extended_session_end_utc": "00:00",
     "trading_days_only": true
   },
   "market_data": {
@@ -118,13 +142,14 @@
   },
   "options": {
     "enabled": true,
-    "days_to_expiration": 0,
+    "days_to_expiration": 2,
     "contract_type": "CALL",
     "simulated_premium": 2.5,
     "strike_count": 20,
     "commission_per_contract": 0.65,
     "stream_contract_marks": true,
-    "trailing_stop_pct": null
+    "trailing_stop_pct": 0.15,
+    "stop_loss_pct": 0.10
   },
   "gex": {
     "enabled": true,
@@ -133,7 +158,7 @@
     "level_refresh_times_local": ["09:35", "11:30", "15:00"],
     "seed_volume_history": true,
     "strike_count": 50,
-    "days_to_expiration": 0,
+    "days_to_expiration": 2,
     "risk_free_rate": 0.05,
     "volume_lookback_bars": 20,
     "volume_multiplier": 1.5,

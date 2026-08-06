@@ -170,6 +170,41 @@ def macd_crossover(ctx: StrategyEvaluationContext) -> SignalAction:
     return SignalAction.HOLD
 
 
+def gaussian_ma_crossover(ctx: StrategyEvaluationContext) -> SignalAction:
+    """Trade options on Gaussian MA slow/fast crossovers (50t-friendly).
+
+    Rules (edge-triggered so the same regime does not re-enter every bar):
+      - Fast crosses above slow → BUY call (workflow closes any long put)
+      - Slow crosses above fast → SELL/buy put (workflow closes any long call)
+    """
+    fast = ctx.indicators.get("gaussian_ma_fast")
+    slow = ctx.indicators.get("gaussian_ma_slow")
+    if fast is None or slow is None:
+        return SignalAction.HOLD
+
+    try:
+        fast_v = float(fast)
+        slow_v = float(slow)
+    except (TypeError, ValueError):
+        return SignalAction.HOLD
+
+    if fast_v > slow_v:
+        relation = "fast_above"
+        action = SignalAction.BUY
+    elif slow_v > fast_v:
+        relation = "slow_above"
+        action = SignalAction.SELL
+    else:
+        return SignalAction.HOLD
+
+    prev = ctx.state.get("gaussian_ma_relation")
+    ctx.state["gaussian_ma_relation"] = relation
+    # Seed relationship on first ready bar; trade only on subsequent flips.
+    if prev is None or prev == relation:
+        return SignalAction.HOLD
+    return action
+
+
 def gex_scalp(ctx: StrategyEvaluationContext) -> SignalAction:
     """Negative-GEX 0DTE scalping: put-wall breaks and magnet snaps on 1m bars."""
     gex = ctx.gex
@@ -344,9 +379,17 @@ def build_default_registry(*, strategy_timeframe: str = "5m") -> StrategyRegistr
     )
     registry.register(
         StrategyDefinition(
+            name="gaussian_ma_crossover",
+            rule=gaussian_ma_crossover,
+            timeframe=strategy_timeframe,
+            required_indicators=("gaussian_ma_fast", "gaussian_ma_slow"),
+        )
+    )
+    registry.register(
+        StrategyDefinition(
             name="gex_scalp",
             rule=gex_scalp,
-            timeframe="1m",
+            timeframe=strategy_timeframe,
             required_indicators=(),
             required_gex_fields=("regime", "put_wall", "flip_level"),
         )

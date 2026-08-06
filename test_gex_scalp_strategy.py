@@ -30,7 +30,7 @@ def _snapshot(**overrides: object) -> GexSnapshot:
 
 
 def test_gex_scalp_puts_on_put_wall_break_with_volume_spike() -> None:
-    evaluator = SignalEvaluator(build_default_registry())
+    evaluator = SignalEvaluator(build_default_registry(strategy_timeframe="1m"))
     state: dict[str, object] = {}
     signal = evaluator.evaluate(
         symbol="SPY",
@@ -58,7 +58,7 @@ def test_gex_scalp_puts_on_put_wall_break_with_volume_spike() -> None:
 
 
 def test_gex_scalp_holds_when_regime_is_positive() -> None:
-    evaluator = SignalEvaluator(build_default_registry())
+    evaluator = SignalEvaluator(build_default_registry(strategy_timeframe="1m"))
     signal = evaluator.evaluate(
         symbol="SPY",
         timeframe="1m",
@@ -78,7 +78,7 @@ def test_gex_scalp_holds_when_regime_is_positive() -> None:
 
 
 def test_gex_scalp_exits_when_price_reclaims_trigger_level() -> None:
-    rule = build_default_registry().get("gex_scalp").rule
+    rule = build_default_registry(strategy_timeframe="1m").get("gex_scalp").rule
     action = rule(
         StrategyEvaluationContext(
             symbol="SPY",
