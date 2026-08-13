@@ -65,6 +65,7 @@ def test_config_loads_databento_50t_workflow() -> None:
     assert config.workflow.persist_session_bars is True
     assert config.workflow.persist_raw_trades is True
     assert config.gcs.trades_prefix == "trades"
+    assert config.gcs.transactions_prefix == "transactions"
 
 
 def test_config_rejects_unknown_stream_provider() -> None:
@@ -221,5 +222,6 @@ def test_repo_config_json_is_databento_5t_schwab_broker() -> None:
     assert config.gex.days_to_expiration == 2
     assert config.workflow.warmup_from_storage is True
     assert config.workflow.min_warmup_bars == 100
+    assert config.gcs.transactions_prefix == "transactions"
     assert config.historical.extended_session_start_local == "04:00"
     assert config.historical.extended_session_end_local == "20:00"

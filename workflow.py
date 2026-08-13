@@ -737,7 +737,7 @@ class TradingWorkflow:
         """True after the scheduled end-of-day shutdown fires."""
         return self._shutdown_requested.is_set()
 
-    def stop(self) -> None:
+    def stop(self, *, persist_reason: str = "shutdown") -> None:
         """Stop health checks, disconnect streams, and dump session data to GCS."""
         if not self._started:
             return
@@ -767,7 +767,7 @@ class TradingWorkflow:
             self.stream_manager.disconnect()
         if self._gex_monitor is not None:
             self._gex_monitor.stop()
-        self._persist_day_state_to_gcs(reason="shutdown")
+        self._persist_day_state_to_gcs(reason=persist_reason)
         self._started = False
         logger.info("TradingWorkflow stopped for %s", ", ".join(self._symbols))
 
@@ -847,14 +847,16 @@ class TradingWorkflow:
         )
 
     def _persist_day_state_to_gcs(self, *, reason: str) -> None:
-        """Merge today's session OHLCV/trades into cumulative history; save FT state."""
+        """Merge session tick bars, raw tape, and transactions into existing GCS history."""
         logger.info(
-            "=== History merge (%s): appending session bars/trades into cumulative "
-            "store (bucket=%s ohlcv=%s trades=%s) — prior days are kept ===",
+            "=== History merge (%s): dump/merge into existing GCS "
+            "(1) aggregated tick bars → %s/  (2) raw trades → %s/  "
+            "(3) strategy transactions → %s/  bucket=%s ===",
             reason,
-            self._config.app.gcs.bucket_name,
             self._config.app.gcs.ohlcv_prefix,
             self._config.app.gcs.trades_prefix,
+            self._config.app.gcs.transactions_prefix,
+            self._config.app.gcs.bucket_name,
         )
         if self._forward_test_account is not None:
             try:
@@ -890,24 +892,47 @@ class TradingWorkflow:
                 logger.exception("History merge: session OHLCV flush failed")
 
         if self._trade_recorder is None:
-            logger.info("History merge: raw-trade recorder disabled; skipping trades")
+            logger.info("History merge: raw-trade recorder disabled; skipping tape")
+        else:
+            try:
+                buffered_trades = self._trade_recorder.buffered_row_count
+                if buffered_trades:
+                    logger.info(
+                        "History merge: merging %d raw trade(s) into stored history",
+                        buffered_trades,
+                    )
+                trade_summary = self._trade_recorder.flush()
+                logger.info(
+                    "History merge trades complete: new_rows=%d partitions_touched=%d uris=%s",
+                    trade_summary.rows_written,
+                    trade_summary.partitions_written,
+                    list(trade_summary.storage_uris),
+                )
+            except Exception:
+                logger.exception("History merge: raw trade flush failed")
+
+        if self._transaction_ledger is None:
+            logger.info(
+                "History merge: transaction ledger disabled; skipping transactions.csv"
+            )
             return
         try:
-            buffered_trades = self._trade_recorder.buffered_row_count
-            if buffered_trades:
-                logger.info(
-                    "History merge: merging %d raw trade(s) into stored history",
-                    buffered_trades,
-                )
-            trade_summary = self._trade_recorder.flush()
-            logger.info(
-                "History merge trades complete: new_rows=%d partitions_touched=%d uris=%s",
-                trade_summary.rows_written,
-                trade_summary.partitions_written,
-                list(trade_summary.storage_uris),
+            gcs = self._config.app.gcs
+            uri = self._transaction_ledger.upload_to_gcs(
+                bucket_name=gcs.bucket_name,
+                prefix=gcs.transactions_prefix,
+                credentials_path=gcs.credentials_path,
+                project_id=gcs.project_id,
             )
+            if uri:
+                logger.info("History merge: transaction ledger uploaded to %s", uri)
+            else:
+                logger.info(
+                    "History merge: transaction ledger kept local at %s",
+                    self._transaction_ledger.path,
+                )
         except Exception:
-            logger.exception("History merge: raw trade flush failed")
+            logger.exception("History merge: transaction ledger upload failed")
 
     def _wait_until_stream_session_open(self) -> None:
         """If started overnight / after close, wait until the stream window opens."""
@@ -2532,6 +2557,15 @@ class TradingWorkflow:
         if self._transaction_ledger is None:
             return
 
+        indicators = dict(signal.indicators or {})
+        if not indicators:
+            snapshot = self.indicator_coordinator.get_latest(
+                signal.symbol,
+                signal.timeframe or self._config.market_config.strategy_timeframe,
+            )
+            if snapshot is not None and snapshot.values:
+                indicators = dict(snapshot.values)
+
         try:
             self._transaction_ledger.record(
                 TransactionRecord(
@@ -2555,6 +2589,7 @@ class TradingWorkflow:
                     max_unrealized_loss=max_unrealized_loss,
                     max_unrealized_profit_pct=max_unrealized_profit_pct,
                     max_unrealized_loss_pct=max_unrealized_loss_pct,
+                    indicators=indicators,
                 )
             )
         except Exception:
@@ -3543,11 +3578,11 @@ class TradingWorkflow:
                 shutdown_on=self._eod_shutdown_on,
             ):
                 logger.info(
-                    "EOD: equity streaming day ended (8:00 PM ET); "
-                    "merging session bars into cumulative GCS history and shutting down"
+                    "EOD: equity streaming day ended; merging aggregated tick bars, "
+                    "raw trades, and transactions into existing GCS history, then shutting down"
                 )
                 self._eod_shutdown_on = market_day
-                self.stop()
+                self.stop(persist_reason="eod")
                 self._shutdown_requested.set()
                 return
 

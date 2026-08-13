@@ -254,6 +254,7 @@ class GcsSettings:
     bucket_name: str = "live-trading-bot"
     ohlcv_prefix: str = "ohlcv"
     trades_prefix: str = "trades"
+    transactions_prefix: str = "transactions"
     credentials_path: str = ""
     project_id: str = ""
     use_daily_partitions: bool = True
@@ -501,6 +502,10 @@ class AppConfig:
                 ohlcv_prefix=str(gcs_payload.get("ohlcv_prefix", "ohlcv")),
                 trades_prefix=str(gcs_payload.get("trades_prefix", "trades")).strip()
                 or "trades",
+                transactions_prefix=str(
+                    gcs_payload.get("transactions_prefix", "transactions")
+                ).strip()
+                or "transactions",
                 credentials_path=credentials_path,
                 project_id=str(
                     gcs_payload.get("project_id")

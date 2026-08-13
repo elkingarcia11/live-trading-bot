@@ -199,7 +199,7 @@ class TradeEmailer:
     ) -> None:
         """Send a buy forward-test notification email."""
         right = _option_right_suffix(instrument_line)
-        subject = f"[Forward Test] BUY {symbol}{right} @ {entry_instrument_price:.2f}"
+        subject = f"BUY {symbol}{right} @ {entry_instrument_price:.2f}"
         lines = [
             "Buy conditions met",
             "",
@@ -247,7 +247,13 @@ class TradeEmailer:
     ) -> None:
         """Send a sell forward-test notification email."""
         right = _option_right_suffix(instrument_line)
-        subject = f"[Forward Test] SELL {symbol}{right} @ {exit_instrument_price:.2f}"
+        subject = _sell_subject(
+            symbol=symbol,
+            right=right,
+            exit_instrument_price=exit_instrument_price,
+            entry_instrument_price=entry_instrument_price,
+            profit=profit,
+        )
         profit_line = "Trade P&L: n/a (no prior buy recorded)"
         if profit is not None:
             profit_line = f"Trade P&L: {profit:+.2f} ({quantity:g} contracts/shares)"
@@ -323,6 +329,50 @@ def _pct_suffix(value: Optional[float]) -> str:
     if value is None:
         return ""
     return f" ({value * 100.0:+.2f}%)"
+
+
+def _instrument_return_pct(
+    *,
+    entry_instrument_price: Optional[float],
+    exit_instrument_price: float,
+) -> Optional[float]:
+    """Return (exit-entry)/entry for long instrument P&L percent, or None."""
+    if entry_instrument_price is None or entry_instrument_price <= 0:
+        return None
+    return (exit_instrument_price - entry_instrument_price) / entry_instrument_price
+
+
+def _sell_subject(
+    *,
+    symbol: str,
+    right: str,
+    exit_instrument_price: float,
+    entry_instrument_price: Optional[float],
+    profit: Optional[float],
+) -> str:
+    """Build a sell subject with profit/loss dot and optional return percent."""
+    return_pct = _instrument_return_pct(
+        entry_instrument_price=entry_instrument_price,
+        exit_instrument_price=exit_instrument_price,
+    )
+    if profit is not None:
+        is_profitable = profit > 0
+    elif return_pct is not None:
+        is_profitable = return_pct > 0
+    else:
+        is_profitable = None
+
+    if is_profitable is True:
+        prefix = "🟢 "
+    elif is_profitable is False:
+        prefix = "🔴 "
+    else:
+        prefix = ""
+
+    subject = f"{prefix}SELL {symbol}{right} @ {exit_instrument_price:.2f}"
+    if return_pct is not None:
+        subject = f"{subject}{_pct_suffix(return_pct)}"
+    return subject
 
 
 _OCC_RIGHT_PATTERN = re.compile(r"\d{6}([CP])\d{8}")

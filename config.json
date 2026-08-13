@@ -117,6 +117,7 @@
     "bucket_name": "live-trading-bot",
     "ohlcv_prefix": "ohlcv",
     "trades_prefix": "trades",
+    "transactions_prefix": "transactions",
     "credentials_path": "gcs-sa.json",
     "project_id": "algo-trader-466023",
     "use_daily_partitions": true,
