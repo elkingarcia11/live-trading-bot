@@ -38,6 +38,7 @@ def test_tick_bar_builder_emits_every_n_trades() -> None:
     assert completed["bar"]["close"] == 101.5
     assert completed["bar"]["volume"] == sum(10.0 + i for i in range(5))
     assert completed["bar"]["datetime"] == base.isoformat()
+    assert completed["bar"]["end"] == (base + timedelta(seconds=4)).isoformat()
 
 
 def test_tick_bar_builder_ignores_non_positive_price() -> None:

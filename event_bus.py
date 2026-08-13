@@ -27,6 +27,7 @@ class Topics:
 
     BAR_CLEAN = "bar.clean"
     BAR_AGGREGATED = "bar.aggregated"
+    MARKET_TRADE = "market.trade"
     INDICATORS_SNAPSHOT = "indicators.snapshot"
     STRATEGY_SIGNAL = "strategy.signal"
     RISK_DECISION = "risk.decision"

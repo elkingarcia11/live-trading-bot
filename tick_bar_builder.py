@@ -18,6 +18,7 @@ from ohlc_sanity import repair_ohlc_bar as _repair_ohlc_bar
 class _FormingTickBar:
     symbol: str
     start: datetime
+    end: datetime
     open: float
     high: float
     low: float
@@ -93,6 +94,7 @@ class TickBarBuilder:
                 forming = _FormingTickBar(
                     symbol=symbol,
                     start=timestamp,
+                    end=timestamp,
                     open=price,
                     high=price,
                     low=price,
@@ -105,6 +107,7 @@ class TickBarBuilder:
                 forming.high = max(forming.high, price)
                 forming.low = min(forming.low, price)
                 forming.close = price
+                forming.end = timestamp
                 if trade_size > 0:
                     forming.volume += trade_size
                 forming.ticks += 1
@@ -128,6 +131,7 @@ class TickBarBuilder:
                 "timeframe": self._timeframe,
                 "bar": {
                     "datetime": forming.start.isoformat(),
+                    "end": forming.end.isoformat(),
                     "open": open_price,
                     "high": high_price,
                     "low": low_price,
@@ -135,6 +139,57 @@ class TickBarBuilder:
                     "volume": forming.volume,
                 },
             }
+
+    def forming_ticks(self, symbol: str) -> Optional[int]:
+        """Return how many prints are in the open bar for ``symbol``, if any."""
+        with self._lock:
+            forming = self._forming.get(symbol.upper())
+            return None if forming is None else forming.ticks
+
+    def flush(self, symbol: Optional[str] = None) -> list[dict[str, Any]]:
+        """Emit in-progress bars as completed envelopes (for shutdown persistence).
+
+        Partial bars keep their current OHLCV and tick count; forming state is
+        cleared for the flushed symbol(s).
+        """
+        with self._lock:
+            if symbol is None:
+                symbols = list(self._forming.keys())
+            else:
+                symbols = [symbol.upper()]
+
+            payloads: list[dict[str, Any]] = []
+            for key in symbols:
+                forming = self._forming.pop(key, None)
+                if forming is None:
+                    continue
+                normalized = _normalize_forming_ohlc(
+                    forming.open,
+                    forming.high,
+                    forming.low,
+                    forming.close,
+                )
+                if normalized is None:
+                    continue
+                open_price, high_price, low_price, close_price = normalized
+                payloads.append(
+                    {
+                        "symbol": forming.symbol,
+                        "timeframe": self._timeframe,
+                        "bar": {
+                            "datetime": forming.start.isoformat(),
+                            "end": forming.end.isoformat(),
+                            "open": open_price,
+                            "high": high_price,
+                            "low": low_price,
+                            "close": close_price,
+                            "volume": forming.volume,
+                            "partial": True,
+                            "ticks": forming.ticks,
+                        },
+                    }
+                )
+            return payloads
 
     def reset(self, symbol: Optional[str] = None) -> None:
         """Drop forming bar state for one symbol or all symbols."""

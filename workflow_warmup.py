@@ -127,7 +127,8 @@ def prepare_trading_day_from_storage(workflow: "TradingWorkflow") -> None:
         app.gcs.bucket_name,
         app.gcs.ohlcv_prefix,
     )
-    warm_start_gex(workflow)
+    if "gex_scalp" in workflow.config.strategies and app.gex.enabled:
+        warm_start_gex(workflow)
     if indicator_warmup_needed(app, workflow.config.strategies):
         logger.info(
             "Day prep: indicator strategies enabled but vendor backfill is disabled; "

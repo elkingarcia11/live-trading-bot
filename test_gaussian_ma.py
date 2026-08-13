@@ -39,17 +39,17 @@ def test_gaussian_ma_matches_pine_weights() -> None:
         }
     )
     calc = IndicatorCalculator()
-    slow = calc.gaussian_ma(frame, length=20, sigma_divisor=10.0, output_key="slow")
-    fast = calc.gaussian_ma(frame, length=20, sigma_divisor=7.0, output_key="fast")
+    slow = calc.gaussian_ma(frame, length=20, sigma_divisor=7.0, output_key="slow")
+    fast = calc.gaussian_ma(frame, length=20, sigma_divisor=10.0, output_key="fast")
 
     assert math.isclose(
         float(slow["slow"].iloc[-1]),
-        _pine_gaussian_ma(closes, 20, 10.0),
+        _pine_gaussian_ma(closes, 20, 7.0),
         rel_tol=1e-9,
     )
     assert math.isclose(
         float(fast["fast"].iloc[-1]),
-        _pine_gaussian_ma(closes, 20, 7.0),
+        _pine_gaussian_ma(closes, 20, 10.0),
         rel_tol=1e-9,
     )
     assert float(slow["slow"].iloc[-1]) != float(fast["fast"].iloc[-1])
@@ -72,9 +72,9 @@ def test_config_builds_slow_and_fast_gaussian_ma_jobs() -> None:
         if job.name == "gaussian_ma"
     }
     assert by_key["gaussian_ma_slow"]["length"] == 20
-    assert by_key["gaussian_ma_slow"]["sigma_divisor"] == 10.0
+    assert by_key["gaussian_ma_slow"]["sigma_divisor"] == 7.0
     assert by_key["gaussian_ma_fast"]["length"] == 20
-    assert by_key["gaussian_ma_fast"]["sigma_divisor"] == 7.0
+    assert by_key["gaussian_ma_fast"]["sigma_divisor"] == 10.0
 
 
 def test_coordinator_updates_gaussian_ma_on_50t_stream_bars() -> None:
@@ -86,8 +86,8 @@ def test_coordinator_updates_gaussian_ma_on_50t_stream_bars() -> None:
             "gaussian_bands": {"enabled": False},
             "gaussian_ma": {
                 "enabled": True,
-                "slow": {"length": 20, "sigma_divisor": 10.0},
-                "fast": {"length": 20, "sigma_divisor": 7.0},
+                "fast": {"length": 20, "sigma_divisor": 10.0},
+                "slow": {"length": 20, "sigma_divisor": 7.0},
             },
         }
     )

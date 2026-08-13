@@ -1,0 +1,1713 @@
+INFO:databento.live.client:added symbology mapping SPY to 15144
+INFO:databento_streamer:Databento mapped instrument_id=15144 -> SPY
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:22:52.954085+00:00 duration=22.979s O=772.74 H=772.74 L=772.68 C=772.70 V=228
+INFO:__main__:Live stream active: SPY 10t (Databento ticks → OHLCV; no higher-TF aggregation)
+INFO:__main__:First regular-hours live candle received at 2026-08-12T17:22:52.954085+00:00; trade entries enabled
+INFO:health_monitor:Health status=healthy notes=[]
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:23:26.023885+00:00 duration=34.844s O=772.72 H=772.79 L=772.72 C=772.73 V=415
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:24:07.042875+00:00 duration=36.647s O=772.72 H=772.83 L=772.71 C=772.77 V=766
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:24:43.711402+00:00 duration=9.703s O=772.77 H=772.79 L=772.77 C=772.79 V=920
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:24:53.465895+00:00 duration=37.630s O=772.79 H=772.86 L=772.76 C=772.86 V=572
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:25:31.096185+00:00 duration=11.247s O=772.86 H=772.86 L=772.84 C=772.86 V=744
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:25:43.030387+00:00 duration=24.869s O=772.87 H=772.95 L=772.87 C=772.95 V=596
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:26:09.223074+00:00 duration=21.669s O=772.95 H=772.96 L=772.93 C=772.96 V=645
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:26:30.931865+00:00 duration=29.111s O=772.96 H=773.02 L=772.94 C=773.02 V=433
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:27:00.516293+00:00 duration=15.425s O=773.02 H=773.02 L=772.95 C=772.95 V=361
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:27:15.946490+00:00 duration=0.026s O=772.95 H=772.97 L=772.95 C=772.97 V=972
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:27:15.972128+00:00 duration=0.046s O=772.97 H=772.99 L=772.97 C=772.99 V=888
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:27:16.018620+00:00 duration=26.139s O=772.99 H=772.99 L=772.92 C=772.95 V=534
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:27:43.054076+00:00 duration=18.816s O=772.93 H=772.95 L=772.91 C=772.93 V=349
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:28:06.432378+00:00 duration=19.659s O=772.94 H=772.94 L=772.87 C=772.87 V=391
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:28:26.834974+00:00 duration=11.219s O=772.88 H=772.90 L=772.87 C=772.88 V=307
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:28:38.055004+00:00 duration=21.519s O=772.87 H=772.89 L=772.84 C=772.89 V=730
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:28:59.573963+00:00 duration=29.504s O=772.89 H=772.89 L=772.78 C=772.78 V=334
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:29:29.078108+00:00 duration=35.256s O=772.78 H=772.79 L=772.75 C=772.79 V=450
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:30:19.304589+00:00 duration=16.409s O=772.76 H=772.78 L=772.72 C=772.78 V=662
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:30:43.038070+00:00 duration=22.207s O=772.78 H=772.78 L=772.71 C=772.78 V=525
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:31:20.549963+00:00 duration=37.503s O=772.80 H=772.80 L=772.77 C=772.77 V=244
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:32:02.914253+00:00 duration=18.284s O=772.84 H=772.88 L=772.84 C=772.85 V=540
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:32:02.914253+00:00 close=772.85 → BUY | fast=772.8012841085063 slow=772.8006988180837
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:32:22.141744+00:00 duration=13.156s O=772.85 H=772.90 L=772.85 C=772.88 V=947
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:32:36.127464+00:00 duration=5.822s O=772.90 H=772.90 L=772.89 C=772.89 V=1260
+INFO:schwab_auth:Refreshed Schwab access token
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:32:41.960546+00:00 duration=20.495s O=772.89 H=772.89 L=772.87 C=772.88 V=536
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:33:10.130169+00:00 duration=5.462s O=772.99 H=772.99 L=772.92 C=772.92 V=706
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:33:23.635898+00:00 duration=14.517s O=772.92 H=772.92 L=772.86 C=772.89 V=358
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:33:40.466721+00:00 duration=24.141s O=772.89 H=772.90 L=772.89 C=772.89 V=456
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:34:04.607344+00:00 duration=35.076s O=772.89 H=772.89 L=772.83 C=772.87 V=364
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:34:04.607344+00:00 close=772.87 → SELL | fast=772.886912720672 slow=772.8883738192297
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.77
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.77
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:__main__:Blocking sell for SPY; waiting for warmup (30/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:34:42.307407+00:00 duration=51.622s O=772.86 H=772.92 L=772.83 C=772.86 V=442
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:35:35.098580+00:00 duration=8.146s O=772.88 H=772.88 L=772.83 C=772.83 V=413
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:35:43.256046+00:00 duration=13.723s O=772.83 H=772.83 L=772.81 C=772.83 V=722
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:36:00.014470+00:00 duration=35.733s O=772.82 H=772.84 L=772.82 C=772.84 V=223
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:36:35.747211+00:00 duration=20.539s O=772.84 H=772.93 L=772.84 C=772.93 V=570
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:36:35.747211+00:00 close=772.93 → BUY | fast=772.8684066846528 slow=772.8646395809279
+INFO:__main__:Blocking buy for SPY; waiting for warmup (35/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:36:58.651453+00:00 duration=16.656s O=772.93 H=772.94 L=772.92 C=772.92 V=653
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:37:15.307800+00:00 duration=14.150s O=772.92 H=772.94 L=772.91 C=772.92 V=734
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:37:30.659420+00:00 duration=34.252s O=772.91 H=772.93 L=772.89 C=772.89 V=988
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:38:04.911458+00:00 duration=33.019s O=772.89 H=772.90 L=772.87 C=772.87 V=283
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:38:04.911458+00:00 close=772.87 → SELL | fast=772.8934402006506 slow=772.893587049565
+INFO:__main__:Blocking sell for SPY; waiting for warmup (39/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:38:38.052291+00:00 duration=41.845s O=772.88 H=772.88 L=772.82 C=772.82 V=441
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:39:20.138527+00:00 duration=25.256s O=772.82 H=772.82 L=772.76 C=772.76 V=198
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:39:46.421238+00:00 duration=40.396s O=772.77 H=772.94 L=772.76 C=772.94 V=502
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:40:27.104759+00:00 duration=4.834s O=772.93 H=772.93 L=772.75 C=772.77 V=546
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:40:31.941519+00:00 duration=2.323s O=772.74 H=772.81 L=772.73 C=772.81 V=781
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:40:36.959457+00:00 duration=6.691s O=772.80 H=772.88 L=772.80 C=772.88 V=227
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:40:36.959457+00:00 close=772.88 → BUY | fast=772.8375912039944 slow=772.8373529367441
+INFO:__main__:Blocking buy for SPY; waiting for warmup (45/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:40:50.216510+00:00 duration=25.113s O=772.89 H=772.94 L=772.89 C=772.92 V=596
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:41:15.329608+00:00 duration=20.715s O=772.92 H=772.92 L=772.87 C=772.90 V=441
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:41:39.743199+00:00 duration=36.376s O=772.90 H=772.96 L=772.89 C=772.96 V=607
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:42:16.119057+00:00 duration=36.705s O=772.96 H=772.96 L=772.95 C=772.96 V=363
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:42:52.824393+00:00 duration=26.827s O=772.96 H=772.96 L=772.93 C=772.94 V=306
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:43:22.771434+00:00 duration=15.445s O=772.94 H=772.96 L=772.93 C=772.96 V=385
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:43:38.216157+00:00 duration=18.758s O=772.96 H=772.97 L=772.95 C=772.95 V=593
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:43:56.974013+00:00 duration=18.625s O=772.95 H=772.95 L=772.92 C=772.92 V=413
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:43:56.974013+00:00 close=772.92 → SELL | fast=772.9403306996933 slow=772.9412424328902
+INFO:__main__:Blocking sell for SPY; waiting for warmup (53/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:44:25.862193+00:00 duration=20.393s O=772.88 H=772.88 L=772.82 C=772.87 V=343
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:44:46.255583+00:00 duration=13.166s O=772.87 H=772.88 L=772.87 C=772.88 V=53
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:44:59.421124+00:00 duration=14.019s O=772.88 H=772.90 L=772.86 C=772.89 V=792
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:45:13.439909+00:00 duration=23.740s O=772.89 H=772.89 L=772.87 C=772.88 V=879
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:45:43.039209+00:00 duration=12.906s O=772.86 H=772.87 L=772.83 C=772.83 V=279
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:45:55.945499+00:00 duration=49.578s O=772.83 H=772.88 L=772.82 C=772.87 V=272
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:46:45.523928+00:00 duration=25.947s O=772.87 H=772.95 L=772.86 C=772.90 V=271
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:47:20.285637+00:00 duration=41.089s O=772.87 H=772.91 L=772.87 C=772.89 V=282
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:47:20.285637+00:00 close=772.89 → BUY | fast=772.8845151057906 slow=772.8805291140843
+INFO:__main__:Blocking buy for SPY; waiting for warmup (61/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:48:15.232409+00:00 duration=19.908s O=772.91 H=772.91 L=772.85 C=772.85 V=554
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:48:42.111289+00:00 duration=10.458s O=772.81 H=772.84 L=772.80 C=772.82 V=243
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:48:42.111289+00:00 close=772.82 → SELL | fast=772.8525867805203 slow=772.8587175757518
+INFO:__main__:Blocking sell for SPY; waiting for warmup (63/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:48:52.620553+00:00 duration=28.200s O=772.81 H=772.84 L=772.79 C=772.82 V=350
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:49:20.820253+00:00 duration=22.756s O=772.82 H=772.82 L=772.80 C=772.80 V=256
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:49:46.410915+00:00 duration=11.791s O=772.81 H=772.81 L=772.76 C=772.79 V=585
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:49:58.456222+00:00 duration=21.764s O=772.80 H=772.80 L=772.77 C=772.78 V=342
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:50:20.219827+00:00 duration=12.690s O=772.78 H=772.78 L=772.74 C=772.74 V=861
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:50:35.252317+00:00 duration=9.835s O=772.76 H=772.82 L=772.76 C=772.81 V=483
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:50:50.091877+00:00 duration=12.065s O=772.80 H=772.90 L=772.80 C=772.90 V=280
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:50:50.091877+00:00 close=772.90 → BUY | fast=772.8215726808538 slow=772.8127310074395
+INFO:__main__:Blocking buy for SPY; waiting for warmup (70/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:51:03.649081+00:00 duration=2.855s O=772.91 H=772.91 L=772.87 C=772.88 V=574
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:51:06.504356+00:00 duration=13.661s O=772.88 H=772.96 L=772.88 C=772.96 V=770
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:51:20.242490+00:00 duration=9.033s O=772.96 H=772.97 L=772.96 C=772.96 V=460
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:51:29.275118+00:00 duration=12.964s O=772.96 H=772.97 L=772.93 C=772.94 V=341
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:51:42.239555+00:00 duration=16.797s O=772.94 H=772.94 L=772.91 C=772.91 V=425
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:51:59.949177+00:00 duration=11.286s O=772.91 H=772.95 L=772.91 C=772.95 V=438
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:52:13.887221+00:00 duration=15.316s O=772.95 H=772.96 L=772.93 C=772.93 V=159
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:52:29.953282+00:00 duration=20.986s O=772.93 H=772.93 L=772.89 C=772.93 V=291
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:52:29.953282+00:00 close=772.93 → SELL | fast=772.932364078936 slow=772.9329875309099
+INFO:__main__:Blocking sell for SPY; waiting for warmup (78/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:52:58.349723+00:00 duration=36.503s O=772.93 H=772.96 L=772.93 C=772.94 V=331
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:52:58.349723+00:00 close=772.94 → BUY | fast=772.9345431441864 slow=772.9345011181264
+INFO:__main__:Blocking buy for SPY; waiting for warmup (79/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:53:36.589880+00:00 duration=16.761s O=772.95 H=772.97 L=772.94 C=772.95 V=477
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:53:56.981453+00:00 duration=12.489s O=772.92 H=772.92 L=772.80 C=772.80 V=703
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:53:56.981453+00:00 close=772.80 → SELL | fast=772.8933570011374 slow=772.9041910452293
+INFO:__main__:Blocking sell for SPY; waiting for warmup (81/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:54:11.538268+00:00 duration=9.700s O=772.82 H=772.84 L=772.79 C=772.80 V=451
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:54:21.237955+00:00 duration=23.951s O=772.80 H=772.80 L=772.74 C=772.79 V=442
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:54:45.189791+00:00 duration=17.986s O=772.79 H=772.79 L=772.75 C=772.75 V=373
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:55:03.520850+00:00 duration=15.529s O=772.77 H=772.78 L=772.71 C=772.71 V=424
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:55:23.542399+00:00 duration=32.490s O=772.65 H=772.71 L=772.65 C=772.71 V=496
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:55:56.062000+00:00 duration=22.423s O=772.69 H=772.76 L=772.69 C=772.76 V=731
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:56:21.788520+00:00 duration=41.183s O=772.77 H=772.83 L=772.77 C=772.82 V=956
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T17:56:21.788520+00:00 close=772.82 → BUY | fast=772.7624559573072 slow=772.7596926259412
+INFO:__main__:Blocking buy for SPY; waiting for warmup (88/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:57:08.717674+00:00 duration=28.887s O=772.79 H=772.82 L=772.79 C=772.79 V=385
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:57:37.605319+00:00 duration=34.165s O=772.79 H=772.84 L=772.77 C=772.82 V=499
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:58:23.041816+00:00 duration=22.145s O=772.84 H=772.85 L=772.79 C=772.80 V=313
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:58:45.367399+00:00 duration=22.705s O=772.83 H=772.89 L=772.83 C=772.89 V=368
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:59:09.128901+00:00 duration=8.771s O=772.88 H=772.88 L=772.88 C=772.88 V=630
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:59:18.553964+00:00 duration=31.309s O=772.87 H=772.87 L=772.84 C=772.86 V=809
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T17:59:51.570020+00:00 duration=16.443s O=772.84 H=772.89 L=772.81 C=772.89 V=320
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:00:12.609622+00:00 duration=9.909s O=772.85 H=772.92 L=772.84 C=772.92 V=704
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:00:22.518993+00:00 duration=20.523s O=772.92 H=772.93 L=772.86 C=772.86 V=366
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:00:45.130033+00:00 duration=15.483s O=772.87 H=772.88 L=772.82 C=772.82 V=368
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:00:45.130033+00:00 close=772.82 → SELL | fast=772.8606793491338 slow=772.8654268302312
+INFO:__main__:Blocking sell for SPY; waiting for warmup (98/100 10t bars from storage+live) before new entries
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:01:01.378619+00:00 duration=9.606s O=772.81 H=772.86 L=772.80 C=772.86 V=532
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:01:18.240784+00:00 duration=2.972s O=772.84 H=772.84 L=772.78 C=772.79 V=605
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:01:21.391630+00:00 duration=9.724s O=772.79 H=772.83 L=772.78 C=772.80 V=489
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:01:33.203429+00:00 duration=19.862s O=772.83 H=772.88 L=772.83 C=772.84 V=742
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:01:54.137500+00:00 duration=0.843s O=772.84 H=772.85 L=772.83 C=772.85 V=729
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:01:54.137500+00:00 close=772.85 → BUY | fast=772.8305306986961 slow=772.8300509003686
+INFO:__main__:Warmup complete for SPY: 103/100 10t bars ready (entries allowed)
+INFO:schwab_auth:Refreshed Schwab access token
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.71
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.71
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:01:56.145957+00:00 duration=10.706s O=772.84 H=772.88 L=772.84 C=772.86 V=676
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:02:13.231068+00:00 duration=3.920s O=772.85 H=772.87 L=772.84 C=772.87 V=502
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:02:17.151225+00:00 duration=10.331s O=772.87 H=772.89 L=772.82 C=772.82 V=438
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:02:27.501906+00:00 duration=24.273s O=772.82 H=772.86 L=772.82 C=772.86 V=351
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:02:51.817676+00:00 duration=18.061s O=772.86 H=772.87 L=772.84 C=772.87 V=669
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:03:10.118120+00:00 duration=18.055s O=772.88 H=772.89 L=772.86 C=772.86 V=479
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:03:36.744875+00:00 duration=27.077s O=772.90 H=772.92 L=772.87 C=772.91 V=428
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:04:03.829294+00:00 duration=9.372s O=772.91 H=772.96 L=772.91 C=772.96 V=320
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:04:13.232398+00:00 duration=21.793s O=772.93 H=772.93 L=772.88 C=772.89 V=330
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:04:37.327224+00:00 duration=23.485s O=772.90 H=772.91 L=772.89 C=772.89 V=358
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:05:00.812912+00:00 duration=5.793s O=772.90 H=772.90 L=772.87 C=772.90 V=584
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:05:06.605711+00:00 duration=11.106s O=772.90 H=772.90 L=772.83 C=772.87 V=332
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:05:06.605711+00:00 close=772.87 → SELL | fast=772.8893679272534 slow=772.8930434955429
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.71
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.71
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.72
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.72
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:05:19.804338+00:00 duration=29.888s O=772.87 H=772.95 L=772.87 C=772.95 V=453
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:05:19.804338+00:00 close=772.95 → BUY | fast=772.9071015384867 slow=772.9054153082708
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.69
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.69
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.74
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.74
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:05:49.692200+00:00 duration=19.809s O=772.95 H=772.97 L=772.92 C=772.92 V=420
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:06:09.501482+00:00 duration=11.536s O=772.92 H=772.92 L=772.92 C=772.92 V=348
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:06:23.796228+00:00 duration=8.503s O=772.93 H=772.94 L=772.84 C=772.88 V=395
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:06:23.796228+00:00 close=772.88 → SELL | fast=772.9087311517337 slow=772.9088620472041
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.73
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.73
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.71
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.71
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:06:34.211859+00:00 duration=14.844s O=772.89 H=772.89 L=772.85 C=772.87 V=358
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:06:49.272718+00:00 duration=23.817s O=772.87 H=772.87 L=772.82 C=772.82 V=835
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:07:15.884610+00:00 duration=13.718s O=772.83 H=772.87 L=772.83 C=772.87 V=311
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:07:37.893368+00:00 duration=13.575s O=772.87 H=772.87 L=772.82 C=772.82 V=594
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:07:51.967231+00:00 duration=8.072s O=772.83 H=772.88 L=772.81 C=772.87 V=379
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:08:00.725141+00:00 duration=6.442s O=772.86 H=772.89 L=772.86 C=772.88 V=497
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:08:00.725141+00:00 close=772.88 → BUY | fast=772.8594094296044 slow=772.8583631641764
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.71
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.71
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.71
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.71
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:08:08.078313+00:00 duration=14.873s O=772.88 H=772.88 L=772.87 C=772.87 V=807
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:08:24.114263+00:00 duration=2.728s O=772.88 H=772.88 L=772.85 C=772.85 V=465
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:08:33.749527+00:00 duration=4.700s O=772.86 H=772.86 L=772.84 C=772.85 V=513
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:08:33.749527+00:00 close=772.85 → SELL | fast=772.8541201649263 slow=772.8556157978991
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.69
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.69
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.72
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.72
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:08:38.706453+00:00 duration=7.766s O=772.85 H=772.91 L=772.85 C=772.90 V=264
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:08:38.706453+00:00 close=772.90 → BUY | fast=772.8692944978641 slow=772.8669013570409
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.69
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.69
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.73
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.73
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:08:47.061222+00:00 duration=6.200s O=772.93 H=772.93 L=772.89 C=772.89 V=584
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:08:53.589882+00:00 duration=15.489s O=772.89 H=772.90 L=772.84 C=772.86 V=352
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:09:09.096993+00:00 duration=2.921s O=772.86 H=772.86 L=772.85 C=772.86 V=239
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:09:09.096993+00:00 close=772.86 → SELL | fast=772.8694107183416 slow=772.8701002865233
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.71
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.71
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.71
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.71
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:09:12.196679+00:00 duration=19.956s O=772.86 H=772.88 L=772.85 C=772.88 V=229
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:09:35.482246+00:00 duration=16.814s O=772.88 H=772.89 L=772.86 C=772.89 V=321
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:09:35.482246+00:00 close=772.89 → BUY | fast=772.8770076617039 slow=772.8760915319493
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.69
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.69
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.72
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.72
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:10:01.729206+00:00 duration=10.477s O=772.90 H=772.94 L=772.90 C=772.93 V=529
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:10:12.284055+00:00 duration=24.738s O=772.93 H=772.98 L=772.90 C=772.96 V=350
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:10:43.035949+00:00 duration=14.906s O=772.93 H=772.93 L=772.90 C=772.90 V=276
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:10:59.823512+00:00 duration=9.257s O=772.90 H=772.96 L=772.90 C=772.96 V=365
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:11:10.012511+00:00 duration=11.022s O=772.96 H=773.00 L=772.95 C=773.00 V=1230
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:11:21.053290+00:00 duration=12.150s O=773.00 H=773.08 L=773.00 C=773.08 V=423
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:11:33.603604+00:00 duration=10.764s O=773.09 H=773.15 L=773.09 C=773.14 V=636
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:11:46.564567+00:00 duration=9.967s O=773.14 H=773.17 L=773.13 C=773.17 V=534
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:11:58.589589+00:00 duration=7.738s O=773.18 H=773.20 L=773.16 C=773.18 V=200
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:12:06.328472+00:00 duration=6.837s O=773.18 H=773.20 L=773.18 C=773.20 V=357
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:12:15.821871+00:00 duration=2.981s O=773.20 H=773.20 L=773.17 C=773.17 V=443
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:12:26.780618+00:00 duration=15.751s O=773.12 H=773.13 L=773.09 C=773.13 V=412
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:12:43.387549+00:00 duration=21.447s O=773.12 H=773.14 L=773.12 C=773.12 V=405
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:12:43.387549+00:00 close=773.12 → SELL | fast=773.1470079310444 slow=773.1520629660511
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.82
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.82
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.63
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.63
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:13:06.963339+00:00 duration=0.055s O=773.13 H=773.15 L=773.13 C=773.15 V=938
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:13:07.018695+00:00 duration=2.893s O=773.15 H=773.16 L=773.12 C=773.12 V=961
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:13:11.256883+00:00 duration=10.269s O=773.13 H=773.13 L=773.12 C=773.13 V=412
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:13:22.101958+00:00 duration=13.828s O=773.13 H=773.17 L=773.13 C=773.17 V=558
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:13:22.101958+00:00 close=773.17 → BUY | fast=773.1444351993524 slow=773.14346795527
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.62
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.62
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.84
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.84
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:13:36.244274+00:00 duration=12.661s O=773.17 H=773.18 L=773.16 C=773.16 V=480
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:14:00.021806+00:00 duration=6.714s O=773.17 H=773.17 L=773.14 C=773.14 V=342
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:14:06.836150+00:00 duration=7.729s O=773.14 H=773.15 L=773.14 C=773.15 V=427
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:14:16.324939+00:00 duration=11.512s O=773.15 H=773.15 L=773.13 C=773.14 V=342
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:14:16.324939+00:00 close=773.14 → SELL | fast=773.1493796524029 slow=773.1493889454824
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.83
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.83
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.63
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.63
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:14:29.775259+00:00 duration=12.772s O=773.14 H=773.15 L=773.11 C=773.12 V=215
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:14:43.720860+00:00 duration=13.347s O=773.12 H=773.14 L=773.12 C=773.12 V=116
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:14:57.068821+00:00 duration=2.187s O=773.12 H=773.12 L=773.11 C=773.11 V=19
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:14:59.267031+00:00 duration=9.042s O=773.12 H=773.12 L=773.08 C=773.08 V=329
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:15:09.097529+00:00 duration=31.354s O=773.09 H=773.10 L=773.05 C=773.10 V=269
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:15:41.108589+00:00 duration=25.446s O=773.10 H=773.13 L=773.08 C=773.12 V=418
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:16:06.963712+00:00 duration=5.242s O=773.12 H=773.13 L=773.11 C=773.11 V=328
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:16:06.963712+00:00 close=773.11 → BUY | fast=773.109287045342 slow=773.1085717400824
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.65
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.65
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.84
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.84
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:16:12.208564+00:00 duration=16.695s O=773.12 H=773.12 L=773.11 C=773.11 V=358
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:16:30.727812+00:00 duration=8.370s O=773.11 H=773.11 L=773.08 C=773.09 V=225
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:16:30.727812+00:00 close=773.09 → SELL | fast=773.1040844689671 slow=773.1049081225266
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.83
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.83
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.65
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.65
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:16:39.421948+00:00 duration=28.688s O=773.09 H=773.11 L=773.05 C=773.05 V=443
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:17:08.111900+00:00 duration=14.211s O=773.05 H=773.06 L=773.03 C=773.05 V=643
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:17:22.323016+00:00 duration=16.316s O=773.05 H=773.07 L=773.02 C=773.07 V=419
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:17:40.437356+00:00 duration=5.036s O=773.07 H=773.07 L=773.03 C=773.05 V=330
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:17:46.013214+00:00 duration=9.864s O=773.04 H=773.05 L=773.01 C=773.01 V=494
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:17:55.876855+00:00 duration=14.369s O=773.01 H=773.01 L=772.99 C=773.00 V=280
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:18:10.258656+00:00 duration=4.197s O=773.00 H=773.02 L=772.99 C=773.02 V=629
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:18:14.456117+00:00 duration=13.232s O=773.00 H=773.01 L=772.99 C=772.99 V=412
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:18:32.445454+00:00 duration=10.103s O=773.00 H=773.00 L=772.99 C=773.00 V=299
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:18:42.925875+00:00 duration=18.609s O=773.00 H=773.04 L=773.00 C=773.04 V=513
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:18:42.925875+00:00 close=773.04 → BUY | fast=773.0153020294431 slow=773.0150011116434
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.65
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.65
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.80
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.80
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:19:04.757294+00:00 duration=11.023s O=773.07 H=773.08 L=773.05 C=773.08 V=648
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:19:15.900657+00:00 duration=12.498s O=773.08 H=773.10 L=773.08 C=773.09 V=645
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:19:31.396725+00:00 duration=12.686s O=773.08 H=773.11 L=773.07 C=773.10 V=415
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:19:44.389037+00:00 duration=14.900s O=773.11 H=773.13 L=773.11 C=773.13 V=475
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:19:59.477621+00:00 duration=14.743s O=773.12 H=773.16 L=773.11 C=773.12 V=739
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:20:15.407932+00:00 duration=9.772s O=773.10 H=773.11 L=773.08 C=773.09 V=489
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:20:25.180027+00:00 duration=9.730s O=773.08 H=773.09 L=773.05 C=773.05 V=771
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:20:25.180027+00:00 close=773.05 → SELL | fast=773.0848837297003 slow=773.0886250999632
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.80
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.80
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.65
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.65
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:20:34.910428+00:00 duration=12.890s O=773.05 H=773.05 L=773.01 C=773.01 V=250
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:20:48.751542+00:00 duration=4.127s O=773.01 H=773.01 L=772.96 C=772.98 V=189
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:20:52.904645+00:00 duration=0.511s O=772.98 H=772.98 L=772.97 C=772.97 V=31
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:20:53.441738+00:00 duration=2.742s O=772.97 H=773.00 L=772.96 C=773.00 V=99
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:20:56.205772+00:00 duration=1.550s O=773.00 H=773.00 L=772.98 C=772.99 V=106
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:20:57.781773+00:00 duration=12.271s O=772.99 H=773.00 L=772.98 C=773.00 V=193
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:21:10.366373+00:00 duration=29.009s O=773.00 H=773.07 L=773.00 C=773.05 V=631
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:21:10.366373+00:00 close=773.05 → BUY | fast=773.0125330684742 slow=773.0075226896145
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.65
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.65
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.80
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.80
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:21:39.375251+00:00 duration=13.291s O=773.05 H=773.11 L=773.05 C=773.10 V=540
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:22:02.025789+00:00 duration=14.035s O=773.11 H=773.11 L=773.07 C=773.07 V=513
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:22:16.060680+00:00 duration=10.730s O=773.07 H=773.12 L=773.07 C=773.12 V=504
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:22:28.270456+00:00 duration=5.770s O=773.11 H=773.11 L=773.08 C=773.09 V=681
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:22:34.133589+00:00 duration=12.107s O=773.08 H=773.11 L=773.08 C=773.11 V=309
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:22:48.602541+00:00 duration=10.857s O=773.11 H=773.14 L=773.11 C=773.11 V=754
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:22:59.473951+00:00 duration=9.606s O=773.11 H=773.11 L=773.07 C=773.10 V=573
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:23:10.322327+00:00 duration=20.348s O=773.10 H=773.11 L=773.07 C=773.07 V=535
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:23:10.322327+00:00 close=773.07 → SELL | fast=773.0901420846525 slow=773.0922421037269
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.80
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.80
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.63
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.63
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:23:31.945152+00:00 duration=17.760s O=773.08 H=773.12 L=773.08 C=773.11 V=454
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:23:50.579781+00:00 duration=9.689s O=773.12 H=773.12 L=773.10 C=773.11 V=366
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:23:50.579781+00:00 close=773.11 → BUY | fast=773.0999962311834 slow=773.09893110682
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.63
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.63
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.82
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.82
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:24:03.528277+00:00 duration=3.043s O=773.11 H=773.15 L=773.11 C=773.15 V=737
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:24:07.709144+00:00 duration=10.244s O=773.15 H=773.18 L=773.15 C=773.17 V=346
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:24:19.226220+00:00 duration=13.286s O=773.16 H=773.16 L=773.14 C=773.16 V=385
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:24:32.512815+00:00 duration=3.963s O=773.16 H=773.19 L=773.16 C=773.17 V=355
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:24:39.136449+00:00 duration=9.280s O=773.18 H=773.22 L=773.18 C=773.22 V=482
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:24:48.787292+00:00 duration=9.869s O=773.23 H=773.23 L=773.20 C=773.23 V=598
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:24:59.257543+00:00 duration=5.410s O=773.23 H=773.29 L=773.23 C=773.29 V=579
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:25:04.724606+00:00 duration=4.575s O=773.29 H=773.29 L=773.27 C=773.29 V=761
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:25:09.301046+00:00 duration=9.705s O=773.29 H=773.29 L=773.28 C=773.29 V=509
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:25:20.724605+00:00 duration=16.291s O=773.27 H=773.27 L=773.17 C=773.17 V=412
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:25:37.015111+00:00 duration=32.086s O=773.17 H=773.19 L=773.17 C=773.19 V=578
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:25:37.015111+00:00 close=773.19 → SELL | fast=773.2212877110024 slow=773.2313150169276
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.85
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.85
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.60
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.60
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:26:09.101476+00:00 duration=14.074s O=773.19 H=773.21 L=773.16 C=773.16 V=300
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:26:28.738221+00:00 duration=29.750s O=773.13 H=773.20 L=773.13 C=773.20 V=606
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:27:03.456373+00:00 duration=31.635s O=773.21 H=773.21 L=773.18 C=773.18 V=321
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:27:40.212657+00:00 duration=19.072s O=773.18 H=773.20 L=773.17 C=773.20 V=353
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:28:02.783288+00:00 duration=10.200s O=773.17 H=773.17 L=773.14 C=773.14 V=549
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:28:13.913442+00:00 duration=6.670s O=773.13 H=773.14 L=773.11 C=773.13 V=557
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:28:20.583300+00:00 duration=21.168s O=773.13 H=773.17 L=773.12 C=773.16 V=277
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:28:41.751673+00:00 duration=17.101s O=773.16 H=773.18 L=773.16 C=773.16 V=454
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:28:58.853147+00:00 duration=13.310s O=773.16 H=773.19 L=773.16 C=773.16 V=439
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:29:12.162818+00:00 duration=13.402s O=773.16 H=773.16 L=773.14 C=773.14 V=461
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:29:25.564391+00:00 duration=9.279s O=773.14 H=773.16 L=773.12 C=773.12 V=170
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:29:34.843775+00:00 duration=16.864s O=773.12 H=773.12 L=773.09 C=773.09 V=263
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:29:51.995192+00:00 duration=26.139s O=773.10 H=773.14 L=773.09 C=773.11 V=772
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:30:18.419212+00:00 duration=31.209s O=773.10 H=773.21 L=773.10 C=773.21 V=472
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:30:18.419212+00:00 close=773.21 → BUY | fast=773.1426099201491 slow=773.1396604286947
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.60
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.60
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.87
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.87
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:30:52.531177+00:00 duration=6.780s O=773.22 H=773.23 L=773.20 C=773.23 V=443
+INFO:schwab_auth:Refreshed Schwab access token
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:31:06.836450+00:00 duration=24.347s O=773.21 H=773.21 L=773.16 C=773.18 V=919
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:31:39.660911+00:00 duration=11.760s O=773.20 H=773.26 L=773.20 C=773.26 V=769
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:31:51.421045+00:00 duration=5.377s O=773.26 H=773.30 L=773.26 C=773.28 V=505
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:31:56.797837+00:00 duration=13.719s O=773.28 H=773.43 L=773.28 C=773.41 V=291
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:32:10.796432+00:00 duration=24.691s O=773.40 H=773.43 L=773.37 C=773.41 V=648
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:32:43.247706+00:00 duration=18.805s O=773.41 H=773.43 L=773.39 C=773.39 V=448
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:33:15.925223+00:00 duration=16.355s O=773.42 H=773.46 L=773.42 C=773.46 V=600
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:33:38.042877+00:00 duration=26.404s O=773.43 H=773.43 L=773.39 C=773.40 V=342
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:34:05.093091+00:00 duration=17.785s O=773.39 H=773.40 L=773.37 C=773.38 V=615
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:34:26.028579+00:00 duration=6.045s O=773.36 H=773.40 L=773.35 C=773.39 V=583
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:34:26.028579+00:00 close=773.39 → SELL | fast=773.3963878579511 slow=773.3980683154266
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.94
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.94
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.54
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.54
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:34:32.958615+00:00 duration=14.055s O=773.40 H=773.40 L=773.31 C=773.31 V=445
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:34:48.937850+00:00 duration=11.538s O=773.35 H=773.36 L=773.33 C=773.33 V=404
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:35:00.881843+00:00 duration=7.291s O=773.35 H=773.38 L=773.35 C=773.35 V=405
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:35:09.073367+00:00 duration=7.980s O=773.36 H=773.38 L=773.36 C=773.38 V=313
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:35:20.013548+00:00 duration=26.128s O=773.38 H=773.38 L=773.36 C=773.38 V=640
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:35:20.013548+00:00 close=773.38 → BUY | fast=773.3624369048895 slow=773.3595424232154
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.54
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.54
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.94
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.94
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:35:48.859702+00:00 duration=11.987s O=773.36 H=773.42 L=773.36 C=773.42 V=655
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:36:04.017966+00:00 duration=15.291s O=773.47 H=773.49 L=773.41 C=773.43 V=576
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:36:20.330015+00:00 duration=8.772s O=773.43 H=773.47 L=773.43 C=773.45 V=413
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:36:30.795220+00:00 duration=8.323s O=773.46 H=773.46 L=773.44 C=773.46 V=391
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:36:39.155179+00:00 duration=8.888s O=773.46 H=773.46 L=773.43 C=773.45 V=538
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:36:49.512980+00:00 duration=1.677s O=773.43 H=773.44 L=773.43 C=773.44 V=358
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:36:51.889005+00:00 duration=15.590s O=773.44 H=773.46 L=773.44 C=773.46 V=479
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:37:07.892464+00:00 duration=22.457s O=773.47 H=773.47 L=773.42 C=773.43 V=609
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:37:07.892464+00:00 close=773.43 → SELL | fast=773.4446107866515 slow=773.4449294080521
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.96
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.96
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.53
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.53
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:37:33.467239+00:00 duration=18.746s O=773.43 H=773.46 L=773.43 C=773.44 V=811
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:37:52.214294+00:00 duration=5.155s O=773.44 H=773.44 L=773.42 C=773.42 V=1176
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:37:58.022713+00:00 duration=3.877s O=773.42 H=773.42 L=773.41 C=773.41 V=492
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:38:01.905340+00:00 duration=8.007s O=773.40 H=773.41 L=773.40 C=773.41 V=426
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:38:12.804538+00:00 duration=2.936s O=773.43 H=773.43 L=773.41 C=773.41 V=500
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:38:19.227272+00:00 duration=7.829s O=773.42 H=773.48 L=773.42 C=773.47 V=730
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:38:19.227272+00:00 close=773.47 → BUY | fast=773.4317236093217 slow=773.4297755479336
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.52
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.52
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.98
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.98
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:38:31.869337+00:00 duration=11.260s O=773.46 H=773.47 L=773.45 C=773.45 V=664
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:38:43.220299+00:00 duration=10.118s O=773.45 H=773.45 L=773.44 C=773.45 V=410
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:38:53.339491+00:00 duration=6.158s O=773.45 H=773.45 L=773.43 C=773.45 V=524
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:39:01.997085+00:00 duration=8.668s O=773.45 H=773.45 L=773.41 C=773.41 V=572
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:39:01.997085+00:00 close=773.41 → SELL | fast=773.4368355681783 slow=773.4382623930535
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.96
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.96
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.54
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.54
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:39:11.085705+00:00 duration=10.184s O=773.41 H=773.42 L=773.40 C=773.42 V=428
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:39:21.270869+00:00 duration=5.661s O=773.42 H=773.42 L=773.42 C=773.42 V=718
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:39:27.702624+00:00 duration=10.369s O=773.41 H=773.41 L=773.40 C=773.40 V=502
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:39:42.244590+00:00 duration=21.050s O=773.41 H=773.44 L=773.40 C=773.44 V=358
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:40:03.403469+00:00 duration=15.814s O=773.46 H=773.50 L=773.46 C=773.50 V=622
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:40:03.403469+00:00 close=773.50 → BUY | fast=773.4486591975469 slow=773.4417079497839
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.51
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.51
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.99
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.99
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:40:21.293879+00:00 duration=6.853s O=773.50 H=773.52 L=773.50 C=773.52 V=351
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:40:28.519234+00:00 duration=15.798s O=773.52 H=773.53 L=773.51 C=773.52 V=581
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:40:44.316739+00:00 duration=26.736s O=773.52 H=773.58 L=773.52 C=773.58 V=380
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:41:11.052285+00:00 duration=21.590s O=773.58 H=773.61 L=773.58 C=773.58 V=437
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:41:40.045664+00:00 duration=17.519s O=773.59 H=773.62 L=773.59 C=773.60 V=413
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:41:57.564890+00:00 duration=7.011s O=773.60 H=773.60 L=773.58 C=773.59 V=407
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:42:06.640623+00:00 duration=28.101s O=773.59 H=773.63 L=773.58 C=773.58 V=448
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:42:34.741869+00:00 duration=29.714s O=773.58 H=773.58 L=773.55 C=773.55 V=443
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:42:34.741869+00:00 close=773.55 → SELL | fast=773.5728444774409 slow=773.5731189813405
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=2.01
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 2.01
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00772000 qty=4 @ 1.81
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.81
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:43:04.456037+00:00 duration=30.975s O=773.55 H=773.59 L=773.55 C=773.58 V=363
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:43:35.457304+00:00 duration=22.623s O=773.56 H=773.57 L=773.55 C=773.57 V=378
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:43:58.684145+00:00 duration=45.690s O=773.58 H=773.58 L=773.54 C=773.54 V=358
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:44:45.981683+00:00 duration=23.012s O=773.53 H=773.53 L=773.50 C=773.51 V=246
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:45:10.375861+00:00 duration=10.032s O=773.50 H=773.51 L=773.47 C=773.47 V=359
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:45:20.408026+00:00 duration=22.442s O=773.47 H=773.50 L=773.44 C=773.44 V=2339
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:45:44.950506+00:00 duration=16.113s O=773.44 H=773.44 L=773.41 C=773.43 V=490
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:46:07.899602+00:00 duration=22.745s O=773.44 H=773.44 L=773.42 C=773.43 V=393
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:46:34.423095+00:00 duration=17.211s O=773.44 H=773.51 L=773.44 C=773.50 V=723
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:46:51.634496+00:00 duration=16.394s O=773.50 H=773.52 L=773.50 C=773.50 V=1253
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:46:51.634496+00:00 close=773.50 → BUY | fast=773.4783897418889 slow=773.4732657160981
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00772000 (gaussian_ma_crossover) at mark=1.84
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.84
+INFO:__main__:Closed PUT SPY   260814P00772000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00776000 qty=5 @ 1.56
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.56
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:47:08.033942+00:00 duration=2.405s O=773.50 H=773.50 L=773.48 C=773.48 V=827
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:47:15.179061+00:00 duration=8.613s O=773.47 H=773.47 L=773.42 C=773.42 V=771
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:47:15.179061+00:00 close=773.42 → SELL | fast=773.4646548187691 slow=773.4654922695206
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00776000 (gaussian_ma_crossover) at mark=1.54
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.54
+INFO:__main__:Closed CALL SPY   260814C00776000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.53
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.53
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:47:27.053697+00:00 duration=35.067s O=773.39 H=773.48 L=773.39 C=773.47 V=828
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:48:02.351847+00:00 duration=16.217s O=773.47 H=773.51 L=773.47 C=773.50 V=310
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:48:02.351847+00:00 close=773.50 → BUY | fast=773.4728778970779 slow=773.4725702262388
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.50
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.50
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.98
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.98
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:48:18.570386+00:00 duration=0.063s O=773.50 H=773.50 L=773.47 C=773.47 V=1880
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:48:18.633824+00:00 duration=2.218s O=773.47 H=773.50 L=773.47 C=773.50 V=706
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:48:20.866414+00:00 duration=27.964s O=773.50 H=773.51 L=773.48 C=773.50 V=493
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:48:52.055509+00:00 duration=20.021s O=773.49 H=773.55 L=773.49 C=773.49 V=503
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:49:16.733931+00:00 duration=22.745s O=773.50 H=773.52 L=773.50 C=773.52 V=675
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:49:41.437625+00:00 duration=21.414s O=773.52 H=773.54 L=773.52 C=773.53 V=284
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:50:04.138762+00:00 duration=17.499s O=773.54 H=773.59 L=773.54 C=773.57 V=308
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:50:21.637803+00:00 duration=16.497s O=773.58 H=773.59 L=773.57 C=773.59 V=317
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:50:43.642494+00:00 duration=14.042s O=773.57 H=773.57 L=773.53 C=773.54 V=277
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:51:01.470310+00:00 duration=10.505s O=773.54 H=773.58 L=773.53 C=773.56 V=1665
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:51:11.975107+00:00 duration=13.081s O=773.56 H=773.58 L=773.56 C=773.58 V=278
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:51:26.198243+00:00 duration=18.078s O=773.58 H=773.58 L=773.55 C=773.58 V=393
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:51:44.275870+00:00 duration=19.097s O=773.58 H=773.59 L=773.58 C=773.59 V=509
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:52:03.734664+00:00 duration=5.805s O=773.59 H=773.59 L=773.58 C=773.59 V=656
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:52:11.134604+00:00 duration=13.081s O=773.59 H=773.63 L=773.59 C=773.62 V=695
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:52:24.403480+00:00 duration=28.635s O=773.61 H=773.61 L=773.53 C=773.53 V=420
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:52:24.403480+00:00 close=773.53 → SELL | fast=773.5791558092033 slow=773.5795159799691
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.98
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.98
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00772000 qty=4 @ 1.81
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.81
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:52:57.391435+00:00 duration=17.500s O=773.54 H=773.54 L=773.51 C=773.52 V=767
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:53:14.893503+00:00 duration=8.335s O=773.52 H=773.52 L=773.50 C=773.52 V=614
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:53:24.060544+00:00 duration=32.803s O=773.51 H=773.52 L=773.51 C=773.51 V=816
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:53:58.322758+00:00 duration=22.836s O=773.49 H=773.49 L=773.44 C=773.46 V=389
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:54:21.167525+00:00 duration=9.588s O=773.47 H=773.48 L=773.45 C=773.48 V=329
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:54:31.514685+00:00 duration=4.485s O=773.49 H=773.49 L=773.45 C=773.47 V=1798
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:54:38.964642+00:00 duration=12.152s O=773.48 H=773.49 L=773.47 C=773.48 V=568
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:54:51.120661+00:00 duration=19.277s O=773.48 H=773.48 L=773.41 C=773.41 V=391
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:55:12.814624+00:00 duration=13.860s O=773.38 H=773.39 L=773.36 C=773.38 V=236
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:55:30.410275+00:00 duration=19.363s O=773.36 H=773.36 L=773.34 C=773.34 V=550
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:55:50.017083+00:00 duration=4.235s O=773.32 H=773.34 L=773.32 C=773.34 V=1665
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:55:59.399971+00:00 duration=13.512s O=773.34 H=773.34 L=773.30 C=773.33 V=700
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:56:15.739295+00:00 duration=20.570s O=773.34 H=773.35 L=773.32 C=773.35 V=498
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:56:36.309619+00:00 duration=14.507s O=773.35 H=773.38 L=773.33 C=773.34 V=468
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:56:50.838134+00:00 duration=15.187s O=773.34 H=773.34 L=773.28 C=773.28 V=650
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:57:07.183134+00:00 duration=40.186s O=773.27 H=773.27 L=773.18 C=773.19 V=350
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:57:51.435153+00:00 duration=12.086s O=773.16 H=773.16 L=773.06 C=773.10 V=390
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:58:03.715283+00:00 duration=3.798s O=773.10 H=773.15 L=773.10 C=773.14 V=258
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:58:09.877572+00:00 duration=20.426s O=773.16 H=773.18 L=773.08 C=773.08 V=339
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:58:31.944885+00:00 duration=6.370s O=773.08 H=773.08 L=773.07 C=773.08 V=379
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:58:40.874362+00:00 duration=12.021s O=773.14 H=773.14 L=773.10 C=773.12 V=1774
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:58:53.645401+00:00 duration=15.434s O=773.11 H=773.14 L=773.10 C=773.14 V=416
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:59:09.213600+00:00 duration=15.696s O=773.13 H=773.15 L=773.12 C=773.15 V=551
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:59:09.213600+00:00 close=773.15 → BUY | fast=773.1300190297817 slow=773.1253241426657
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00772000 (gaussian_ma_crossover) at mark=1.97
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.97
+INFO:__main__:Closed PUT SPY   260814P00772000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.82
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.82
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:59:24.909183+00:00 duration=7.176s O=773.15 H=773.18 L=773.13 C=773.18 V=1011
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:59:32.193057+00:00 duration=18.484s O=773.17 H=773.17 L=773.10 C=773.10 V=636
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T18:59:51.346627+00:00 duration=9.677s O=773.11 H=773.11 L=773.03 C=773.04 V=795
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T18:59:51.346627+00:00 close=773.04 → SELL | fast=773.1035904347757 slow=773.1119361867322
+INFO:schwab_auth:Refreshed Schwab access token
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.80
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.80
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.63
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.63
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:00:01.025372+00:00 duration=5.050s O=773.04 H=773.10 L=773.04 C=773.07 V=550
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:00:09.009128+00:00 duration=18.651s O=773.10 H=773.18 L=773.10 C=773.18 V=292
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:00:29.206812+00:00 duration=7.530s O=773.18 H=773.20 L=773.18 C=773.19 V=565
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:00:29.206812+00:00 close=773.19 → BUY | fast=773.1437370054805 slow=773.1335561653766
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.59
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.59
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.84
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.84
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:00:38.777987+00:00 duration=11.235s O=773.20 H=773.30 L=773.20 C=773.30 V=377
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:00:50.644361+00:00 duration=7.560s O=773.29 H=773.30 L=773.28 C=773.30 V=346
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:00:58.755326+00:00 duration=10.833s O=773.29 H=773.32 L=773.28 C=773.28 V=887
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:01:12.045758+00:00 duration=34.294s O=773.26 H=773.30 L=773.25 C=773.30 V=214
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:01:46.339830+00:00 duration=14.375s O=773.30 H=773.30 L=773.28 C=773.29 V=202
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:02:03.274489+00:00 duration=9.132s O=773.29 H=773.29 L=773.27 C=773.27 V=432
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:02:12.406361+00:00 duration=14.643s O=773.27 H=773.27 L=773.23 C=773.27 V=284
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:02:12.406361+00:00 close=773.27 → SELL | fast=773.2815583452816 slow=773.2823452585874
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.85
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.85
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.55
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.55
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:02:27.076739+00:00 duration=10.782s O=773.27 H=773.27 L=773.21 C=773.21 V=533
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:02:38.914621+00:00 duration=9.490s O=773.21 H=773.25 L=773.21 C=773.25 V=454
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:02:51.189026+00:00 duration=19.475s O=773.26 H=773.29 L=773.25 C=773.25 V=844
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:03:10.663575+00:00 duration=16.621s O=773.25 H=773.26 L=773.24 C=773.26 V=613
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:03:27.284294+00:00 duration=12.776s O=773.26 H=773.30 L=773.26 C=773.27 V=963
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:03:27.284294+00:00 close=773.27 → BUY | fast=773.2582795668794 slow=773.2563490531251
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.55
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.55
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.86
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.86
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:03:41.212511+00:00 duration=9.028s O=773.27 H=773.29 L=773.26 C=773.27 V=263
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:03:50.846289+00:00 duration=4.958s O=773.26 H=773.28 L=773.26 C=773.26 V=636
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:03:55.837373+00:00 duration=0.620s O=773.26 H=773.26 L=773.25 C=773.25 V=918
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:03:57.993095+00:00 duration=10.808s O=773.26 H=773.26 L=773.25 C=773.26 V=1014
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:03:57.993095+00:00 close=773.26 → SELL | fast=773.2600127453701 slow=773.260584097437
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.86
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.86
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.55
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.55
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:04:08.801103+00:00 duration=14.574s O=773.26 H=773.26 L=773.25 C=773.26 V=389
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:04:25.025955+00:00 duration=9.495s O=773.27 H=773.27 L=773.26 C=773.27 V=370
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:04:25.025955+00:00 close=773.27 → BUY | fast=773.2629678626142 slow=773.2624550243102
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.55
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.55
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.87
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.87
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:04:35.431928+00:00 duration=14.373s O=773.26 H=773.29 L=773.26 C=773.26 V=310
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:04:49.858993+00:00 duration=9.279s O=773.26 H=773.27 L=773.25 C=773.25 V=230
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:04:49.858993+00:00 close=773.25 → SELL | fast=773.2600942235742 slow=773.2605169504777
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.86
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.86
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.56
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.56
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:04:59.825301+00:00 duration=30.841s O=773.25 H=773.27 L=773.25 C=773.27 V=824
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:04:59.825301+00:00 close=773.27 → BUY | fast=773.2624620324436 slow=773.2624450813076
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.56
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.56
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.86
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.86
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:05:34.204810+00:00 duration=20.022s O=773.25 H=773.30 L=773.25 C=773.30 V=689
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:05:54.798578+00:00 duration=3.477s O=773.30 H=773.33 L=773.30 C=773.33 V=627
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:06:02.227564+00:00 duration=13.630s O=773.35 H=773.36 L=773.33 C=773.34 V=648
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:06:18.506894+00:00 duration=18.542s O=773.34 H=773.36 L=773.34 C=773.36 V=1245
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:06:37.338712+00:00 duration=18.736s O=773.36 H=773.36 L=773.34 C=773.35 V=144
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:06:56.074568+00:00 duration=5.145s O=773.35 H=773.36 L=773.33 C=773.34 V=505
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:07:01.517483+00:00 duration=16.481s O=773.35 H=773.36 L=773.34 C=773.36 V=274
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:07:17.998903+00:00 duration=18.663s O=773.36 H=773.36 L=773.32 C=773.34 V=213
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:07:37.206049+00:00 duration=3.614s O=773.33 H=773.36 L=773.33 C=773.33 V=219
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:07:37.206049+00:00 close=773.33 → SELL | fast=773.3414387968392 slow=773.3428902542275
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.88
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.88
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.54
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.54
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:07:40.864877+00:00 duration=20.184s O=773.33 H=773.33 L=773.29 C=773.29 V=275
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:08:02.461432+00:00 duration=11.051s O=773.28 H=773.29 L=773.25 C=773.25 V=250
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:08:13.518392+00:00 duration=12.917s O=773.24 H=773.26 L=773.21 C=773.26 V=670
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:08:27.022378+00:00 duration=17.114s O=773.26 H=773.30 L=773.26 C=773.30 V=333
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:08:44.136755+00:00 duration=14.897s O=773.30 H=773.32 L=773.29 C=773.29 V=289
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:09.103504+00:00 duration=15.385s O=773.31 H=773.31 L=773.22 C=773.22 V=354
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:24.488734+00:00 duration=2.567s O=773.22 H=773.25 L=773.22 C=773.25 V=594
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:27.055976+00:00 duration=4.375s O=773.25 H=773.26 L=773.24 C=773.25 V=499
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:31.430547+00:00 duration=1.773s O=773.25 H=773.26 L=773.25 C=773.25 V=1158
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:33.560583+00:00 duration=2.308s O=773.26 H=773.26 L=773.25 C=773.25 V=810
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:36.328511+00:00 duration=7.872s O=773.25 H=773.25 L=773.24 C=773.25 V=849
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:44.597041+00:00 duration=1.420s O=773.25 H=773.25 L=773.24 C=773.24 V=701
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:46.027657+00:00 duration=9.395s O=773.24 H=773.25 L=773.21 C=773.23 V=507
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:55.594205+00:00 duration=0.865s O=773.24 H=773.24 L=773.24 C=773.24 V=710
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:09:58.941475+00:00 duration=9.291s O=773.24 H=773.27 L=773.23 C=773.27 V=373
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:09:58.941475+00:00 close=773.27 → BUY | fast=773.2478618576642 slow=773.2467048317621
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.56
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.56
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.86
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.86
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:10:08.290144+00:00 duration=8.343s O=773.27 H=773.27 L=773.25 C=773.26 V=322
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:10:18.436219+00:00 duration=18.984s O=773.23 H=773.23 L=773.18 C=773.23 V=361
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:10:39.800592+00:00 duration=11.948s O=773.23 H=773.23 L=773.15 C=773.16 V=256
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:10:39.800592+00:00 close=773.16 → SELL | fast=773.217835669525 slow=773.2258334004405
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.80
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.80
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.58
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.58
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:10:52.128256+00:00 duration=14.104s O=773.16 H=773.18 L=773.13 C=773.17 V=277
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:11:09.327872+00:00 duration=22.852s O=773.20 H=773.23 L=773.16 C=773.16 V=395
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:11:38.722857+00:00 duration=21.504s O=773.12 H=773.15 L=773.12 C=773.13 V=322
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:12:00.295758+00:00 duration=9.501s O=773.13 H=773.14 L=773.13 C=773.13 V=374
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:12:09.838341+00:00 duration=12.320s O=773.13 H=773.15 L=773.12 C=773.12 V=415
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:12:22.157896+00:00 duration=16.811s O=773.12 H=773.12 L=773.08 C=773.11 V=343
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:12:42.075628+00:00 duration=11.535s O=773.06 H=773.09 L=773.05 C=773.06 V=57
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:12:57.497661+00:00 duration=22.338s O=773.07 H=773.14 L=773.07 C=773.13 V=399
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:13:20.579090+00:00 duration=16.868s O=773.13 H=773.15 L=773.13 C=773.15 V=503
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:13:20.579090+00:00 close=773.15 → BUY | fast=773.1226116618858 slow=773.1203586021645
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.56
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.56
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.77
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.77
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:13:39.098279+00:00 duration=2.255s O=773.15 H=773.16 L=773.15 C=773.16 V=1092
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:13:41.522758+00:00 duration=1.366s O=773.16 H=773.17 L=773.16 C=773.17 V=843
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:13:42.901135+00:00 duration=12.812s O=773.17 H=773.18 L=773.15 C=773.15 V=533
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:14:00.011067+00:00 duration=4.551s O=773.16 H=773.16 L=773.15 C=773.15 V=343
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:14:04.563074+00:00 duration=12.683s O=773.14 H=773.14 L=773.11 C=773.12 V=468
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:14:04.563074+00:00 close=773.12 → SELL | fast=773.1450064187899 slow=773.1472658289334
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.75
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.75
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.57
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.57
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:14:22.295511+00:00 duration=7.030s O=773.10 H=773.10 L=773.06 C=773.08 V=820
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:14:29.679858+00:00 duration=11.320s O=773.08 H=773.08 L=773.03 C=773.05 V=431
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:14:41.321505+00:00 duration=15.428s O=773.05 H=773.09 L=773.03 C=773.09 V=399
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:15:00.109605+00:00 duration=12.095s O=773.08 H=773.11 L=773.05 C=773.11 V=340
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:15:14.340067+00:00 duration=12.729s O=773.11 H=773.12 L=773.08 C=773.12 V=205
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:15:14.340067+00:00 close=773.12 → BUY | fast=773.1013679798776 slow=773.0995427279076
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.56
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.56
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.76
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.76
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:15:27.069035+00:00 duration=22.778s O=773.12 H=773.15 L=773.07 C=773.08 V=364
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:15:50.233208+00:00 duration=8.330s O=773.07 H=773.09 L=773.07 C=773.09 V=382
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:15:50.233208+00:00 close=773.09 → SELL | fast=773.0933232305483 slow=773.093461457542
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.75
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.75
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.60
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.60
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:16:03.965166+00:00 duration=18.617s O=773.09 H=773.12 L=773.09 C=773.12 V=356
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:16:03.965166+00:00 close=773.12 → BUY | fast=773.1007389914798 slow=773.0995303665314
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.58
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.58
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.76
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.76
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:16:23.925736+00:00 duration=18.656s O=773.12 H=773.17 L=773.12 C=773.17 V=271
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:16:42.583380+00:00 duration=21.855s O=773.17 H=773.17 L=773.14 C=773.16 V=351
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:17:09.026445+00:00 duration=32.146s O=773.16 H=773.21 L=773.16 C=773.19 V=266
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:17:42.170069+00:00 duration=0.142s O=773.17 H=773.17 L=773.14 C=773.14 V=570
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:17:42.695377+00:00 duration=10.972s O=773.17 H=773.17 L=773.15 C=773.16 V=580
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:17:55.465897+00:00 duration=16.704s O=773.17 H=773.20 L=773.17 C=773.20 V=348
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:18:12.171461+00:00 duration=13.305s O=773.20 H=773.20 L=773.15 C=773.15 V=605
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:18:25.476789+00:00 duration=15.419s O=773.15 H=773.19 L=773.14 C=773.17 V=299
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:18:41.833836+00:00 duration=10.775s O=773.17 H=773.19 L=773.16 C=773.17 V=196
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:18:52.609204+00:00 duration=3.338s O=773.17 H=773.17 L=773.16 C=773.16 V=711
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:18:52.609204+00:00 close=773.16 → SELL | fast=773.1653961312409 slow=773.1658362406731
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.77
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.77
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.56
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.56
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:18:56.455219+00:00 duration=5.194s O=773.16 H=773.16 L=773.16 C=773.16 V=472
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:19:01.649099+00:00 duration=12.874s O=773.16 H=773.16 L=773.11 C=773.11 V=382
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:19:14.522605+00:00 duration=6.638s O=773.11 H=773.11 L=773.09 C=773.10 V=979
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:19:22.965959+00:00 duration=10.677s O=773.10 H=773.16 L=773.10 C=773.15 V=176
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:19:34.505560+00:00 duration=14.666s O=773.14 H=773.15 L=773.11 C=773.15 V=336
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:19:51.128305+00:00 duration=13.480s O=773.15 H=773.16 L=773.15 C=773.15 V=235
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:19:51.128305+00:00 close=773.15 → BUY | fast=773.1430004828916 slow=773.1404278253827
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.56
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.56
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=4 @ 1.75
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.75
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:20:04.733982+00:00 duration=5.760s O=773.15 H=773.15 L=773.11 C=773.15 V=243
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:20:11.342390+00:00 duration=11.384s O=773.13 H=773.13 L=773.09 C=773.09 V=318
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:20:11.342390+00:00 close=773.09 → SELL | fast=773.1291743126337 slow=773.1317841944004
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.72
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.72
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.58
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.58
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:20:22.796069+00:00 duration=9.789s O=773.08 H=773.08 L=773.04 C=773.04 V=1292
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:20:32.584974+00:00 duration=10.529s O=773.04 H=773.04 L=772.96 C=772.98 V=720
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:20:43.272967+00:00 duration=15.192s O=772.98 H=772.98 L=772.97 C=772.98 V=1051
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:21:01.777881+00:00 duration=11.259s O=772.97 H=772.98 L=772.95 C=772.95 V=1504
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:21:13.037582+00:00 duration=8.032s O=772.95 H=772.95 L=772.89 C=772.89 V=770
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:21:21.069718+00:00 duration=7.303s O=772.89 H=772.90 L=772.87 C=772.87 V=911
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:21:28.372858+00:00 duration=1.752s O=772.87 H=772.87 L=772.80 C=772.80 V=1036
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:21:30.124872+00:00 duration=12.678s O=772.80 H=772.86 L=772.80 C=772.84 V=1231
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:21:43.931303+00:00 duration=6.550s O=772.86 H=772.86 L=772.82 C=772.85 V=846
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:21:50.481187+00:00 duration=20.900s O=772.85 H=772.90 L=772.84 C=772.88 V=547
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:22:11.516336+00:00 duration=20.937s O=772.88 H=772.91 L=772.88 C=772.91 V=488
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:22:11.516336+00:00 close=772.91 → BUY | fast=772.8761736530485 slow=772.8701557085699
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.61
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.61
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.65
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.65
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:22:32.699079+00:00 duration=19.932s O=772.92 H=772.93 L=772.89 C=772.89 V=340
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:22:54.666334+00:00 duration=19.713s O=772.91 H=772.93 L=772.86 C=772.87 V=438
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:23:24.029680+00:00 duration=23.722s O=772.87 H=772.91 L=772.85 C=772.86 V=674
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:23:24.029680+00:00 close=772.86 → SELL | fast=772.8753391527429 slow=772.8755831664661
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.62
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.62
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.63
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.63
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:23:52.151129+00:00 duration=14.051s O=772.87 H=772.95 L=772.87 C=772.94 V=830
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:23:52.151129+00:00 close=772.94 → BUY | fast=772.8945014266476 slow=772.890859817663
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.60
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.60
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.65
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.65
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:24:06.202389+00:00 duration=21.370s O=772.94 H=772.96 L=772.92 C=772.92 V=626
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:24:28.757190+00:00 duration=8.501s O=772.92 H=772.92 L=772.89 C=772.89 V=414
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:24:38.381800+00:00 duration=23.503s O=772.90 H=772.91 L=772.87 C=772.87 V=319
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:24:38.381800+00:00 close=772.87 → SELL | fast=772.89317218722 slow=772.8942165228057
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.62
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.62
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.62
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.62
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:25:06.179774+00:00 duration=5.980s O=772.88 H=772.91 L=772.88 C=772.91 V=781
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:25:14.684123+00:00 duration=37.367s O=772.90 H=772.95 L=772.86 C=772.94 V=260
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:25:14.684123+00:00 close=772.94 → BUY | fast=772.9104215948303 slow=772.9074069537944
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.60
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.60
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.65
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.65
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:25:52.260900+00:00 duration=16.769s O=772.95 H=772.97 L=772.92 C=772.97 V=589
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:26:09.080380+00:00 duration=12.651s O=772.97 H=772.99 L=772.96 C=772.97 V=624
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:26:21.734176+00:00 duration=0.730s O=772.98 H=772.98 L=772.97 C=772.97 V=118
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:26:22.470282+00:00 duration=15.812s O=772.97 H=772.97 L=772.94 C=772.97 V=382
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:26:41.322582+00:00 duration=4.313s O=772.98 H=772.98 L=772.97 C=772.98 V=551
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:26:50.488810+00:00 duration=15.198s O=772.95 H=772.97 L=772.95 C=772.97 V=490
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:27:07.920797+00:00 duration=9.430s O=772.96 H=772.97 L=772.96 C=772.96 V=460
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:27:07.920797+00:00 close=772.96 → SELL | fast=772.9671937837575 slow=772.9674338008557
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.65
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.65
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.59
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.59
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:27:17.351262+00:00 duration=9.991s O=772.96 H=772.98 L=772.93 C=772.93 V=649
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:27:27.400269+00:00 duration=12.938s O=772.93 H=772.93 L=772.87 C=772.87 V=801
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:27:48.821882+00:00 duration=11.186s O=772.85 H=772.86 L=772.84 C=772.84 V=501
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:28:01.127162+00:00 duration=8.451s O=772.85 H=772.87 L=772.85 C=772.86 V=285
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:28:09.578647+00:00 duration=11.900s O=772.86 H=772.86 L=772.83 C=772.84 V=634
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:28:21.502817+00:00 duration=5.411s O=772.83 H=772.83 L=772.81 C=772.82 V=202
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:28:26.914849+00:00 duration=10.827s O=772.82 H=772.86 L=772.82 C=772.86 V=725
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:28:37.741774+00:00 duration=2.291s O=772.86 H=772.87 L=772.86 C=772.87 V=899
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:28:37.741774+00:00 close=772.87 → BUY | fast=772.8516717679317 slow=772.8513509624294
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.62
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.62
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.63
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.63
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:28:40.032963+00:00 duration=9.485s O=772.87 H=772.88 L=772.83 C=772.84 V=222
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:28:52.373109+00:00 duration=6.830s O=772.84 H=772.88 L=772.84 C=772.88 V=817
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:28:59.303818+00:00 duration=7.322s O=772.88 H=772.89 L=772.87 C=772.87 V=429
+INFO:schwab_auth:Refreshed Schwab access token
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:29:06.738170+00:00 duration=9.231s O=772.87 H=772.91 L=772.87 C=772.91 V=399
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:29:15.994378+00:00 duration=9.051s O=772.91 H=772.96 L=772.91 C=772.95 V=338
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:29:25.711284+00:00 duration=7.341s O=772.94 H=772.96 L=772.93 C=772.95 V=530
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:29:33.057405+00:00 duration=3.581s O=772.95 H=772.96 L=772.95 C=772.95 V=548
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:29:36.638312+00:00 duration=3.422s O=772.95 H=772.98 L=772.95 C=772.97 V=287
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:29:40.219078+00:00 duration=6.492s O=772.96 H=772.97 L=772.95 C=772.97 V=296
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:29:50.798530+00:00 duration=10.976s O=772.97 H=772.99 L=772.96 C=772.97 V=327
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:30:02.648856+00:00 duration=8.408s O=772.97 H=772.97 L=772.87 C=772.87 V=838
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:30:02.648856+00:00 close=772.87 → SELL | fast=772.9344088384172 slow=772.939626776562
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.63
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.63
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.63
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.63
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:30:11.661498+00:00 duration=9.230s O=772.87 H=772.88 L=772.82 C=772.88 V=1159
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:30:21.402570+00:00 duration=7.731s O=772.88 H=772.88 L=772.85 C=772.87 V=873
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:30:29.184571+00:00 duration=13.849s O=772.86 H=772.88 L=772.84 C=772.87 V=1224
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:30:43.041786+00:00 duration=12.885s O=772.87 H=772.93 L=772.87 C=772.90 V=839
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:30:55.989955+00:00 duration=25.128s O=772.90 H=772.98 L=772.89 C=772.98 V=708
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:30:55.989955+00:00 close=772.98 → BUY | fast=772.9140895144326 slow=772.9073967310215
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.59
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.59
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.66
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.66
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:31:21.119062+00:00 duration=7.622s O=772.98 H=772.98 L=772.95 C=772.95 V=335
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:31:29.941554+00:00 duration=11.521s O=772.96 H=772.97 L=772.95 C=772.96 V=385
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:31:41.484175+00:00 duration=9.908s O=772.97 H=772.97 L=772.91 C=772.91 V=552
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:31:53.013762+00:00 duration=5.762s O=772.95 H=772.98 L=772.95 C=772.98 V=644
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:31:58.775973+00:00 duration=3.554s O=772.98 H=773.00 L=772.98 C=773.00 V=931
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:32:02.530020+00:00 duration=3.348s O=773.00 H=773.00 L=772.97 C=772.97 V=396
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:32:05.891702+00:00 duration=6.780s O=772.96 H=772.98 L=772.95 C=772.96 V=694
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:32:14.094128+00:00 duration=5.316s O=772.96 H=773.02 L=772.96 C=773.02 V=638
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:32:19.410151+00:00 duration=11.362s O=773.02 H=773.02 L=772.95 C=772.95 V=306
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:32:31.657397+00:00 duration=10.964s O=772.95 H=772.95 L=772.93 C=772.95 V=569
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:32:31.657397+00:00 close=772.95 → SELL | fast=772.9666202796873 slow=772.9690370344451
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.65
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.65
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.59
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.59
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:32:42.622285+00:00 duration=5.477s O=772.95 H=772.99 L=772.95 C=772.97 V=899
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:32:48.099070+00:00 duration=3.693s O=772.97 H=772.98 L=772.96 C=772.96 V=741
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:32:52.160564+00:00 duration=5.047s O=772.96 H=772.97 L=772.96 C=772.96 V=1083
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:32:57.459994+00:00 duration=5.512s O=772.96 H=772.97 L=772.96 C=772.97 V=163
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:33:03.913250+00:00 duration=8.092s O=772.97 H=772.97 L=772.93 C=772.94 V=521
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:33:12.437704+00:00 duration=10.316s O=772.93 H=772.93 L=772.88 C=772.90 V=902
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:33:22.952258+00:00 duration=10.510s O=772.90 H=772.90 L=772.82 C=772.82 V=364
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:33:34.949885+00:00 duration=11.688s O=772.80 H=772.85 L=772.80 C=772.84 V=837
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:33:49.063813+00:00 duration=4.598s O=772.83 H=772.87 L=772.83 C=772.84 V=1834
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:33:53.661387+00:00 duration=6.917s O=772.84 H=772.85 L=772.81 C=772.81 V=382
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:34:00.625996+00:00 duration=11.351s O=772.80 H=772.84 L=772.80 C=772.83 V=862
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:34:11.983334+00:00 duration=13.771s O=772.83 H=772.90 L=772.80 C=772.90 V=643
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:34:11.983334+00:00 close=772.90 → BUY | fast=772.8506884928161 slow=772.8485924776811
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.61
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.61
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.62
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.62
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:34:26.807424+00:00 duration=11.690s O=772.89 H=772.89 L=772.86 C=772.86 V=139
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:34:40.939294+00:00 duration=8.679s O=772.86 H=772.88 L=772.85 C=772.85 V=294
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:34:49.618434+00:00 duration=0.509s O=772.85 H=772.86 L=772.84 C=772.86 V=810
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:34:50.541007+00:00 duration=10.367s O=772.85 H=772.88 L=772.85 C=772.87 V=546
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:35:00.908102+00:00 duration=7.552s O=772.87 H=772.90 L=772.87 C=772.88 V=793
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:35:08.459990+00:00 duration=4.140s O=772.88 H=772.89 L=772.88 C=772.89 V=1089
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:35:13.064920+00:00 duration=6.463s O=772.90 H=772.94 L=772.90 C=772.93 V=430
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:35:20.121611+00:00 duration=11.630s O=772.92 H=772.93 L=772.89 C=772.92 V=887
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:35:31.761554+00:00 duration=9.922s O=772.92 H=772.93 L=772.91 C=772.92 V=680
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:35:41.683361+00:00 duration=8.342s O=772.92 H=772.93 L=772.90 C=772.90 V=625
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:35:50.046264+00:00 duration=7.609s O=772.90 H=772.92 L=772.90 C=772.91 V=911
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:35:57.655344+00:00 duration=7.255s O=772.92 H=772.96 L=772.91 C=772.96 V=331
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:04.912088+00:00 duration=4.343s O=772.96 H=772.96 L=772.94 C=772.95 V=405
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:09.255516+00:00 duration=12.124s O=772.95 H=772.98 L=772.95 C=772.96 V=687
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:22.105895+00:00 duration=5.467s O=772.96 H=772.96 L=772.93 C=772.93 V=231
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:28.224160+00:00 duration=3.970s O=772.95 H=772.95 L=772.93 C=772.93 V=441
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:36:28.224160+00:00 close=772.93 → SELL | fast=772.9391730615034 slow=772.939493323242
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.65
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.65
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.60
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.60
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:32.194453+00:00 duration=1.717s O=772.93 H=772.93 L=772.91 C=772.91 V=529
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:34.588374+00:00 duration=4.522s O=772.92 H=772.95 L=772.92 C=772.95 V=518
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:40.296862+00:00 duration=4.655s O=772.95 H=772.95 L=772.92 C=772.92 V=984
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:44.951453+00:00 duration=4.595s O=772.92 H=772.96 L=772.92 C=772.95 V=424
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:36:44.951453+00:00 close=772.95 → BUY | fast=772.935720288959 slow=772.9347592951441
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.59
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.59
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.65
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.65
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:50.135663+00:00 duration=4.633s O=772.95 H=772.95 L=772.93 C=772.93 V=884
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:36:54.769160+00:00 duration=4.333s O=772.93 H=772.95 L=772.93 C=772.95 V=946
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:37:00.022403+00:00 duration=13.869s O=772.96 H=772.97 L=772.92 C=772.95 V=872
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:37:14.489088+00:00 duration=8.571s O=772.95 H=772.95 L=772.91 C=772.91 V=465
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:37:14.489088+00:00 close=772.91 → SELL | fast=772.9352607249444 slow=772.9361429882684
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.65
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.65
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.59
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.59
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:37:24.822126+00:00 duration=5.564s O=772.91 H=772.92 L=772.90 C=772.90 V=858
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:37:33.260568+00:00 duration=20.595s O=772.90 H=772.93 L=772.89 C=772.93 V=224
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:37:53.856275+00:00 duration=16.616s O=772.93 H=772.93 L=772.89 C=772.90 V=426
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:38:11.080483+00:00 duration=9.585s O=772.91 H=772.98 L=772.91 C=772.98 V=552
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:38:11.080483+00:00 close=772.98 → BUY | fast=772.9340678999394 slow=772.9312632258701
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.58
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.58
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.65
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.65
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:38:24.025391+00:00 duration=19.326s O=772.98 H=773.00 L=772.97 C=772.98 V=406
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:38:43.360424+00:00 duration=6.645s O=772.98 H=772.98 L=772.93 C=772.96 V=429
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:38:51.511031+00:00 duration=13.359s O=772.98 H=772.98 L=772.96 C=772.98 V=538
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:39:06.876298+00:00 duration=9.861s O=772.96 H=772.96 L=772.93 C=772.95 V=404
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:39:18.844050+00:00 duration=18.408s O=772.92 H=772.92 L=772.87 C=772.87 V=580
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:39:18.844050+00:00 close=772.87 → SELL | fast=772.9320526847914 slow=772.9398823700719
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.62
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.62
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.60
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.60
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:39:37.663784+00:00 duration=12.196s O=772.87 H=772.88 L=772.86 C=772.86 V=321
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:39:51.057921+00:00 duration=8.662s O=772.87 H=772.90 L=772.87 C=772.89 V=607
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:40:00.217416+00:00 duration=16.233s O=772.88 H=772.90 L=772.83 C=772.83 V=793
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:40:17.795827+00:00 duration=14.507s O=772.80 H=772.81 L=772.73 C=772.73 V=867
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:40:33.841163+00:00 duration=18.401s O=772.76 H=772.82 L=772.75 C=772.82 V=1780
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:40:52.242262+00:00 duration=18.589s O=772.82 H=772.84 L=772.82 C=772.84 V=446
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:41:10.843934+00:00 duration=6.105s O=772.84 H=772.84 L=772.80 C=772.80 V=262
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:41:17.479761+00:00 duration=6.593s O=772.80 H=772.82 L=772.80 C=772.80 V=243
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:41:24.391108+00:00 duration=9.315s O=772.78 H=772.78 L=772.75 C=772.76 V=458
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:41:33.707420+00:00 duration=16.223s O=772.76 H=772.78 L=772.76 C=772.76 V=460
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:42:01.308258+00:00 duration=10.320s O=772.74 H=772.75 L=772.72 C=772.72 V=546
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:42:11.779152+00:00 duration=13.763s O=772.71 H=772.71 L=772.61 C=772.61 V=549
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:42:25.895430+00:00 duration=15.895s O=772.62 H=772.64 L=772.58 C=772.62 V=508
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:42:47.490809+00:00 duration=12.241s O=772.60 H=772.62 L=772.60 C=772.61 V=725
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:43:03.672766+00:00 duration=11.839s O=772.57 H=772.60 L=772.57 C=772.58 V=573
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:43:16.123701+00:00 duration=10.126s O=772.58 H=772.59 L=772.57 C=772.57 V=476
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:43:27.105210+00:00 duration=8.646s O=772.58 H=772.65 L=772.57 C=772.65 V=833
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:43:37.643357+00:00 duration=4.844s O=772.65 H=772.65 L=772.62 C=772.65 V=396
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:43:37.643357+00:00 close=772.65 → BUY | fast=772.6253762401533 slow=772.6210222396281
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.67
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.67
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.52
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.52
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:43:44.027835+00:00 duration=6.024s O=772.66 H=772.71 L=772.66 C=772.70 V=407
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:43:50.051424+00:00 duration=6.604s O=772.70 H=772.73 L=772.70 C=772.73 V=476
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:43:56.757406+00:00 duration=3.753s O=772.73 H=772.73 L=772.71 C=772.73 V=415
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:44:01.316571+00:00 duration=8.420s O=772.76 H=772.76 L=772.75 C=772.76 V=388
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:44:10.534451+00:00 duration=2.881s O=772.75 H=772.76 L=772.75 C=772.76 V=303
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:44:13.688083+00:00 duration=12.747s O=772.75 H=772.77 L=772.75 C=772.77 V=234
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:44:26.434842+00:00 duration=4.098s O=772.77 H=772.77 L=772.74 C=772.75 V=615
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:44:30.534952+00:00 duration=11.668s O=772.75 H=772.78 L=772.75 C=772.78 V=483
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:44:42.506545+00:00 duration=5.242s O=772.77 H=772.79 L=772.76 C=772.78 V=643
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:44:47.866284+00:00 duration=8.040s O=772.78 H=772.85 L=772.78 C=772.82 V=283
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:44:55.906533+00:00 duration=6.037s O=772.82 H=772.85 L=772.82 C=772.85 V=134
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:45:01.943709+00:00 duration=12.015s O=772.85 H=772.97 L=772.85 C=772.90 V=501
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:45:15.141853+00:00 duration=4.787s O=772.91 H=772.94 L=772.91 C=772.93 V=422
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:45:20.960036+00:00 duration=6.556s O=772.93 H=772.93 L=772.90 C=772.90 V=424
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:45:27.524969+00:00 duration=9.222s O=772.88 H=772.89 L=772.81 C=772.81 V=1496
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:45:38.184916+00:00 duration=8.586s O=772.81 H=772.82 L=772.80 C=772.80 V=267
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:45:38.184916+00:00 close=772.80 → SELL | fast=772.8424337873237 slow=772.851768130949
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.58
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.58
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.63
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.63
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:45:48.002145+00:00 duration=14.062s O=772.78 H=772.79 L=772.77 C=772.77 V=1342
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:46:02.687432+00:00 duration=3.281s O=772.76 H=772.79 L=772.75 C=772.79 V=941
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:46:07.501264+00:00 duration=7.246s O=772.78 H=772.78 L=772.75 C=772.76 V=439
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:46:14.758255+00:00 duration=6.511s O=772.76 H=772.76 L=772.74 C=772.74 V=610
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:46:25.084918+00:00 duration=4.045s O=772.75 H=772.76 L=772.75 C=772.75 V=554
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:46:30.796632+00:00 duration=5.329s O=772.74 H=772.79 L=772.74 C=772.76 V=461
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:46:37.151790+00:00 duration=7.552s O=772.77 H=772.78 L=772.75 C=772.75 V=1178
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:46:44.798229+00:00 duration=1.518s O=772.75 H=772.75 L=772.74 C=772.74 V=1598
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:46:46.316410+00:00 duration=6.619s O=772.74 H=772.74 L=772.73 C=772.74 V=864
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:46:54.900941+00:00 duration=6.037s O=772.72 H=772.75 L=772.72 C=772.74 V=577
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:47:01.189723+00:00 duration=3.727s O=772.76 H=772.76 L=772.73 C=772.73 V=2482
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:47:04.917493+00:00 duration=12.178s O=772.74 H=772.75 L=772.73 C=772.75 V=867
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:47:17.522601+00:00 duration=6.422s O=772.75 H=772.76 L=772.74 C=772.75 V=955
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:47:17.522601+00:00 close=772.75 → BUY | fast=772.745963677084 slow=772.7447300931506
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.64
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.64
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.56
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.56
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:47:26.022642+00:00 duration=2.228s O=772.75 H=772.79 L=772.75 C=772.79 V=836
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:47:28.252411+00:00 duration=5.685s O=772.79 H=772.80 L=772.78 C=772.80 V=786
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:47:33.936934+00:00 duration=6.008s O=772.81 H=772.83 L=772.80 C=772.83 V=2840
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:47:41.140964+00:00 duration=3.456s O=772.82 H=772.85 L=772.82 C=772.84 V=630
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:47:44.597376+00:00 duration=7.219s O=772.84 H=772.90 L=772.84 C=772.90 V=2002
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:47:51.816154+00:00 duration=8.358s O=772.90 H=772.93 L=772.90 C=772.90 V=765
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:48:00.214256+00:00 duration=3.505s O=772.89 H=772.89 L=772.87 C=772.88 V=1310
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:48:04.715102+00:00 duration=3.089s O=772.87 H=772.89 L=772.87 C=772.89 V=731
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:48:07.813687+00:00 duration=7.095s O=772.89 H=772.90 L=772.87 C=772.87 V=1800
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:48:15.546485+00:00 duration=3.274s O=772.86 H=772.88 L=772.86 C=772.86 V=736
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:48:15.546485+00:00 close=772.86 → SELL | fast=772.8722551251899 slow=772.8747965882532
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.59
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.59
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.61
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.61
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:48:19.303823+00:00 duration=5.783s O=772.87 H=772.89 L=772.86 C=772.89 V=1445
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:48:25.106127+00:00 duration=15.512s O=772.89 H=772.93 L=772.89 C=772.93 V=777
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:48:25.106127+00:00 close=772.93 → BUY | fast=772.8959337528496 slow=772.8913043296978
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.58
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.58
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.62
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.62
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:48:45.399512+00:00 duration=5.338s O=772.97 H=772.99 L=772.97 C=772.99 V=1834
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:48:50.737502+00:00 duration=7.128s O=772.99 H=773.00 L=772.98 C=772.98 V=1000
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:48:58.505553+00:00 duration=11.310s O=772.99 H=772.99 L=772.96 C=772.97 V=1139
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:49:09.815985+00:00 duration=9.546s O=772.97 H=772.98 L=772.97 C=772.97 V=822
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:49:19.468349+00:00 duration=7.767s O=772.97 H=772.97 L=772.96 C=772.96 V=904
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:49:27.236043+00:00 duration=9.199s O=772.96 H=772.97 L=772.91 C=772.91 V=1143
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:49:27.236043+00:00 close=772.91 → SELL | fast=772.9451589284023 slow=772.9500917994806
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.62
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.62
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=5 @ 1.58
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.58
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:49:36.442511+00:00 duration=5.804s O=772.90 H=772.93 L=772.90 C=772.93 V=382
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:49:42.722499+00:00 duration=11.804s O=772.92 H=772.93 L=772.88 C=772.91 V=567
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:49:54.526739+00:00 duration=5.488s O=772.91 H=772.91 L=772.85 C=772.85 V=367
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:00.020782+00:00 duration=3.132s O=772.85 H=772.85 L=772.63 C=772.69 V=666
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:03.230419+00:00 duration=2.745s O=772.67 H=772.71 L=772.62 C=772.62 V=557
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:06.775259+00:00 duration=3.231s O=772.62 H=772.62 L=772.53 C=772.54 V=568
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:10.147990+00:00 duration=7.528s O=772.54 H=772.59 L=772.54 C=772.55 V=745
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:17.678148+00:00 duration=5.902s O=772.55 H=772.57 L=772.53 C=772.57 V=822
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:25.487179+00:00 duration=1.862s O=772.56 H=772.57 L=772.56 C=772.57 V=461
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:27.349815+00:00 duration=0.908s O=772.57 H=772.57 L=772.56 C=772.57 V=560
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:29.009065+00:00 duration=5.187s O=772.57 H=772.59 L=772.56 C=772.56 V=601
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:34.931448+00:00 duration=7.329s O=772.52 H=772.55 L=772.52 C=772.53 V=570
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:42.260808+00:00 duration=3.534s O=772.53 H=772.53 L=772.52 C=772.52 V=1820
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:45.795247+00:00 duration=3.011s O=772.52 H=772.53 L=772.52 C=772.52 V=1288
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:49.809767+00:00 duration=1.913s O=772.50 H=772.52 L=772.50 C=772.52 V=2213
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:51.775213+00:00 duration=0.785s O=772.53 H=772.57 L=772.53 C=772.57 V=670
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:50:51.775213+00:00 close=772.57 → BUY | fast=772.5393556625862 slow=772.5386735238509
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.68
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.68
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.47
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.47
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:52.560483+00:00 duration=1.403s O=772.57 H=772.58 L=772.54 C=772.54 V=1055
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:53.974858+00:00 duration=3.116s O=772.54 H=772.55 L=772.53 C=772.55 V=1904
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:50:58.942075+00:00 duration=3.146s O=772.50 H=772.52 L=772.50 C=772.52 V=1140
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:50:58.942075+00:00 close=772.52 → SELL | fast=772.5384766101201 slow=772.5387055542296
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.46
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.46
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=4 @ 1.72
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.72
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:02.755236+00:00 duration=5.497s O=772.50 H=772.50 L=772.47 C=772.50 V=591
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:08.252193+00:00 duration=4.409s O=772.50 H=772.50 L=772.37 C=772.39 V=752
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:14.085191+00:00 duration=4.013s O=772.38 H=772.39 L=772.34 C=772.37 V=1137
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:18.108305+00:00 duration=5.301s O=772.37 H=772.41 L=772.36 C=772.40 V=1217
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:23.939590+00:00 duration=0.592s O=772.39 H=772.40 L=772.39 C=772.40 V=685
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:24.622911+00:00 duration=7.749s O=772.40 H=772.46 L=772.40 C=772.46 V=1536
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:32.373562+00:00 duration=4.107s O=772.46 H=772.48 L=772.42 C=772.43 V=493
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:51:32.373562+00:00 close=772.43 → BUY | fast=772.4273701625145 slow=772.4237742513989
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.73
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.73
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.84
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.84
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:38.005805+00:00 duration=3.124s O=772.44 H=772.44 L=772.40 C=772.40 V=441
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:41.133593+00:00 duration=7.354s O=772.40 H=772.47 L=772.40 C=772.46 V=738
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:53.038875+00:00 duration=2.068s O=772.39 H=772.40 L=772.38 C=772.38 V=730
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:51:53.038875+00:00 close=772.38 → SELL | fast=772.4169472130126 slow=772.4187456291451
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.82
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.82
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.44
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.44
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:51:56.730501+00:00 duration=4.846s O=772.36 H=772.39 L=772.35 C=772.39 V=1331
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:01.650908+00:00 duration=6.887s O=772.41 H=772.41 L=772.35 C=772.35 V=564
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:08.538235+00:00 duration=5.284s O=772.35 H=772.43 L=772.35 C=772.43 V=358
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:14.035064+00:00 duration=12.003s O=772.44 H=772.44 L=772.38 C=772.40 V=667
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:26.159859+00:00 duration=6.441s O=772.40 H=772.44 L=772.40 C=772.42 V=286
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:52:26.159859+00:00 close=772.42 → BUY | fast=772.4067884117155 slow=772.403486493304
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.42
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.42
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.84
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.84
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:33.111373+00:00 duration=1.216s O=772.43 H=772.44 L=772.42 C=772.43 V=344
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:36.785576+00:00 duration=3.438s O=772.44 H=772.44 L=772.40 C=772.42 V=965
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:40.223649+00:00 duration=2.733s O=772.42 H=772.42 L=772.39 C=772.41 V=245
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:43.551934+00:00 duration=4.618s O=772.39 H=772.43 L=772.39 C=772.43 V=337
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:48.188619+00:00 duration=1.842s O=772.41 H=772.44 L=772.41 C=772.43 V=370
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:50.133563+00:00 duration=2.854s O=772.46 H=772.46 L=772.42 C=772.42 V=751
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:52:52.987744+00:00 duration=11.022s O=772.42 H=772.43 L=772.39 C=772.40 V=699
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:52:52.987744+00:00 close=772.40 → SELL | fast=772.4160297686801 slow=772.4176563869854
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.83
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.83
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.42
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.42
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:04.009405+00:00 duration=0.903s O=772.39 H=772.39 L=772.39 C=772.39 V=426
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:05.530699+00:00 duration=4.293s O=772.39 H=772.42 L=772.39 C=772.40 V=655
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:09.828767+00:00 duration=8.263s O=772.42 H=772.42 L=772.36 C=772.39 V=523
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:18.127568+00:00 duration=5.157s O=772.38 H=772.39 L=772.37 C=772.39 V=629
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:23.452287+00:00 duration=6.582s O=772.38 H=772.39 L=772.36 C=772.37 V=814
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:30.115133+00:00 duration=2.804s O=772.36 H=772.39 L=772.36 C=772.36 V=643
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:32.918696+00:00 duration=3.867s O=772.36 H=772.41 L=772.36 C=772.39 V=561
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:36.802375+00:00 duration=4.246s O=772.39 H=772.41 L=772.37 C=772.40 V=528
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:53:36.802375+00:00 close=772.40 → BUY | fast=772.3851529883088 slow=772.3842711600676
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.43
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.43
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.83
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.83
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:41.048386+00:00 duration=4.670s O=772.40 H=772.42 L=772.35 C=772.35 V=332
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:53:41.048386+00:00 close=772.35 → SELL | fast=772.3754990680951 slow=772.3765903658149
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.82
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.82
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.46
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.46
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:45.718194+00:00 duration=0.814s O=772.35 H=772.37 L=772.35 C=772.37 V=1108
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:46.553592+00:00 duration=3.817s O=772.38 H=772.38 L=772.34 C=772.36 V=944
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:50.370803+00:00 duration=3.755s O=772.36 H=772.40 L=772.36 C=772.40 V=808
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:53:50.370803+00:00 close=772.40 → BUY | fast=772.3781544224429 slow=772.3771486121215
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.44
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.44
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.85
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.85
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:53:54.630078+00:00 duration=5.394s O=772.40 H=772.45 L=772.40 C=772.42 V=695
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:00.024087+00:00 duration=2.178s O=772.42 H=772.43 L=772.38 C=772.38 V=846
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:05.194548+00:00 duration=0.630s O=772.38 H=772.39 L=772.38 C=772.39 V=442
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:05.824378+00:00 duration=4.086s O=772.39 H=772.40 L=772.37 C=772.38 V=450
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:54:05.824378+00:00 close=772.38 → SELL | fast=772.3880309326784 slow=772.3886591905917
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.84
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.84
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.42
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.42
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:10.109863+00:00 duration=8.140s O=772.43 H=772.43 L=772.37 C=772.37 V=803
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:18.250192+00:00 duration=4.155s O=772.37 H=772.37 L=772.28 C=772.28 V=375
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:23.819711+00:00 duration=4.107s O=772.24 H=772.25 L=772.22 C=772.25 V=338
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:28.482360+00:00 duration=5.842s O=772.25 H=772.32 L=772.25 C=772.29 V=871
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:34.326273+00:00 duration=1.714s O=772.28 H=772.28 L=772.18 C=772.22 V=553
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:36.793863+00:00 duration=4.229s O=772.21 H=772.32 L=772.21 C=772.30 V=782
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:41.023048+00:00 duration=3.008s O=772.30 H=772.33 L=772.27 C=772.33 V=1567
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:54:41.023048+00:00 close=772.33 → BUY | fast=772.2903198361656 slow=772.2880009189173
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.44
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.44
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.81
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.81
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:44.033361+00:00 duration=3.710s O=772.33 H=772.39 L=772.33 C=772.35 V=539
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:47.742865+00:00 duration=1.099s O=772.35 H=772.40 L=772.35 C=772.38 V=1069
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:48.842060+00:00 duration=1.193s O=772.38 H=772.40 L=772.26 C=772.27 V=524
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:50.053641+00:00 duration=3.071s O=772.23 H=772.29 L=772.23 C=772.29 V=288
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:54:50.053641+00:00 close=772.29 → SELL | fast=772.31044713952 slow=772.3132664585008
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.78
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.78
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.47
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.47
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:53.236963+00:00 duration=2.887s O=772.28 H=772.30 L=772.25 C=772.25 V=537
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:54:57.574200+00:00 duration=2.705s O=772.27 H=772.27 L=772.17 C=772.19 V=484
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:00.471184+00:00 duration=2.431s O=772.16 H=772.21 L=772.14 C=772.14 V=347
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:02.903576+00:00 duration=3.918s O=772.12 H=772.12 L=772.03 C=772.06 V=637
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:07.059707+00:00 duration=1.978s O=772.09 H=772.11 L=772.04 C=772.07 V=1023
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:09.039877+00:00 duration=3.261s O=772.07 H=772.14 L=772.07 C=772.12 V=1901
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:12.301951+00:00 duration=2.547s O=772.12 H=772.12 L=772.10 C=772.11 V=1250
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:15.360718+00:00 duration=1.418s O=772.11 H=772.11 L=772.06 C=772.06 V=666
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:16.778242+00:00 duration=2.263s O=772.06 H=772.06 L=772.00 C=772.01 V=814
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:19.041453+00:00 duration=1.774s O=772.01 H=772.02 L=772.00 C=772.01 V=636
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:20.815781+00:00 duration=1.973s O=772.01 H=772.03 L=772.01 C=772.03 V=354
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:22.803646+00:00 duration=0.686s O=772.03 H=772.03 L=772.02 C=772.02 V=60
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:23.494591+00:00 duration=1.706s O=772.03 H=772.04 L=772.01 C=772.04 V=868
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:25.273597+00:00 duration=3.731s O=772.05 H=772.07 L=772.04 C=772.04 V=752
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:55:25.273597+00:00 close=772.04 → BUY | fast=772.033230936583 slow=772.0322613503697
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.56
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.56
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.69
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.69
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:30.031667+00:00 duration=4.962s O=772.02 H=772.03 L=772.01 C=772.02 V=561
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:34.993974+00:00 duration=4.730s O=772.02 H=772.10 L=772.02 C=772.08 V=510
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:40.109331+00:00 duration=2.966s O=772.07 H=772.07 L=772.04 C=772.07 V=1039
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:43.075123+00:00 duration=2.981s O=772.07 H=772.07 L=772.04 C=772.04 V=566
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:46.055878+00:00 duration=3.236s O=772.04 H=772.10 L=772.04 C=772.10 V=487
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:50.078436+00:00 duration=1.921s O=772.09 H=772.09 L=772.05 C=772.05 V=853
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:51.999320+00:00 duration=1.909s O=772.05 H=772.09 L=772.05 C=772.07 V=301
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:53.915352+00:00 duration=3.322s O=772.06 H=772.07 L=772.05 C=772.05 V=358
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:55:53.915352+00:00 close=772.05 → SELL | fast=772.0606592681385 slow=772.0614623834144
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.71
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.71
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.55
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.55
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:55:57.415633+00:00 duration=2.446s O=772.05 H=772.07 L=772.04 C=772.07 V=395
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:00.155966+00:00 duration=0.840s O=772.06 H=772.06 L=772.04 C=772.04 V=522
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:00.996383+00:00 duration=3.395s O=772.04 H=772.07 L=772.03 C=772.06 V=1396
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:04.394339+00:00 duration=1.856s O=772.06 H=772.09 L=772.06 C=772.07 V=544
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:56:04.394339+00:00 close=772.07 → BUY | fast=772.0600535999162 slow=772.0597168565528
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.56
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.56
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.72
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.72
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:06.568999+00:00 duration=1.845s O=772.08 H=772.08 L=772.05 C=772.07 V=597
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:08.414237+00:00 duration=3.623s O=772.07 H=772.07 L=772.04 C=772.07 V=459
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:12.036840+00:00 duration=1.686s O=772.07 H=772.07 L=772.04 C=772.04 V=478
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:56:12.036840+00:00 close=772.04 → SELL | fast=772.0593141391372 slow=772.059942885134
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.72
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.72
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.57
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.57
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:13.825559+00:00 duration=1.929s O=772.04 H=772.06 L=772.03 C=772.05 V=498
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:15.754244+00:00 duration=0.536s O=772.05 H=772.06 L=772.04 C=772.04 V=1131
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:16.304439+00:00 duration=1.725s O=772.04 H=772.07 L=772.04 C=772.06 V=741
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:18.835418+00:00 duration=1.840s O=772.08 H=772.08 L=772.05 C=772.05 V=800
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:20.675483+00:00 duration=3.237s O=772.05 H=772.09 L=772.05 C=772.09 V=603
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:56:20.675483+00:00 close=772.09 → BUY | fast=772.0631176250641 slow=772.0602846471064
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.55
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.55
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.73
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.73
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:23.913378+00:00 duration=3.237s O=772.09 H=772.09 L=772.04 C=772.07 V=667
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:27.150701+00:00 duration=1.883s O=772.07 H=772.09 L=772.07 C=772.09 V=440
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:30.700145+00:00 duration=0.396s O=772.10 H=772.10 L=772.09 C=772.09 V=450
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:31.096232+00:00 duration=2.722s O=772.09 H=772.12 L=772.09 C=772.10 V=560
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:33.818712+00:00 duration=2.029s O=772.10 H=772.10 L=772.09 C=772.09 V=478
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:36.703989+00:00 duration=1.579s O=772.09 H=772.14 L=772.08 C=772.13 V=1005
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:38.283248+00:00 duration=2.507s O=772.13 H=772.17 L=772.13 C=772.16 V=441
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:40.790502+00:00 duration=3.527s O=772.16 H=772.17 L=772.13 C=772.13 V=528
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:45.438061+00:00 duration=2.154s O=772.14 H=772.19 L=772.13 C=772.19 V=528
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:47.886136+00:00 duration=2.679s O=772.19 H=772.21 L=772.19 C=772.21 V=489
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:50.576538+00:00 duration=1.142s O=772.21 H=772.22 L=772.21 C=772.21 V=403
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:51.718309+00:00 duration=0.619s O=772.21 H=772.22 L=772.20 C=772.22 V=339
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:52.337419+00:00 duration=3.145s O=772.20 H=772.22 L=772.20 C=772.21 V=335
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:56.478995+00:00 duration=1.677s O=772.22 H=772.22 L=772.21 C=772.21 V=382
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:56:58.157056+00:00 duration=1.877s O=772.21 H=772.28 L=772.21 C=772.25 V=421
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:00.033696+00:00 duration=1.166s O=772.25 H=772.28 L=772.24 C=772.24 V=432
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:01.202877+00:00 duration=2.202s O=772.24 H=772.26 L=772.23 C=772.23 V=552
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:03.404763+00:00 duration=2.250s O=772.23 H=772.25 L=772.22 C=772.24 V=1055
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:05.679806+00:00 duration=1.019s O=772.23 H=772.27 L=772.23 C=772.27 V=383
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:07.553705+00:00 duration=0.071s O=772.23 H=772.23 L=772.22 C=772.22 V=544
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:07.625175+00:00 duration=4.783s O=772.22 H=772.22 L=772.19 C=772.19 V=643
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:57:07.625175+00:00 close=772.19 → SELL | fast=772.2241216025236 slow=772.2286238064468
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.77
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.77
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.52
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.52
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:12.408156+00:00 duration=2.467s O=772.19 H=772.19 L=772.15 C=772.16 V=594
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:15.404502+00:00 duration=1.483s O=772.14 H=772.14 L=772.10 C=772.10 V=1011
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:16.887866+00:00 duration=0.226s O=772.10 H=772.10 L=772.10 C=772.10 V=348
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:17.518954+00:00 duration=1.595s O=772.09 H=772.14 L=772.09 C=772.14 V=1000
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:19.396477+00:00 duration=2.774s O=772.12 H=772.14 L=772.12 C=772.14 V=256
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:22.855399+00:00 duration=1.372s O=772.16 H=772.16 L=772.15 C=772.15 V=673
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:57:22.855399+00:00 close=772.15 → BUY | fast=772.139225650993 slow=772.1385572879747
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.53
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.53
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.77
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.77
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:24.270385+00:00 duration=1.952s O=772.14 H=772.17 L=772.13 C=772.17 V=222
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:26.222678+00:00 duration=1.115s O=772.17 H=772.18 L=772.16 C=772.18 V=419
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:28.626995+00:00 duration=0.204s O=772.21 H=772.21 L=772.19 C=772.19 V=252
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:28.831362+00:00 duration=3.249s O=772.19 H=772.24 L=772.19 C=772.24 V=435
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:33.050641+00:00 duration=2.237s O=772.26 H=772.27 L=772.23 C=772.23 V=670
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:35.287239+00:00 duration=1.812s O=772.23 H=772.24 L=772.23 C=772.24 V=1250
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:37.100225+00:00 duration=3.228s O=772.23 H=772.23 L=772.22 C=772.22 V=568
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:41.208571+00:00 duration=0.474s O=772.23 H=772.23 L=772.22 C=772.22 V=688
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:41.682894+00:00 duration=4.846s O=772.22 H=772.23 L=772.20 C=772.22 V=479
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:57:41.682894+00:00 close=772.22 → SELL | fast=772.2222155144099 slow=772.222379039753
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.79
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.79
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.51
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.51
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:46.529397+00:00 duration=1.965s O=772.22 H=772.24 L=772.22 C=772.23 V=1637
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:49.092900+00:00 duration=3.234s O=772.23 H=772.24 L=772.21 C=772.24 V=394
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:57:49.092900+00:00 close=772.24 → BUY | fast=772.2267233138052 slow=772.2258816307335
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.51
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.51
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.81
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.81
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:52.368042+00:00 duration=2.349s O=772.24 H=772.26 L=772.24 C=772.26 V=528
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:54.716786+00:00 duration=1.093s O=772.26 H=772.27 L=772.26 C=772.27 V=461
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:56.490409+00:00 duration=0.233s O=772.27 H=772.28 L=772.27 C=772.27 V=232
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:56.723086+00:00 duration=0.731s O=772.27 H=772.27 L=772.25 C=772.25 V=618
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:57:57.477336+00:00 duration=2.377s O=772.25 H=772.25 L=772.24 C=772.25 V=663
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:00.002316+00:00 duration=1.764s O=772.26 H=772.31 L=772.26 C=772.30 V=708
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:01.765819+00:00 duration=0.850s O=772.30 H=772.30 L=772.30 C=772.30 V=489
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:02.616074+00:00 duration=0.221s O=772.30 H=772.31 L=772.28 C=772.29 V=525
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:02.836818+00:00 duration=1.062s O=772.29 H=772.29 L=772.26 C=772.26 V=753
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:03.981665+00:00 duration=1.125s O=772.26 H=772.30 L=772.26 C=772.29 V=219
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:05.155214+00:00 duration=0.849s O=772.29 H=772.30 L=772.28 C=772.29 V=555
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:06.460057+00:00 duration=1.588s O=772.30 H=772.30 L=772.28 C=772.29 V=1073
+INFO:schwab_auth:Refreshed Schwab access token
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:08.333537+00:00 duration=1.118s O=772.30 H=772.30 L=772.28 C=772.28 V=349
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:09.451077+00:00 duration=1.613s O=772.28 H=772.29 L=772.27 C=772.28 V=661
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:58:09.451077+00:00 close=772.28 → SELL | fast=772.2855847616102 slow=772.2859517279481
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.82
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.82
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.49
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.49
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:11.063798+00:00 duration=0.796s O=772.28 H=772.29 L=772.28 C=772.29 V=1059
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:58:11.063798+00:00 close=772.29 → BUY | fast=772.2883120480083 slow=772.2879853103171
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.49
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.49
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.81
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.81
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:12.089200+00:00 duration=2.917s O=772.29 H=772.30 L=772.29 C=772.29 V=253
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:15.006434+00:00 duration=1.295s O=772.29 H=772.30 L=772.29 C=772.29 V=688
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:17.068185+00:00 duration=0.477s O=772.29 H=772.29 L=772.28 C=772.28 V=863
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:58:17.068185+00:00 close=772.28 → SELL | fast=772.2893222617848 slow=772.2893968568382
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.80
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.80
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.51
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.51
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:17.545170+00:00 duration=0.538s O=772.28 H=772.28 L=772.27 C=772.27 V=316
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:18.146597+00:00 duration=0.907s O=772.27 H=772.28 L=772.27 C=772.27 V=447
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:19.134552+00:00 duration=1.870s O=772.27 H=772.28 L=772.27 C=772.27 V=374
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:21.075470+00:00 duration=1.168s O=772.27 H=772.27 L=772.25 C=772.25 V=500
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:22.243146+00:00 duration=0.723s O=772.25 H=772.25 L=772.24 C=772.25 V=445
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:22.966141+00:00 duration=1.270s O=772.25 H=772.25 L=772.24 C=772.25 V=474
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:24.649608+00:00 duration=1.251s O=772.25 H=772.25 L=772.24 C=772.25 V=763
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:26.128118+00:00 duration=0.752s O=772.25 H=772.26 L=772.24 C=772.26 V=560
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:26.884076+00:00 duration=0.316s O=772.26 H=772.28 L=772.26 C=772.28 V=2438
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:58:26.884076+00:00 close=772.28 → BUY | fast=772.2634858644999 slow=772.2610354329291
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.51
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.51
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.81
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.81
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:27.671221+00:00 duration=1.397s O=772.27 H=772.28 L=772.27 C=772.28 V=450
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:29.068135+00:00 duration=1.087s O=772.28 H=772.28 L=772.28 C=772.28 V=435
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:30.535095+00:00 duration=0.031s O=772.28 H=772.28 L=772.26 C=772.26 V=350
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:30.587914+00:00 duration=2.103s O=772.26 H=772.26 L=772.24 C=772.24 V=608
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:58:30.587914+00:00 close=772.24 → SELL | fast=772.2634677542827 slow=772.2660989914683
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.81
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.81
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.50
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.50
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:32.691566+00:00 duration=1.277s O=772.24 H=772.24 L=772.23 C=772.23 V=854
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:33.968821+00:00 duration=2.036s O=772.23 H=772.25 L=772.23 C=772.25 V=564
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:36.554887+00:00 duration=1.465s O=772.25 H=772.25 L=772.24 C=772.24 V=318
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:38.019687+00:00 duration=2.127s O=772.24 H=772.25 L=772.24 C=772.25 V=390
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:40.388249+00:00 duration=2.108s O=772.25 H=772.27 L=772.25 C=772.26 V=688
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:58:40.388249+00:00 close=772.26 → BUY | fast=772.2498076087087 slow=772.2485178378215
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.48
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.48
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.84
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.84
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:42.496204+00:00 duration=1.955s O=772.26 H=772.28 L=772.26 C=772.28 V=708
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:44.503145+00:00 duration=0.000s O=772.27 H=772.27 L=772.26 C=772.26 V=664
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:44.508224+00:00 duration=1.035s O=772.26 H=772.28 L=772.26 C=772.28 V=550
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:45.655175+00:00 duration=0.370s O=772.29 H=772.29 L=772.28 C=772.28 V=893
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:46.101204+00:00 duration=0.611s O=772.28 H=772.29 L=772.28 C=772.29 V=975
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:46.731174+00:00 duration=0.678s O=772.29 H=772.29 L=772.28 C=772.29 V=1421
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:47.549988+00:00 duration=1.248s O=772.30 H=772.32 L=772.30 C=772.32 V=473
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:48.811924+00:00 duration=1.118s O=772.33 H=772.34 L=772.33 C=772.34 V=808
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:49.930181+00:00 duration=1.111s O=772.34 H=772.35 L=772.34 C=772.35 V=1740
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:51.040831+00:00 duration=0.681s O=772.35 H=772.36 L=772.35 C=772.35 V=4540
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:51.722043+00:00 duration=0.000s O=772.35 H=772.35 L=772.34 C=772.34 V=578
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:51.722149+00:00 duration=2.105s O=772.34 H=772.36 L=772.34 C=772.36 V=1085
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:53.827312+00:00 duration=1.302s O=772.36 H=772.36 L=772.34 C=772.34 V=388
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:55.129233+00:00 duration=1.818s O=772.35 H=772.36 L=772.33 C=772.36 V=475
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:57.133212+00:00 duration=1.343s O=772.36 H=772.38 L=772.36 C=772.36 V=384
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:58.476355+00:00 duration=0.593s O=772.36 H=772.41 L=772.36 C=772.41 V=748
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:58:59.104836+00:00 duration=0.972s O=772.40 H=772.40 L=772.39 C=772.40 V=512
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:00.077217+00:00 duration=0.999s O=772.40 H=772.44 L=772.40 C=772.41 V=544
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:01.075814+00:00 duration=0.856s O=772.41 H=772.41 L=772.31 C=772.32 V=1004
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:59:01.075814+00:00 close=772.32 → SELL | fast=772.3747638338517 slow=772.3757883830381
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.91
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.91
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00770000 qty=5 @ 1.42
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.42
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:02.023703+00:00 duration=2.215s O=772.30 H=772.48 L=772.30 C=772.40 V=802
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:04.286596+00:00 duration=0.867s O=772.41 H=772.45 L=772.41 C=772.44 V=701
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:59:04.286596+00:00 close=772.44 → BUY | fast=772.3982071656174 slow=772.3944294958276
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00770000 (gaussian_ma_crossover) at mark=1.38
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.38
+INFO:__main__:Closed PUT SPY   260814P00770000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00774000 qty=4 @ 1.97
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.97
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:05.197563+00:00 duration=0.613s O=772.44 H=772.44 L=772.41 C=772.41 V=850
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:05.810723+00:00 duration=0.929s O=772.41 H=772.41 L=772.39 C=772.39 V=672
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:06.739959+00:00 duration=2.074s O=772.39 H=772.52 L=772.39 C=772.51 V=640
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:08.814188+00:00 duration=1.258s O=772.51 H=772.53 L=772.51 C=772.51 V=478
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:10.072166+00:00 duration=0.605s O=772.51 H=772.52 L=772.51 C=772.51 V=538
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:10.677198+00:00 duration=1.391s O=772.51 H=772.53 L=772.51 C=772.53 V=773
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:13.460753+00:00 duration=0.838s O=772.53 H=772.54 L=772.52 C=772.54 V=790
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:14.732023+00:00 duration=1.719s O=772.56 H=772.62 L=772.55 C=772.62 V=734
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:16.918204+00:00 duration=2.116s O=772.66 H=772.67 L=772.64 C=772.67 V=445
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:19.895497+00:00 duration=0.324s O=772.65 H=772.67 L=772.65 C=772.67 V=842
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:20.219382+00:00 duration=0.225s O=772.67 H=772.67 L=772.64 C=772.66 V=770
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:20.898006+00:00 duration=3.991s O=772.64 H=772.71 L=772.64 C=772.69 V=924
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:24.888546+00:00 duration=0.185s O=772.69 H=772.70 L=772.68 C=772.69 V=796
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:25.269514+00:00 duration=0.412s O=772.68 H=772.68 L=772.65 C=772.65 V=520
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:25.681138+00:00 duration=0.736s O=772.65 H=772.65 L=772.64 C=772.65 V=837
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:59:25.681138+00:00 close=772.65 → SELL | fast=772.6646364572015 slow=772.6657912256234
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00774000 (gaussian_ma_crossover) at mark=1.92
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.92
+INFO:__main__:Closed CALL SPY   260814C00774000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=4 @ 1.73
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.73
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:26.738113+00:00 duration=1.347s O=772.65 H=772.67 L=772.65 C=772.65 V=335
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:28.118365+00:00 duration=1.007s O=772.65 H=772.65 L=772.63 C=772.63 V=1159
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:30.008803+00:00 duration=0.206s O=772.58 H=772.63 L=772.58 C=772.63 V=540
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:30.327857+00:00 duration=0.856s O=772.64 H=772.64 L=772.62 C=772.63 V=363
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:31.742839+00:00 duration=2.501s O=772.63 H=772.63 L=772.56 C=772.58 V=391
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:34.741639+00:00 duration=0.950s O=772.57 H=772.57 L=772.57 C=772.57 V=493
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:35.703596+00:00 duration=0.772s O=772.55 H=772.59 L=772.55 C=772.58 V=517
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:36.633552+00:00 duration=2.373s O=772.58 H=772.61 L=772.57 C=772.60 V=1014
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:39.018820+00:00 duration=1.010s O=772.60 H=772.60 L=772.56 C=772.59 V=691
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:40.071935+00:00 duration=0.471s O=772.59 H=772.60 L=772.59 C=772.59 V=497
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:40.603097+00:00 duration=1.050s O=772.57 H=772.58 L=772.56 C=772.58 V=1371
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:41.653589+00:00 duration=1.149s O=772.58 H=772.61 L=772.57 C=772.59 V=715
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:43.159191+00:00 duration=1.507s O=772.58 H=772.63 L=772.56 C=772.63 V=598
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:59:43.159191+00:00 close=772.63 → BUY | fast=772.6007678381054 slow=772.5969885719562
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814P00771000 (gaussian_ma_crossover) at mark=1.73
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY P @ 1.73
+INFO:__main__:Closed PUT SPY   260814P00771000 before CALL flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814C00775000 qty=5 @ 1.53
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY C @ 1.53
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:44.977631+00:00 duration=0.629s O=772.64 H=772.66 L=772.63 C=772.66 V=673
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:45.950236+00:00 duration=1.946s O=772.65 H=772.67 L=772.59 C=772.59 V=1261
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:47.898020+00:00 duration=1.161s O=772.59 H=772.65 L=772.58 C=772.65 V=646
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:49.059297+00:00 duration=0.942s O=772.65 H=772.69 L=772.65 C=772.68 V=472
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:50.000992+00:00 duration=0.074s O=772.68 H=772.68 L=772.65 C=772.66 V=167
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:50.075074+00:00 duration=0.372s O=772.66 H=772.67 L=772.63 C=772.63 V=279
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:50.603841+00:00 duration=1.158s O=772.56 H=772.60 L=772.55 C=772.55 V=1122
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:59:50.603841+00:00 close=772.55 → SELL | fast=772.6171524247378 slow=772.625113482788
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Closed SPY   260814C00775000 (gaussian_ma_crossover) at mark=1.47
+INFO:emailer:Sent trade notification email: [Forward Test] SELL SPY C @ 1.47
+INFO:__main__:Closed CALL SPY   260814C00775000 before PUT flip entry
+INFO:forward_test_account:Saved forward-test account to gs://live-trading-bot/forward_test/account.json
+INFO:__main__:Forward-test paper BUY SPY   260814P00771000 qty=4 @ 1.72
+INFO:emailer:Sent trade notification email: [Forward Test] BUY SPY P @ 1.72
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:51.762333+00:00 duration=1.027s O=772.55 H=772.58 L=772.54 C=772.58 V=291
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:52.812654+00:00 duration=0.742s O=772.57 H=772.63 L=772.57 C=772.63 V=486
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:53.556986+00:00 duration=0.854s O=772.63 H=772.67 L=772.62 C=772.62 V=626
+INFO:__main__:EOD: flattening all open positions by regular-session close
+INFO:databento_streamer:Bar SPY 10t @ 2026-08-12T19:59:54.411082+00:00 duration=0.664s O=772.62 H=772.67 L=772.59 C=772.65 V=290
+INFO:__main__:gaussian_ma_crossover SPY @ 2026-08-12T19:59:54.411082+00:00 close=772.65 → BUY | fast=772.6261001012746 slow=772.6210841353969

@@ -106,10 +106,10 @@ class GaussianMaConfig:
     """Dual recent-biased Gaussian MAs (TradingView Gaussian MA-EZ)."""
 
     slow: GaussianMaLegConfig = field(
-        default_factory=lambda: GaussianMaLegConfig(length=20, sigma_divisor=10.0)
+        default_factory=lambda: GaussianMaLegConfig(length=20, sigma_divisor=7.0)
     )
     fast: GaussianMaLegConfig = field(
-        default_factory=lambda: GaussianMaLegConfig(length=20, sigma_divisor=7.0)
+        default_factory=lambda: GaussianMaLegConfig(length=20, sigma_divisor=10.0)
     )
 
 
@@ -187,6 +187,7 @@ class WorkflowSettings:
     min_warmup_bars: int = 100
     startup_sync_lookback_days: int = 30
     persist_session_bars: bool = True
+    persist_raw_trades: bool = True
     eod_enabled: bool = True
     eod_flatten_time_utc: str = "19:59"
     eod_shutdown_time_utc: str = "20:00"
@@ -252,6 +253,7 @@ class MarketDataSettings:
 class GcsSettings:
     bucket_name: str = "live-trading-bot"
     ohlcv_prefix: str = "ohlcv"
+    trades_prefix: str = "trades"
     credentials_path: str = ""
     project_id: str = ""
     use_daily_partitions: bool = True
@@ -286,6 +288,8 @@ class BrokerSettings:
 class OptionsSettings:
     enabled: bool = True
     days_to_expiration: int = 2
+    # Strikes OTM from ATM (2 = second OTM call/put). 0 = ATM.
+    otm_strikes: int = 2
     contract_type: str = "CALL"
     simulated_premium: float = 5.0
     strike_count: int = 5
@@ -495,6 +499,8 @@ class AppConfig:
             gcs=GcsSettings(
                 bucket_name=str(gcs_payload.get("bucket_name", "live-trading-bot")),
                 ohlcv_prefix=str(gcs_payload.get("ohlcv_prefix", "ohlcv")),
+                trades_prefix=str(gcs_payload.get("trades_prefix", "trades")).strip()
+                or "trades",
                 credentials_path=credentials_path,
                 project_id=str(
                     gcs_payload.get("project_id")
@@ -689,13 +695,13 @@ def _parse_gaussian_ma_config(payload: Any) -> Optional[GaussianMaConfig]:
         slow=_parse_gaussian_ma_leg(
             payload.get("slow"),
             default_length=20,
-            default_sigma=10.0,
+            default_sigma=7.0,
             field_name="slow",
         ),
         fast=_parse_gaussian_ma_leg(
             payload.get("fast"),
             default_length=20,
-            default_sigma=7.0,
+            default_sigma=10.0,
             field_name="fast",
         ),
     )
@@ -728,6 +734,7 @@ def _parse_workflow_settings(
         min_warmup_bars=max(1, int(payload.get("min_warmup_bars", 100))),
         startup_sync_lookback_days=int(payload.get("startup_sync_lookback_days", 30)),
         persist_session_bars=bool(payload.get("persist_session_bars", True)),
+        persist_raw_trades=bool(payload.get("persist_raw_trades", True)),
         eod_enabled=bool(payload.get("eod_enabled", True)),
         eod_flatten_time_utc=str(payload.get("eod_flatten_time_utc", "19:59")),
         eod_shutdown_time_utc=str(payload.get("eod_shutdown_time_utc", "20:00")),
@@ -852,6 +859,7 @@ def _parse_options_settings(payload: dict[str, Any]) -> OptionsSettings:
     return OptionsSettings(
         enabled=bool(payload.get("enabled", True)),
         days_to_expiration=int(payload.get("days_to_expiration", 2)),
+        otm_strikes=max(0, int(payload.get("otm_strikes", 2))),
         contract_type=contract_type,
         simulated_premium=float(payload.get("simulated_premium", 5.0)),
         strike_count=int(payload.get("strike_count", 5)),

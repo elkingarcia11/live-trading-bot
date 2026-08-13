@@ -55,7 +55,9 @@ from option_selector import (
     resolve_option_exit_from_chain,
     select_atm_call_from_chain,
     select_atm_put_from_chain,
+    select_otm_contract_from_chain,
     synthetic_atm_call,
+    synthetic_atm_option,
     synthetic_atm_put,
 )
 from option_quote import OptionQuoteSnapshot
@@ -103,11 +105,8 @@ from market_session_scheduler import (
 )
 from trade_logger import RiskDecisionRecord, TradeLogger
 from transaction_ledger import TransactionLedger, TransactionRecord
-from zero_dte_contract_selector import (
-    ZeroDteSelectionCriteria,
-    select_zero_dte_contract,
-)
 from session_ohlcv_recorder import SessionOhlcvRecorder
+from session_trade_recorder import SessionTradeRecorder, build_trade_recorder
 from workflow_warmup import (
     build_storage_repository,
     indicator_warmup_needed,
@@ -247,6 +246,10 @@ class WorkflowConfig:
     @property
     def persist_session_bars(self) -> bool:
         return self.app.workflow.persist_session_bars
+
+    @property
+    def persist_raw_trades(self) -> bool:
+        return self.app.workflow.persist_raw_trades
 
     @property
     def eod_schedule(self) -> EodSchedule:
@@ -425,6 +428,16 @@ class TradingWorkflow:
         self.bus = bus or EventBus()
         self.trade_logger = TradeLogger(self.bus, log_path=config.audit_log_path)
         health = config.app.health
+        monitored_modules = (
+            "stream_data_processor",
+            "indicator_coordinator",
+        )
+        if config.market_config.aggregation_timeframes:
+            monitored_modules = (
+                "stream_data_processor",
+                "data_aggregator",
+                "indicator_coordinator",
+            )
         self.health_monitor = HealthMonitor(
             self.bus,
             thresholds=HealthThresholds(
@@ -435,6 +448,7 @@ class TradingWorkflow:
                 module_silence_seconds=health.module_silence_seconds,
                 startup_grace_seconds=health.startup_grace_seconds,
             ),
+            monitored_modules=monitored_modules,
         )
 
         if config.stream_provider == "schwab":
@@ -503,6 +517,7 @@ class TradingWorkflow:
                 on_open_external=self._on_stream_connected,
                 on_close_external=self._on_stream_closed,
                 on_error_external=self._on_stream_error,
+                on_trade=self._on_raw_trade,
             )
         else:
             self._schwab_stream = None
@@ -601,6 +616,7 @@ class TradingWorkflow:
         ] = None
         self._market_data_client: Optional[SchwabMarketDataClient] = None
         self._session_recorder: Optional[SessionOhlcvRecorder] = None
+        self._trade_recorder: Optional[SessionTradeRecorder] = None
         self._logged_first_live_bar = False
         self._live_regular_hours_seen = False
         self._flattening_contracts: set[str] = set()
@@ -642,6 +658,15 @@ class TradingWorkflow:
                 )
             except Exception:
                 logger.exception("Session OHLCV recorder unavailable")
+        if config.persist_raw_trades:
+            try:
+                self._trade_recorder = build_trade_recorder(config.app)
+                logger.info(
+                    "Session raw-trade recorder enabled (prefix=%s, flush on shutdown)",
+                    config.app.gcs.trades_prefix,
+                )
+            except Exception:
+                logger.exception("Session raw-trade recorder unavailable")
 
         self._register_indicator_jobs()
         self._wire_passive_listeners()
@@ -653,10 +678,10 @@ class TradingWorkflow:
 
         self.trade_logger.start()
         self.health_monitor.start()
-        # Load prior-day OHLCV / GEX volume context from GCS before live ingest.
+        # Load prior OHLCV from GCS before live ingest (no GEX warmup).
         if self._config.warmup_from_storage:
             prepare_trading_day_from_storage(self)
-        else:
+        elif "gex_scalp" in self._config.strategies and self._config.app.gex.enabled:
             warm_start_gex(self)
         self._reconcile_expired_restored_positions()
         self._reconcile_restored_positions_with_trend()
@@ -736,6 +761,7 @@ class TradingWorkflow:
             if self._ibkr_tws_runtime is not None:
                 self._ibkr_tws_runtime.disconnect_session()
         elif self._databento_stream is not None:
+            self._flush_partial_tick_bars()
             self._databento_stream.disconnect()
         elif self._stream_manager is not None:
             self.stream_manager.disconnect()
@@ -745,14 +771,90 @@ class TradingWorkflow:
         self._started = False
         logger.info("TradingWorkflow stopped for %s", ", ".join(self._symbols))
 
+    def _flush_partial_tick_bars(self) -> None:
+        """Persist in-progress Databento tick bars before the stream disconnects."""
+        if self._databento_stream is None or self._session_recorder is None:
+            return
+        try:
+            payloads = self._databento_stream.flush_partial_bars()
+        except Exception:
+            logger.exception("Failed flushing partial tick bars before shutdown")
+            return
+        for payload in payloads:
+            bar = payload.get("bar") or {}
+            try:
+                timestamp = datetime.fromisoformat(
+                    str(bar.get("datetime")).replace("Z", "+00:00")
+                )
+            except (TypeError, ValueError):
+                continue
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            event = CleanBarEvent(
+                symbol=str(payload.get("symbol") or "").upper(),
+                timeframe=str(payload.get("timeframe") or ""),
+                timestamp=timestamp,
+                open=float(bar.get("open") or 0.0),
+                high=float(bar.get("high") or 0.0),
+                low=float(bar.get("low") or 0.0),
+                close=float(bar.get("close") or 0.0),
+                volume=float(bar.get("volume") or 0.0),
+            )
+            if not event.symbol or not event.timeframe or event.close <= 0:
+                continue
+            self._session_recorder.record_clean_bar(event)
+            logger.info(
+                "Buffered partial %s %s bar for shutdown persist "
+                "(ticks=%s O=%.2f H=%.2f L=%.2f C=%.2f V=%.0f)",
+                event.symbol,
+                event.timeframe,
+                bar.get("ticks"),
+                event.open,
+                event.high,
+                event.low,
+                event.close,
+                event.volume,
+            )
+
+    def _on_raw_trade(
+        self,
+        symbol: str,
+        timestamp: datetime,
+        price: float,
+        size: float,
+        side: str = "",
+    ) -> None:
+        """Buffer one vendor trade print for shutdown persistence."""
+        self.bus.publish(
+            Topics.MARKET_TRADE,
+            {
+                "symbol": symbol,
+                "timestamp": timestamp,
+                "price": price,
+                "size": size,
+                "side": side,
+            },
+            source="databento_streamer",
+        )
+        if self._trade_recorder is None:
+            return
+        self._trade_recorder.record_trade(
+            symbol=symbol,
+            timestamp=timestamp,
+            price=price,
+            size=size,
+            side=side,
+        )
+
     def _persist_day_state_to_gcs(self, *, reason: str) -> None:
-        """Merge today's session OHLCV into cumulative history; save FT state."""
+        """Merge today's session OHLCV/trades into cumulative history; save FT state."""
         logger.info(
-            "=== History merge (%s): appending session bars into cumulative "
-            "OHLCV store (bucket=%s prefix=%s) — prior days are kept ===",
+            "=== History merge (%s): appending session bars/trades into cumulative "
+            "store (bucket=%s ohlcv=%s trades=%s) — prior days are kept ===",
             reason,
             self._config.app.gcs.bucket_name,
             self._config.app.gcs.ohlcv_prefix,
+            self._config.app.gcs.trades_prefix,
         )
         if self._forward_test_account is not None:
             try:
@@ -760,31 +862,52 @@ class TradingWorkflow:
                 logger.info("History merge: forward-test account saved")
             except Exception:
                 logger.exception("History merge: forward-test account save failed")
+
         if self._session_recorder is None:
-            logger.info("History merge: session OHLCV recorder disabled; nothing to flush")
+            logger.info("History merge: session OHLCV recorder disabled; skipping bars")
+        else:
+            try:
+                flushed = self.aggregator.flush()
+                strategy_timeframe = self._config.market_config.strategy_timeframe
+                for aggregated in flushed:
+                    if aggregated.timeframe != strategy_timeframe:
+                        continue
+                    self._session_recorder.record_aggregated_bar(aggregated)
+                buffered = self._session_recorder.buffered_row_count
+                if buffered:
+                    logger.info(
+                        "History merge: merging %d new live bar(s) into stored history",
+                        buffered,
+                    )
+                summary = self._session_recorder.flush()
+                logger.info(
+                    "History merge bars complete: new_rows=%d partitions_touched=%d uris=%s",
+                    summary.rows_written,
+                    summary.partitions_written,
+                    list(summary.storage_uris),
+                )
+            except Exception:
+                logger.exception("History merge: session OHLCV flush failed")
+
+        if self._trade_recorder is None:
+            logger.info("History merge: raw-trade recorder disabled; skipping trades")
             return
         try:
-            flushed = self.aggregator.flush()
-            strategy_timeframe = self._config.market_config.strategy_timeframe
-            for aggregated in flushed:
-                if aggregated.timeframe != strategy_timeframe:
-                    continue
-                self._session_recorder.record_aggregated_bar(aggregated)
-            buffered = self._session_recorder.buffered_row_count
-            if buffered:
+            buffered_trades = self._trade_recorder.buffered_row_count
+            if buffered_trades:
                 logger.info(
-                    "History merge: merging %d new live bar(s) into stored history",
-                    buffered,
+                    "History merge: merging %d raw trade(s) into stored history",
+                    buffered_trades,
                 )
-            summary = self._session_recorder.flush()
+            trade_summary = self._trade_recorder.flush()
             logger.info(
-                "History merge complete: new_rows=%d partitions_touched=%d uris=%s",
-                summary.rows_written,
-                summary.partitions_written,
-                list(summary.storage_uris),
+                "History merge trades complete: new_rows=%d partitions_touched=%d uris=%s",
+                trade_summary.rows_written,
+                trade_summary.partitions_written,
+                list(trade_summary.storage_uris),
             )
         except Exception:
-            logger.exception("History merge: session OHLCV flush failed")
+            logger.exception("History merge: raw trade flush failed")
 
     def _wait_until_stream_session_open(self) -> None:
         """If started overnight / after close, wait until the stream window opens."""
@@ -1143,16 +1266,14 @@ class TradingWorkflow:
             )
 
     def _on_clean_bar(self, bar: CleanBarEvent) -> None:
-        """Publish and process a validated 1-minute bar."""
+        """Publish and process a validated stream bar."""
         if not self._logged_first_live_bar:
             self._logged_first_live_bar = True
             logger.info(
-                "First live bar received: %s %s @ %s close=%.2f "
-                "(completed 3m bars will log here every ~3 minutes)",
+                "Live stream active: %s %s "
+                "(Databento ticks → OHLCV; no higher-TF aggregation)",
                 bar.symbol,
                 bar.timeframe,
-                bar.timestamp.isoformat(),
-                bar.close,
             )
         self.bus.publish(Topics.BAR_CLEAN, bar, source="stream_data_processor")
         if not self._live_regular_hours_seen and self._is_regular_hours_live_bar(
@@ -1166,9 +1287,7 @@ class TradingWorkflow:
         if self._session_recorder is not None:
             self._session_recorder.record_clean_bar(bar)
         self._run_process_and_strategy_layers(bar)
-        self._evaluate_gex_strategies(bar)
         self._enforce_zero_dte_session_close(bar)
-        self._check_gex_position_timeouts(bar)
         self._track_open_option_marks(bar)
 
     def _run_process_and_strategy_layers(self, bar: CleanBarEvent) -> None:
@@ -1880,7 +1999,8 @@ class TradingWorkflow:
 
         if signal.action == SignalAction.HOLD:
             logger.info(
-                "3m %s @ %s close=%.2f → HOLD | %s %s%s",
+                "%s %s @ %s close=%.2f → HOLD | %s %s%s",
+                aggregated.timeframe,
                 aggregated.symbol,
                 aggregated.timestamp.isoformat(),
                 aggregated.close,
@@ -1891,7 +2011,8 @@ class TradingWorkflow:
             return
 
         logger.info(
-            "3m %s @ %s close=%.2f → %s | %s %s%s",
+            "%s %s @ %s close=%.2f → %s | %s %s%s",
+            aggregated.timeframe,
             aggregated.symbol,
             aggregated.timestamp.isoformat(),
             aggregated.close,
@@ -2600,9 +2721,12 @@ class TradingWorkflow:
             )
 
         capped = min(float(contracts), self._config.risk.max_position_quantity)
+        otm = self._config.app.options.otm_strikes
+        moneyness = "ATM" if otm <= 0 else f"{otm} OTM"
         description = (
             f"{int(capped)} x {selected.occ_symbol} "
-            f"({selected.strike:.2f} {right_label}, {selected.days_to_expiration} DTE)"
+            f"({selected.strike:.2f} {right_label}, {moneyness}, "
+            f"{selected.days_to_expiration} DTE)"
         )
         return ResolvedTrade(
             symbol=selected.occ_symbol,
@@ -2621,39 +2745,36 @@ class TradingWorkflow:
         *,
         contract_side: Literal["call", "put"],
     ) -> SelectedOption:
-        """Resolve a contract at the configured DTE in the GEX delta band."""
+        """Resolve a target-DTE contract N strikes OTM (calls above, puts below)."""
         options = self._config.app.options
-        gex = self._config.app.gex
-        criteria = ZeroDteSelectionCriteria(
-            target_dte=options.days_to_expiration,
-            min_delta=gex.min_delta,
-            max_delta=gex.max_delta,
-        )
         client = self._get_market_data_client()
+        # Need enough chain width for ATM ± otm_strikes (and a buffer).
+        strike_count = max(options.strike_count, options.otm_strikes * 2 + 10)
         if client is not None:
             try:
                 chain = client.fetch_option_chain(
                     underlying,
                     contract_type=contract_side.upper(),
-                    strike_count=max(options.strike_count, gex.strike_count),
+                    strike_count=strike_count,
                     days_to_expiration=options.days_to_expiration,
                 )
-                return select_zero_dte_contract(
+                return select_otm_contract_from_chain(
                     chain,
                     underlying,
                     spot_price,
                     side=contract_side,
-                    criteria=criteria,
+                    target_dte=options.days_to_expiration,
+                    otm_strikes=options.otm_strikes,
+                    as_of=self._market_today(),
                 )
             except Exception:
                 logger.exception(
-                    "Failed to fetch %sDTE %s chain for %s; using synthetic contract",
+                    "Failed to fetch %sDTE %s chain for %s; using synthetic %d-OTM",
                     options.days_to_expiration,
                     contract_side,
                     underlying,
+                    options.otm_strikes,
                 )
-
-        from option_selector import synthetic_atm_option
 
         return synthetic_atm_option(
             underlying,
@@ -2661,6 +2782,7 @@ class TradingWorkflow:
             days_to_expiration=options.days_to_expiration,
             mark_price=options.simulated_premium,
             option_right="C" if contract_side == "call" else "P",
+            otm_strikes=options.otm_strikes,
             as_of=self._market_today(),
         )
 
@@ -3338,7 +3460,11 @@ class TradingWorkflow:
         except Exception:
             logger.exception("Failed to subscribe to watchlist symbols")
 
-    def _on_stream_closed(self, code: Optional[int], reason: Optional[str]) -> None:
+    def _on_stream_closed(
+        self,
+        code: Optional[int] = None,
+        reason: Optional[str] = None,
+    ) -> None:
         """Publish stream disconnect events for observability."""
         self.bus.publish(
             Topics.STREAM_DISCONNECTED,

@@ -6,8 +6,8 @@
   },
   "market": {
     "symbols": ["SPY"],
-    "stream_timeframe": "50t",
-    "strategy_timeframe": "50t",
+    "stream_timeframe": "5t",
+    "strategy_timeframe": "5t",
     "aggregation_timeframes": []
   },
   "indicators": {
@@ -36,11 +36,11 @@
     },
     "gaussian_ma": {
       "enabled": true,
-      "slow": {
+      "fast": {
         "length": 20,
         "sigma_divisor": 10.0
       },
-      "fast": {
+      "slow": {
         "length": 20,
         "sigma_divisor": 7.0
       }
@@ -48,7 +48,7 @@
   },
   "strategies": ["gaussian_ma_crossover"],
   "workflow": {
-    "run_schwab_stream": true,
+    "run_schwab_stream": false,
     "stream_provider": "databento",
     "websocket_url": "",
     "subscribe_on_connect": true,
@@ -57,6 +57,7 @@
     "min_warmup_bars": 100,
     "startup_sync_lookback_days": 30,
     "persist_session_bars": true,
+    "persist_raw_trades": true,
     "eod_enabled": true,
     "eod_flatten_time_utc": "23:59",
     "eod_shutdown_time_utc": "00:00",
@@ -84,10 +85,10 @@
     "dataset": "EQUS.MINI",
     "schema": "trades",
     "stype_in": "raw_symbol",
-    "ticks_per_bar": 50
+    "ticks_per_bar": 5
   },
   "historical": {
-    "timeframe": "50t",
+    "timeframe": "5t",
     "frequency_type": "minute",
     "frequency": 1,
     "need_extended_hours": true,
@@ -115,6 +116,7 @@
   "gcs": {
     "bucket_name": "live-trading-bot",
     "ohlcv_prefix": "ohlcv",
+    "trades_prefix": "trades",
     "credentials_path": "gcs-sa.json",
     "project_id": "algo-trader-466023",
     "use_daily_partitions": true,
@@ -143,20 +145,21 @@
   "options": {
     "enabled": true,
     "days_to_expiration": 2,
+    "otm_strikes": 2,
     "contract_type": "CALL",
     "simulated_premium": 2.5,
-    "strike_count": 20,
+    "strike_count": 40,
     "commission_per_contract": 0.65,
     "stream_contract_marks": true,
     "trailing_stop_pct": 0.15,
     "stop_loss_pct": 0.10
   },
   "gex": {
-    "enabled": true,
+    "enabled": false,
     "poll_interval_seconds": 20,
-    "poll_on_startup": true,
+    "poll_on_startup": false,
     "level_refresh_times_local": ["09:35", "11:30", "15:00"],
-    "seed_volume_history": true,
+    "seed_volume_history": false,
     "strike_count": 50,
     "days_to_expiration": 2,
     "risk_free_rate": 0.05,

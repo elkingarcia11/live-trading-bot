@@ -44,6 +44,82 @@ def test_synthetic_atm_call_uses_target_dte() -> None:
     assert "C00550000" in selected.occ_symbol
 
 
+def test_synthetic_2_otm_call_and_put() -> None:
+    from option_selector import synthetic_atm_option
+
+    call = synthetic_atm_option(
+        "SPY",
+        550.2,
+        days_to_expiration=2,
+        mark_price=3.0,
+        option_right="C",
+        otm_strikes=2,
+        as_of=date(2026, 6, 15),
+    )
+    put = synthetic_atm_option(
+        "SPY",
+        550.2,
+        days_to_expiration=2,
+        mark_price=3.0,
+        option_right="P",
+        otm_strikes=2,
+        as_of=date(2026, 6, 15),
+    )
+    assert call.strike == 552.0
+    assert put.strike == 548.0
+    assert call.days_to_expiration == 2
+    assert put.days_to_expiration == 2
+
+
+def test_select_2_otm_call_and_put_from_chain() -> None:
+    from option_selector import select_otm_contract_from_chain
+
+    chain = {
+        "callExpDateMap": {
+            "2026-06-17:2": {
+                "549.0": [{"symbol": "SPY   260617C00549000", "strikePrice": 549.0, "mark": 5.0}],
+                "550.0": [{"symbol": "SPY   260617C00550000", "strikePrice": 550.0, "mark": 4.0}],
+                "551.0": [{"symbol": "SPY   260617C00551000", "strikePrice": 551.0, "mark": 3.2}],
+                "552.0": [{"symbol": "SPY   260617C00552000", "strikePrice": 552.0, "mark": 2.5}],
+                "553.0": [{"symbol": "SPY   260617C00553000", "strikePrice": 553.0, "mark": 1.9}],
+            }
+        },
+        "putExpDateMap": {
+            "2026-06-17:2": {
+                "547.0": [{"symbol": "SPY   260617P00547000", "strikePrice": 547.0, "mark": 1.8}],
+                "548.0": [{"symbol": "SPY   260617P00548000", "strikePrice": 548.0, "mark": 2.4}],
+                "549.0": [{"symbol": "SPY   260617P00549000", "strikePrice": 549.0, "mark": 3.1}],
+                "550.0": [{"symbol": "SPY   260617P00550000", "strikePrice": 550.0, "mark": 4.0}],
+                "551.0": [{"symbol": "SPY   260617P00551000", "strikePrice": 551.0, "mark": 5.0}],
+            }
+        },
+    }
+    call = select_otm_contract_from_chain(
+        chain,
+        "SPY",
+        550.2,
+        side="call",
+        target_dte=2,
+        otm_strikes=2,
+        as_of=date(2026, 6, 15),
+    )
+    put = select_otm_contract_from_chain(
+        chain,
+        "SPY",
+        550.2,
+        side="put",
+        target_dte=2,
+        otm_strikes=2,
+        as_of=date(2026, 6, 15),
+    )
+    assert call.strike == 552.0
+    assert call.days_to_expiration == 2
+    assert call.mark_price == 2.5
+    assert put.strike == 548.0
+    assert put.days_to_expiration == 2
+    assert put.mark_price == 2.4
+
+
 def test_synthetic_atm_put_uses_target_dte() -> None:
     selected = synthetic_atm_put(
         "SPY",

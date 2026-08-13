@@ -116,22 +116,33 @@ def synthetic_atm_option(
     days_to_expiration: int,
     mark_price: float,
     option_right: str = "C",
+    otm_strikes: int = 0,
     as_of: Optional[date] = None,
 ) -> SelectedOption:
-    """Build a synthetic ATM option when live chain data is unavailable."""
+    """Build a synthetic ATM/OTM option when live chain data is unavailable."""
     if days_to_expiration < 0:
         raise ValueError("days_to_expiration must be non-negative")
     if mark_price <= 0:
         raise ValueError("mark_price must be positive")
+    if otm_strikes < 0:
+        raise ValueError("otm_strikes must be non-negative")
 
     today = as_of or datetime.now(timezone.utc).date()
     expiration = today + timedelta(days=days_to_expiration)
-    strike = round_atm_strike(underlying_price)
+    atm = round_atm_strike(underlying_price)
+    step = 1.0 if underlying_price >= 200 else 0.5
+    right = option_right.upper()[0]
+    if right == "C":
+        strike = atm + (otm_strikes * step)
+    else:
+        strike = atm - (otm_strikes * step)
+    if strike <= 0:
+        raise ValueError("resolved strike must be positive")
     return SelectedOption(
         occ_symbol=build_occ_symbol(
             underlying_symbol,
             expiration,
-            option_right=option_right,
+            option_right=right,
             strike=strike,
         ),
         underlying_symbol=underlying_symbol.upper(),
@@ -219,6 +230,93 @@ def select_atm_put_from_chain(
         exp_map_key="putExpDateMap",
         option_right="P",
         option_label="put",
+    )
+
+
+def select_otm_contract_from_chain(
+    chain: dict[str, Any],
+    underlying_symbol: str,
+    underlying_price: float,
+    *,
+    side: str,
+    target_dte: int,
+    otm_strikes: int = 2,
+    as_of: Optional[date] = None,
+) -> SelectedOption:
+    """Pick the N-th OTM call/put at the configured DTE from a Schwab chain.
+
+    ``otm_strikes=2`` means the second strike out-of-the-money from ATM
+    (call above ATM, put below ATM). ``otm_strikes=0`` selects ATM.
+    """
+    normalized = side.strip().lower()
+    if normalized not in {"call", "put"}:
+        raise ValueError("side must be call or put")
+    if otm_strikes < 0:
+        raise ValueError("otm_strikes must be non-negative")
+
+    exp_map_key = "callExpDateMap" if normalized == "call" else "putExpDateMap"
+    option_right = "C" if normalized == "call" else "P"
+    option_label = normalized
+    expiration_map = chain.get(exp_map_key)
+    if not isinstance(expiration_map, dict) or not expiration_map:
+        raise ValueError(f"option chain has no {exp_map_key} entries")
+
+    trade_date = as_of or datetime.now(timezone.utc).date()
+    best_key = _select_best_expiration_key(
+        expiration_map,
+        target_dte=target_dte,
+        as_of=trade_date,
+    )
+    expiration_date, chain_dte = _parse_expiration_key(best_key)
+    strikes_map = expiration_map[best_key]
+    if not isinstance(strikes_map, dict) or not strikes_map:
+        raise ValueError(f"no strikes for expiration {best_key}")
+
+    strike_contracts: dict[float, dict[str, Any]] = {}
+    for strike_key, contracts in strikes_map.items():
+        if not isinstance(contracts, list) or not contracts:
+            continue
+        contract = contracts[0]
+        if not isinstance(contract, dict):
+            continue
+        strike = float(contract.get("strikePrice", strike_key))
+        strike_contracts[strike] = contract
+
+    if not strike_contracts:
+        raise ValueError(f"no {option_label} contracts for expiration {best_key}")
+
+    strikes = sorted(strike_contracts)
+    atm_idx = min(range(len(strikes)), key=lambda i: abs(strikes[i] - underlying_price))
+    target_idx = atm_idx + otm_strikes if normalized == "call" else atm_idx - otm_strikes
+    if target_idx < 0 or target_idx >= len(strikes):
+        raise ValueError(
+            f"insufficient strikes to select {otm_strikes} OTM {option_label} "
+            f"(ATM={strikes[atm_idx]:.2f}, available={len(strikes)})"
+        )
+
+    best_strike = strikes[target_idx]
+    best_contract = strike_contracts[best_strike]
+    occ_symbol = str(best_contract.get("symbol", "")).strip()
+    if not occ_symbol:
+        occ_symbol = build_occ_symbol(
+            underlying_symbol,
+            expiration_date,
+            option_right=option_right,
+            strike=best_strike,
+        )
+
+    mark_price = _contract_mark_price(best_contract)
+    if mark_price <= 0:
+        raise ValueError(f"option {occ_symbol} has no usable mark price")
+
+    return SelectedOption(
+        occ_symbol=occ_symbol,
+        underlying_symbol=underlying_symbol.upper(),
+        strike=best_strike,
+        expiration_date=expiration_date,
+        days_to_expiration=chain_dte,
+        mark_price=mark_price,
+        quote=OptionQuoteSnapshot.from_contract(best_contract),
     )
 
 

@@ -96,6 +96,7 @@ class HealthMonitor:
     MONITORED_TOPICS = (
         Topics.BAR_CLEAN,
         Topics.BAR_AGGREGATED,
+        Topics.MARKET_TRADE,
         Topics.INDICATORS_SNAPSHOT,
         Topics.ORDER_UPDATED,
         Topics.ORDER_FILL,
@@ -125,6 +126,7 @@ class HealthMonitor:
 
         self._started_at: Optional[datetime] = None
         self._last_bar_at: Optional[datetime] = None
+        self._last_feed_at: Optional[datetime] = None
         self._last_indicator_at: Optional[datetime] = None
         self._last_module_event_at: dict[str, datetime] = {}
         self._reconnect_times: deque[datetime] = deque()
@@ -160,7 +162,10 @@ class HealthMonitor:
         in_startup_grace = self._in_startup_grace(now)
 
         with self._lock:
-            feed_latency = self._seconds_since(self._last_bar_at, now)
+            # Prefer last trade/bar activity so tick streams stay healthy while
+            # an N-tick bar is still forming.
+            feed_anchor = self._last_feed_at or self._last_bar_at
+            feed_latency = self._seconds_since(feed_anchor, now)
             indicator_age = self._seconds_since(self._last_indicator_at, now)
             reconnect_count = self._reconnect_count_last_hour(now)
             avg_indicator_latency = self._average(self._indicator_latencies)
@@ -169,6 +174,14 @@ class HealthMonitor:
 
             for module in self._monitored_modules:
                 last_seen = self._last_module_event_at.get(module)
+                # Tick bars only emit through stream_data_processor on completion;
+                # keep that module fresh while raw trades are still arriving.
+                if (
+                    module == "stream_data_processor"
+                    and feed_latency is not None
+                    and feed_latency <= self._thresholds.feed_stale_seconds
+                ):
+                    continue
                 silence = self._seconds_since(last_seen, now)
                 if last_seen is None:
                     if not in_startup_grace:
@@ -204,9 +217,9 @@ class HealthMonitor:
 
         if feed_latency is None and not in_startup_grace:
             status = HealthStatus.UNHEALTHY
-            notes.append("No bars received yet")
+            notes.append("No feed activity yet")
         elif feed_latency is None and in_startup_grace:
-            notes.append("Waiting for first bar")
+            notes.append("Waiting for first trade/bar")
 
         snapshot = HealthSnapshot(
             status=status,
@@ -278,6 +291,10 @@ class HealthMonitor:
         with self._lock:
             if event.topic in {Topics.BAR_CLEAN, Topics.BAR_AGGREGATED}:
                 self._last_bar_at = now
+                self._last_feed_at = now
+
+            if event.topic == Topics.MARKET_TRADE:
+                self._last_feed_at = now
 
             if event.topic == Topics.INDICATORS_SNAPSHOT:
                 self._last_indicator_at = now

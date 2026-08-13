@@ -62,6 +62,9 @@ def test_config_loads_databento_50t_workflow() -> None:
     assert config.workflow.eod_flatten_time_local == "16:00"
     assert config.workflow.eod_shutdown_time_local == "20:00"
     assert config.broker.provider == "schwab"
+    assert config.workflow.persist_session_bars is True
+    assert config.workflow.persist_raw_trades is True
+    assert config.gcs.trades_prefix == "trades"
 
 
 def test_config_rejects_unknown_stream_provider() -> None:
@@ -201,16 +204,20 @@ def test_tick_bar_builder_rejects_non_positive_ticks() -> None:
         parse_tick_timeframe("0t")
 
 
-def test_repo_config_json_is_databento_50t_schwab_broker() -> None:
+def test_repo_config_json_is_databento_5t_schwab_broker() -> None:
     config = AppConfig.load("config.json")
     assert config.workflow.stream_provider == "databento"
     assert config.market.symbols == ("SPY",)
-    assert config.market.stream_timeframe == "50t"
-    assert config.market.strategy_timeframe == "50t"
+    assert config.market.stream_timeframe == "5t"
+    assert config.market.strategy_timeframe == "5t"
     assert config.strategies == ("gaussian_ma_crossover",)
     assert config.indicators.gaussian_ma is not None
+    assert config.indicators.gaussian_ma.fast.sigma_divisor == 10.0
+    assert config.indicators.gaussian_ma.slow.sigma_divisor == 7.0
+    assert config.gex.enabled is False
     assert config.broker.provider == "schwab"
     assert config.options.days_to_expiration == 2
+    assert config.options.otm_strikes == 2
     assert config.gex.days_to_expiration == 2
     assert config.workflow.warmup_from_storage is True
     assert config.workflow.min_warmup_bars == 100

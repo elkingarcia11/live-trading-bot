@@ -44,6 +44,9 @@ class DatabentoStreamSession:
         on_open_external: Optional[Callable[[], None]] = None,
         on_close_external: Optional[Callable[[], None]] = None,
         on_error_external: Optional[Callable[[Exception], None]] = None,
+        on_trade: Optional[
+            Callable[[str, datetime, float, float, str], None]
+        ] = None,
     ) -> None:
         if not api_key.strip():
             raise ValueError("Databento API key is required (set DATABENTO_API_KEY)")
@@ -63,10 +66,13 @@ class DatabentoStreamSession:
         self._on_open_external = on_open_external
         self._on_close_external = on_close_external
         self._on_error_external = on_error_external
+        self._on_trade = on_trade
         self._client: Any = None
         self._connected = False
         self._lock = threading.Lock()
         self._outside_session_logged = False
+        self._last_progress_log_at: dict[str, float] = {}
+        self._trade_counts: dict[str, int] = {}
 
     @classmethod
     def from_env(
@@ -148,6 +154,31 @@ class DatabentoStreamSession:
         )
         if self._on_open_external is not None:
             self._on_open_external()
+
+    def flush_partial_bars(self) -> list[dict[str, Any]]:
+        """Return and clear in-progress tick bars for shutdown persistence."""
+        return self._bar_builder.flush()
+
+    def _maybe_log_forming_progress(self, symbol: str, session_trades: int) -> None:
+        """Log occasional forming-bar progress so thin sessions are visible."""
+        import time as time_module
+
+        forming = self._bar_builder.forming_ticks(symbol)
+        if forming is None:
+            return
+        now = time_module.monotonic()
+        with self._lock:
+            last = self._last_progress_log_at.get(symbol, 0.0)
+            if now - last < 30.0:
+                return
+            self._last_progress_log_at[symbol] = now
+        logger.info(
+            "Databento %s forming %d/%dt (trades_since_bar=%d)",
+            symbol,
+            forming,
+            self._ticks_per_bar,
+            session_trades,
+        )
 
     def disconnect(self) -> None:
         client: Any = None
@@ -231,6 +262,13 @@ class DatabentoStreamSession:
             if raw_price:
                 price = float(raw_price) / 1_000_000_000.0
         size = float(getattr(record, "size", 0) or 0.0)
+        side = str(getattr(record, "side", "") or "")
+
+        if self._on_trade is not None and price > 0:
+            try:
+                self._on_trade(symbol, timestamp, price, size, side)
+            except Exception:
+                logger.exception("Databento on_trade callback failed for %s", symbol)
 
         payload = self._bar_builder.update(
             symbol=symbol,
@@ -238,8 +276,31 @@ class DatabentoStreamSession:
             size=size,
             timestamp=timestamp,
         )
+        with self._lock:
+            self._trade_counts[symbol] = self._trade_counts.get(symbol, 0) + 1
+            trade_count = self._trade_counts[symbol]
         if payload is None:
+            self._maybe_log_forming_progress(symbol, trade_count)
             return
+        with self._lock:
+            self._trade_counts[symbol] = 0
+            self._last_progress_log_at.pop(symbol, None)
+        bar = payload.get("bar") or {}
+        start_raw = bar.get("datetime")
+        end_raw = bar.get("end") or timestamp.isoformat()
+        duration_s = _bar_duration_seconds(start_raw, end_raw)
+        logger.info(
+            "Bar %s %dt @ %s duration=%.3fs O=%.2f H=%.2f L=%.2f C=%.2f V=%.0f",
+            symbol,
+            self._ticks_per_bar,
+            start_raw,
+            duration_s,
+            float(bar.get("open") or 0.0),
+            float(bar.get("high") or 0.0),
+            float(bar.get("low") or 0.0),
+            float(bar.get("close") or price),
+            float(bar.get("volume") or 0.0),
+        )
         self._processor.process_message(json.dumps(payload))
 
     def _handle_symbol_mapping(self, record: Any) -> None:
@@ -298,6 +359,20 @@ def _ticks_per_bar_from_timeframe(timeframe: str, *, fallback: int) -> int:
     if is_tick_timeframe(timeframe):
         return parse_tick_timeframe(timeframe)
     return fallback
+
+
+def _bar_duration_seconds(start_raw: Any, end_raw: Any) -> float:
+    """Return last-tick minus first-tick duration in seconds."""
+    try:
+        start = datetime.fromisoformat(str(start_raw).replace("Z", "+00:00"))
+        end = datetime.fromisoformat(str(end_raw).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return 0.0
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    return max((end - start).total_seconds(), 0.0)
 
 
 def _record_timestamp(record: Any) -> datetime:
