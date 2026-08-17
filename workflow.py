@@ -754,20 +754,34 @@ class TradingWorkflow:
             and threading.current_thread() is not self._health_thread
         ):
             self._health_thread.join(timeout=2.0)
-        if self._schwab_stream is not None:
-            self._schwab_stream.disconnect()
-        elif self._ibkr_stream is not None:
-            self._ibkr_stream.disconnect()
-            if self._ibkr_tws_runtime is not None:
-                self._ibkr_tws_runtime.disconnect_session()
-        elif self._databento_stream is not None:
-            self._flush_partial_tick_bars()
-            self._databento_stream.disconnect()
-        elif self._stream_manager is not None:
-            self.stream_manager.disconnect()
-        if self._gex_monitor is not None:
-            self._gex_monitor.stop()
+
+        # Capture the forming tick bar before disconnect can clear its builder.
+        self._flush_partial_tick_bars()
+
+        # Persist before transport cleanup. A client disconnect can fail or hang,
+        # but it must never prevent the session data checkpoint.
         self._persist_day_state_to_gcs(reason=persist_reason)
+
+        try:
+            if self._schwab_stream is not None:
+                self._schwab_stream.disconnect()
+            elif self._ibkr_stream is not None:
+                self._ibkr_stream.disconnect()
+                if self._ibkr_tws_runtime is not None:
+                    self._ibkr_tws_runtime.disconnect_session()
+            elif self._databento_stream is not None:
+                self._databento_stream.disconnect()
+            elif self._stream_manager is not None:
+                self.stream_manager.disconnect()
+        except Exception:
+            logger.exception("Stream disconnect failed during %s", persist_reason)
+
+        if self._gex_monitor is not None:
+            try:
+                self._gex_monitor.stop()
+            except Exception:
+                logger.exception("GEX monitor stop failed during %s", persist_reason)
+
         self._started = False
         logger.info("TradingWorkflow stopped for %s", ", ".join(self._symbols))
 
@@ -3555,36 +3569,49 @@ class TradingWorkflow:
     def _eod_loop(self) -> None:
         """Flatten open positions near the close, then stop and flush."""
         while not self._stop_eod.wait(15.0):
-            now = datetime.now(timezone.utc)
-            schedule = self._config.eod_schedule
+            try:
+                now = datetime.now(timezone.utc)
+                schedule = self._config.eod_schedule
 
-            market_day = datetime.now(
-                ZoneInfo(self._config.app.app.timezone)
-            ).date()
-            if should_flatten_positions(
-                now,
-                schedule=schedule,
-                flattened_on=self._eod_flattened_on,
-            ):
-                logger.info(
-                    "EOD: flattening all open positions by regular-session close"
-                )
-                self._flatten_all_positions_eod(now)
-                self._eod_flattened_on = market_day
+                market_day = datetime.now(
+                    ZoneInfo(self._config.app.app.timezone)
+                ).date()
+                if should_flatten_positions(
+                    now,
+                    schedule=schedule,
+                    flattened_on=self._eod_flattened_on,
+                ):
+                    logger.info(
+                        "EOD: flattening all open positions by regular-session close"
+                    )
+                    try:
+                        self._flatten_all_positions_eod(now)
+                    except Exception:
+                        logger.exception(
+                            "EOD position flatten failed; shutdown will still proceed"
+                        )
+                    finally:
+                        self._eod_flattened_on = market_day
 
-            if should_shutdown(
-                now,
-                schedule=schedule,
-                shutdown_on=self._eod_shutdown_on,
-            ):
-                logger.info(
-                    "EOD: equity streaming day ended; merging aggregated tick bars, "
-                    "raw trades, and transactions into existing GCS history, then shutting down"
-                )
-                self._eod_shutdown_on = market_day
-                self.stop(persist_reason="eod")
-                self._shutdown_requested.set()
-                return
+                if should_shutdown(
+                    now,
+                    schedule=schedule,
+                    shutdown_on=self._eod_shutdown_on,
+                ):
+                    logger.info(
+                        "EOD: equity streaming day ended; merging aggregated tick bars, "
+                        "raw trades, and transactions into existing GCS history, then shutting down"
+                    )
+                    self._eod_shutdown_on = market_day
+                    try:
+                        self.stop(persist_reason="eod")
+                    except Exception:
+                        logger.exception("EOD shutdown encountered an unexpected failure")
+                    finally:
+                        self._shutdown_requested.set()
+                    return
+            except Exception:
+                logger.exception("EOD scheduler iteration failed; retrying")
 
     def _flatten_all_positions_eod(self, closed_at: datetime) -> None:
         """Sell every open position at the end of the regular session."""
