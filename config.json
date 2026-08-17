@@ -6,6 +6,10 @@
   },
   "market": {
     "symbols": ["SPY"],
+    "stream_symbols": ["ES.n.0"],
+    "stream_to_trade": {
+      "ES.n.0": "SPY"
+    },
     "stream_timeframe": "5t",
     "strategy_timeframe": "5t",
     "aggregation_timeframes": []
@@ -82,9 +86,9 @@
     "dedup_window": 500
   },
   "databento": {
-    "dataset": "EQUS.MINI",
+    "dataset": "GLBX.MDP3",
     "schema": "trades",
-    "stype_in": "raw_symbol",
+    "stype_in": "continuous",
     "ticks_per_bar": 5
   },
   "historical": {

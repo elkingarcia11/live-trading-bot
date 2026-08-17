@@ -1,8 +1,9 @@
 """Buffer raw trade prints and merge them into local+GCS storage on flush.
 
 Responsibility: Persist streamed trade ticks from a live session by merging into
-daily parquet partitions under the configured trades prefix. Does not aggregate
-bars or evaluate strategies.
+daily parquet partitions under the configured trades prefix. Captures the full
+Databento ``trades`` schema field set when available. Does not aggregate bars or
+evaluate strategies.
 """
 
 from __future__ import annotations
@@ -14,12 +15,13 @@ import threading
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 import pandas as pd
 from google.cloud import storage
 from google.cloud.exceptions import NotFound
 
+from config import normalize_market_symbol
 from local_storage_repository import gcs_bucket_exists
 
 if TYPE_CHECKING:
@@ -27,7 +29,31 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-TRADE_COLUMNS = ("timestamp", "symbol", "price", "size", "side")
+# Full Databento trades schema (+ symbol labels). Older parquet files with a
+# subset of these columns are upgraded on merge.
+TRADE_COLUMNS = (
+    "timestamp",
+    "symbol",
+    "raw_symbol",
+    "price",
+    "price_raw",
+    "size",
+    "side",
+    "action",
+    "depth",
+    "flags",
+    "sequence",
+    "instrument_id",
+    "publisher_id",
+    "rtype",
+    "ts_event",
+    "ts_recv",
+    "ts_in_delta",
+    "ts_index",
+)
+
+_DEDUPE_KEYS_FULL = ("ts_event", "sequence", "instrument_id")
+_DEDUPE_KEYS_LEGACY = ("timestamp", "price", "size")
 
 
 @dataclass(frozen=True)
@@ -81,17 +107,43 @@ class SessionTradeRecorder:
         price: float,
         size: float,
         side: str = "",
+        raw_symbol: str = "",
+        price_raw: Optional[int] = None,
+        action: str = "",
+        depth: Optional[int] = None,
+        flags: Optional[int] = None,
+        sequence: Optional[int] = None,
+        instrument_id: Optional[int] = None,
+        publisher_id: Optional[int] = None,
+        rtype: Optional[int] = None,
+        ts_event: Optional[int] = None,
+        ts_recv: Optional[int] = None,
+        ts_in_delta: Optional[int] = None,
+        ts_index: Optional[int] = None,
     ) -> None:
-        """Buffer one trade print."""
-        symbol = symbol.upper().strip()
+        """Buffer one trade print (basic or full Databento trades fields)."""
+        symbol = normalize_market_symbol(symbol)
         if not symbol or price <= 0:
             return
-        row = {
+        row: dict[str, object] = {
             "timestamp": _to_utc(timestamp),
             "symbol": symbol,
+            "raw_symbol": str(raw_symbol or ""),
             "price": float(price),
+            "price_raw": int(price_raw) if price_raw is not None else None,
             "size": float(max(size, 0.0)),
             "side": str(side or ""),
+            "action": str(action or ""),
+            "depth": int(depth) if depth is not None else None,
+            "flags": int(flags) if flags is not None else None,
+            "sequence": int(sequence) if sequence is not None else None,
+            "instrument_id": int(instrument_id) if instrument_id is not None else None,
+            "publisher_id": int(publisher_id) if publisher_id is not None else None,
+            "rtype": int(rtype) if rtype is not None else None,
+            "ts_event": int(ts_event) if ts_event is not None else None,
+            "ts_recv": int(ts_recv) if ts_recv is not None else None,
+            "ts_in_delta": int(ts_in_delta) if ts_in_delta is not None else None,
+            "ts_index": int(ts_index) if ts_index is not None else None,
         }
         with self._lock:
             bucket = self._buffers.get(symbol)
@@ -99,6 +151,43 @@ class SessionTradeRecorder:
                 bucket = _BufferedTrades()
                 self._buffers[symbol] = bucket
             bucket.rows.append(row)
+
+    def record_databento_trade(
+        self,
+        record: Any,
+        *,
+        symbol: str,
+        raw_symbol: str = "",
+    ) -> bool:
+        """Buffer one Databento TradeMsg with every trades-schema field.
+
+        Returns True when the record was accepted.
+        """
+        price = _databento_pretty_price(record)
+        if price is None or price <= 0:
+            return False
+        timestamp = _databento_event_time(record)
+        self.record_trade(
+            symbol=symbol,
+            timestamp=timestamp,
+            price=price,
+            size=float(getattr(record, "size", 0) or 0.0) or 1.0,
+            side=_enum_value(getattr(record, "side", "")),
+            raw_symbol=raw_symbol,
+            price_raw=_optional_int(getattr(record, "price", None)),
+            action=_enum_value(getattr(record, "action", "")),
+            depth=_optional_int(getattr(record, "depth", None)),
+            flags=_optional_int(getattr(record, "flags", None)),
+            sequence=_optional_int(getattr(record, "sequence", None)),
+            instrument_id=_optional_int(getattr(record, "instrument_id", None)),
+            publisher_id=_optional_int(getattr(record, "publisher_id", None)),
+            rtype=_optional_int(getattr(record, "rtype", None)),
+            ts_event=_optional_int(getattr(record, "ts_event", None)),
+            ts_recv=_optional_int(getattr(record, "ts_recv", None)),
+            ts_in_delta=_optional_int(getattr(record, "ts_in_delta", None)),
+            ts_index=_optional_int(getattr(record, "ts_index", None)),
+        )
+        return True
 
     def flush(self) -> SessionTradeFlushSummary:
         """Merge buffered trades into cumulative daily partitions and upload."""
@@ -185,11 +274,7 @@ class SessionTradeRecorder:
         else:
             merged = pd.concat([existing, incoming], ignore_index=True)
 
-        merged = (
-            merged.drop_duplicates(subset=["timestamp", "price", "size"], keep="last")
-            .sort_values("timestamp")
-            .reset_index(drop=True)
-        )
+        merged = _dedupe_trades(merged)
         uri = self._write(symbol, merged, partition_date=partition_date)
         logger.info(
             "Raw trade history %s%s: prior=%d incoming=%d merged=%d",
@@ -235,12 +320,7 @@ class SessionTradeRecorder:
             return None
         if len(frames) == 1:
             return frames[0]
-        return (
-            pd.concat(frames, ignore_index=True)
-            .drop_duplicates(subset=["timestamp", "price", "size"], keep="last")
-            .sort_values("timestamp")
-            .reset_index(drop=True)
-        )
+        return _dedupe_trades(pd.concat(frames, ignore_index=True))
 
     def _write(
         self,
@@ -278,13 +358,13 @@ class SessionTradeRecorder:
             return local_uri
 
     def _local_path(self, symbol: str, partition_date: Optional[date]) -> Path:
-        base = self._local_root / self._prefix / symbol.upper()
+        base = self._local_root / self._prefix / normalize_market_symbol(symbol)
         if partition_date is not None:
             return base / f"{partition_date.isoformat()}.parquet"
         return base / "data.parquet"
 
     def _blob_path(self, symbol: str, partition_date: Optional[date]) -> str:
-        base = f"{self._prefix}/{symbol.upper()}"
+        base = f"{self._prefix}/{normalize_market_symbol(symbol)}"
         if partition_date is not None:
             return f"{base}/{partition_date.isoformat()}.parquet"
         return f"{base}/data.parquet"
@@ -343,16 +423,51 @@ def _rows_to_frame(rows: list[dict[str, object]]) -> pd.DataFrame:
 
 
 def _normalize_trades(frame: pd.DataFrame) -> pd.DataFrame:
-    missing = [column for column in TRADE_COLUMNS if column not in frame.columns]
-    if missing:
-        raise ValueError(f"Trade frame missing columns: {missing}")
-    out = frame.loc[:, list(TRADE_COLUMNS)].copy()
+    out = frame.copy()
+    for column in TRADE_COLUMNS:
+        if column not in out.columns:
+            out[column] = None
+    out = out.loc[:, list(TRADE_COLUMNS)]
     out["timestamp"] = pd.to_datetime(out["timestamp"], utc=True)
-    out["symbol"] = out["symbol"].astype(str).str.upper()
-    out["price"] = out["price"].astype(float)
-    out["size"] = out["size"].astype(float)
+    out["symbol"] = out["symbol"].astype(str).map(normalize_market_symbol)
+    out["raw_symbol"] = out["raw_symbol"].fillna("").astype(str)
+    out["price"] = pd.to_numeric(out["price"], errors="coerce")
+    out["size"] = pd.to_numeric(out["size"], errors="coerce").fillna(0.0)
     out["side"] = out["side"].fillna("").astype(str)
-    return out.sort_values("timestamp").reset_index(drop=True)
+    out["action"] = out["action"].fillna("").astype(str)
+    for column in (
+        "price_raw",
+        "depth",
+        "flags",
+        "sequence",
+        "instrument_id",
+        "publisher_id",
+        "rtype",
+        "ts_event",
+        "ts_recv",
+        "ts_in_delta",
+        "ts_index",
+    ):
+        out[column] = pd.to_numeric(out[column], errors="coerce")
+    return out.sort_values(
+        by=["timestamp", "sequence", "ts_event"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _dedupe_trades(frame: pd.DataFrame) -> pd.DataFrame:
+    normalized = _normalize_trades(frame)
+    if normalized.empty:
+        return normalized
+    if normalized["sequence"].notna().any() and normalized["ts_event"].notna().any():
+        subset = list(_DEDUPE_KEYS_FULL)
+    else:
+        subset = list(_DEDUPE_KEYS_LEGACY)
+    return (
+        normalized.drop_duplicates(subset=subset, keep="last")
+        .sort_values(by=["timestamp", "sequence", "ts_event"], kind="mergesort")
+        .reset_index(drop=True)
+    )
 
 
 def _split_by_partition_date(frame: pd.DataFrame) -> list[tuple[date, pd.DataFrame]]:
@@ -370,3 +485,68 @@ def _to_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _databento_pretty_price(record: Any) -> Optional[float]:
+    pretty = getattr(record, "pretty_price", None)
+    if pretty is not None:
+        try:
+            price = float(pretty)
+            if price > 0:
+                return price
+        except (TypeError, ValueError):
+            pass
+    raw = getattr(record, "price", None)
+    if raw is None:
+        return None
+    try:
+        price = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if abs(price) > 1e6:
+        price = price / 1e9
+    return price if price > 0 else None
+
+
+def _databento_event_time(record: Any) -> datetime:
+    for attr in ("ts_event", "ts_recv", "ts_index"):
+        parsed = _optional_int(getattr(record, attr, None))
+        if parsed is None or parsed <= 0 or parsed > 10**19:
+            continue
+        try:
+            return datetime.fromtimestamp(parsed / 1_000_000_000, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            continue
+    pretty = getattr(record, "pretty_ts_event", None)
+    if pretty is not None:
+        try:
+            ts = pd.Timestamp(pretty)
+            if ts.tzinfo is None:
+                return ts.to_pydatetime().replace(tzinfo=timezone.utc)
+            return ts.floor("us").to_pydatetime().astimezone(timezone.utc)
+        except Exception:
+            pass
+    return datetime.now(timezone.utc)
+
+
+def _optional_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    enum_value = getattr(value, "value", None)
+    if enum_value is not None and not isinstance(value, (str, bytes)):
+        value = enum_value
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _enum_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "value"):
+        try:
+            return str(value.value)
+        except Exception:
+            pass
+    return str(value)

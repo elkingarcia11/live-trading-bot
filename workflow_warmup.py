@@ -166,7 +166,7 @@ def warm_start_gex(workflow: "TradingWorkflow") -> list[GexWarmupSummary]:
         )
 
     summaries: list[GexWarmupSummary] = []
-    for symbol in workflow.symbols:
+    for symbol in workflow.stream_symbols:
         volumes, source = fetch_recent_1m_volumes(
             app,
             symbol,
@@ -262,7 +262,7 @@ def warm_start_pipeline(workflow: "TradingWorkflow") -> list[WarmupSummary]:
         warmup_start.isoformat(),
     )
 
-    for symbol in workflow.symbols:
+    for symbol in workflow.stream_symbols:
         try:
             logger.info("--- %s preload begin ---", symbol)
             stored_range_start = bootstrap_start.date()

@@ -6,9 +6,9 @@ There is no vendor schema for \"50-tick\" OHLCV — those bars must be built fro
 ``trades`` on the client (same approach as ``TickBarBuilder`` / the live workflow).
 
 Examples:
-  .venv/bin/python inspect_databento_ticks.py
-  .venv/bin/python inspect_databento_ticks.py --symbol SPY --ticks 50 --max-trades 200
   .venv/bin/python inspect_databento_ticks.py --raw-only
+  .venv/bin/python inspect_databento_ticks.py --symbol ES.n.0 --raw-only --max-trades 50
+  .venv/bin/python inspect_databento_ticks.py --symbol SPY --ticks 50 --max-trades 200
 """
 
 from __future__ import annotations
@@ -78,11 +78,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Stream Databento trades and optionally build N-tick bars."
     )
-    parser.add_argument("--symbol", default="SPY")
+    parser.add_argument(
+        "--symbol",
+        default=None,
+        help="Symbol to stream (default: first market.stream_symbols, else market.symbols)",
+    )
     parser.add_argument(
         "--dataset",
         default=None,
         help="Override dataset (default: config.json databento.dataset)",
+    )
+    parser.add_argument(
+        "--stype-in",
+        default=None,
+        help="Override symbology type (default: config.json databento.stype_in)",
     )
     parser.add_argument(
         "--ticks",
@@ -115,7 +124,7 @@ def main() -> int:
     args = parser.parse_args()
 
     _load_dotenv()
-    from config import get_config, secret
+    from config import get_config, normalize_market_symbol, secret
 
     app = get_config(reload=True)
     api_key = secret("DATABENTO_API_KEY") or app.databento.api_key
@@ -124,12 +133,19 @@ def main() -> int:
         return 1
 
     dataset = (args.dataset or app.databento.dataset).strip()
-    symbol = args.symbol.upper()
+    stype_in = (args.stype_in or app.databento.stype_in or "raw_symbol").strip()
+    if args.symbol:
+        symbol = normalize_market_symbol(args.symbol)
+    elif app.market.stream_symbols:
+        symbol = app.market.stream_symbols[0]
+    else:
+        symbol = app.market.symbols[0]
     ticks = max(args.ticks, 1)
 
     print("Databento tick inspector")
     print(f"  dataset     : {dataset}")
     print(f"  schema      : trades  (vendor has no N-tick OHLCV schema)")
+    print(f"  stype_in    : {stype_in}")
     print(f"  symbol      : {symbol}")
     print(
         f"  aggregate   : "
@@ -170,13 +186,18 @@ def main() -> int:
         if rtype_name == "SymbolMappingMsg":
             instrument_id = int(getattr(record, "instrument_id", 0) or 0)
             raw_symbol = str(
-                getattr(record, "stype_out_symbol", "")
-                or getattr(record, "stype_in_symbol", "")
+                getattr(record, "stype_in_symbol", None)
+                or getattr(record, "stype_out_symbol", "")
                 or ""
-            ).upper()
+            ).strip()
             if instrument_id and raw_symbol:
-                symbol_by_id[instrument_id] = raw_symbol
-                print(f"MAP  instrument_id={instrument_id} -> {raw_symbol}")
+                mapped = normalize_market_symbol(raw_symbol)
+                symbol_by_id[instrument_id] = mapped
+                out_sym = str(getattr(record, "stype_out_symbol", "") or "")
+                print(
+                    f"MAP  instrument_id={instrument_id} -> {mapped}"
+                    + (f" (raw={out_sym})" if out_sym and out_sym != mapped else "")
+                )
             return
 
         if rtype_name == "SystemMsg":
@@ -195,12 +216,14 @@ def main() -> int:
         ts = _ts_to_utc(record)
         instrument_id = int(getattr(record, "instrument_id", 0) or 0)
         sym = symbol_by_id.get(instrument_id, symbol)
+        side = str(getattr(record, "side", "") or "")
 
         trade_count += 1
         if not args.quiet_ticks:
+            side_bit = f"  side={side}" if side else ""
             print(
                 f"TICK #{trade_count:<5} {sym}  "
-                f"px={price:.4f}  sz={size:g}  ts={ts.isoformat()}"
+                f"px={price:.4f}  sz={size:g}{side_bit}  ts={ts.isoformat()}"
             )
 
         if builder is not None:
@@ -235,7 +258,7 @@ def main() -> int:
         dataset=dataset,
         schema="trades",
         symbols=[symbol],
-        stype_in=app.databento.stype_in or "raw_symbol",
+        stype_in=stype_in,
     )
     client.add_callback(on_record, exception_callback=on_error)
     client.start()

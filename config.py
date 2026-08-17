@@ -58,16 +58,82 @@ class AppSettings:
 
 @dataclass(frozen=True)
 class MarketConfig:
+    """Market identity for streaming indicators and option underlyings.
+
+    ``symbols`` are the trade underlyings (e.g. SPY options).
+    ``stream_symbols`` are the Databento/indicator feed symbols (e.g. ES.n.0).
+    When ``stream_symbols`` is empty, it defaults to ``symbols``.
+    """
+
     symbols: tuple[str, ...] = DEFAULT_SYMBOLS
+    stream_symbols: tuple[str, ...] = ()
+    stream_to_trade: dict[str, str] = field(default_factory=dict)
     stream_timeframe: str = "1m"
     strategy_timeframe: str = "3m"
     aggregation_timeframes: tuple[str, ...] = ("3m", "1h", "1d")
 
     def __post_init__(self) -> None:
-        normalized = tuple(symbol.upper() for symbol in self.symbols)
-        if not normalized:
+        trade = tuple(normalize_market_symbol(symbol) for symbol in self.symbols)
+        if not trade:
             raise ValueError("At least one symbol is required")
-        object.__setattr__(self, "symbols", normalized)
+        stream = tuple(
+            normalize_market_symbol(symbol)
+            for symbol in (self.stream_symbols or trade)
+        )
+        if not stream:
+            raise ValueError("At least one stream symbol is required")
+        mapping = {
+            normalize_market_symbol(key): normalize_market_symbol(value)
+            for key, value in self.stream_to_trade.items()
+            if str(key).strip() and str(value).strip()
+        }
+        if not mapping and stream != trade:
+            if len(stream) == 1 and len(trade) == 1:
+                mapping = {stream[0]: trade[0]}
+            elif len(stream) == len(trade):
+                mapping = dict(zip(stream, trade))
+        object.__setattr__(self, "symbols", trade)
+        object.__setattr__(self, "stream_symbols", stream)
+        object.__setattr__(self, "stream_to_trade", mapping)
+
+    def trade_underlying_for(self, stream_symbol: str) -> str:
+        """Map a streamed indicator symbol to the option/equity trade underlying."""
+        key = normalize_market_symbol(stream_symbol)
+        mapped = self.stream_to_trade.get(key)
+        if mapped:
+            return mapped
+        if key in self.symbols:
+            return key
+        if len(self.symbols) == 1:
+            return self.symbols[0]
+        raise KeyError(f"No trade underlying mapped for stream symbol {stream_symbol}")
+
+    def stream_symbol_for(self, trade_underlying: str) -> str:
+        """Map a trade underlying back to its indicator stream symbol."""
+        trade = normalize_market_symbol(trade_underlying)
+        for stream_symbol, mapped in self.stream_to_trade.items():
+            if mapped == trade:
+                return stream_symbol
+        if trade in self.stream_symbols:
+            return trade
+        if len(self.stream_symbols) == 1:
+            return self.stream_symbols[0]
+        raise KeyError(f"No stream symbol mapped for trade underlying {trade_underlying}")
+
+
+def normalize_market_symbol(symbol: str) -> str:
+    """Normalize equity roots to UPPER; preserve continuous futures roll letters."""
+    raw = str(symbol).strip()
+    if not raw:
+        return raw
+    parts = raw.split(".")
+    if (
+        len(parts) >= 3
+        and parts[0].replace("_", "").isalpha()
+        and parts[1].lower() in {"c", "n", "v"}
+    ):
+        return f"{parts[0].upper()}.{parts[1].lower()}.{'.'.join(parts[2:])}"
+    return raw.upper()
 
 
 @dataclass(frozen=True)
@@ -362,6 +428,8 @@ class DatabentoSettings:
     schema: str = "trades"
     stype_in: str = "raw_symbol"
     ticks_per_bar: int = 50
+    # When False (typical for GLBX futures), accept prints outside equity hours.
+    apply_equity_session_filter: Optional[bool] = None
 
 
 @dataclass(frozen=True)
@@ -608,6 +676,8 @@ def _parse_market_config(payload: dict[str, Any]) -> MarketConfig:
 
     return MarketConfig(
         symbols=_parse_symbols(payload.get("symbols"), fallback=DEFAULT_SYMBOLS),
+        stream_symbols=_parse_stream_symbols(payload.get("stream_symbols")),
+        stream_to_trade=_parse_stream_to_trade(payload.get("stream_to_trade")),
         stream_timeframe=stream_timeframe,
         strategy_timeframe=strategy_timeframe,
         aggregation_timeframes=aggregation_timeframes,
@@ -976,12 +1046,18 @@ def _parse_schwab_settings(payload: dict[str, Any]) -> SchwabSettings:
 
 
 def _parse_databento_settings(payload: dict[str, Any]) -> DatabentoSettings:
+    dataset = str(payload.get("dataset", "EQUS.MINI")).strip() or "EQUS.MINI"
+    apply_filter = payload.get("apply_equity_session_filter")
+    if apply_filter is None:
+        # Futures Globex feeds run nearly 24h; do not clamp to equity hours.
+        apply_filter = not dataset.upper().startswith("GLBX")
     return DatabentoSettings(
         api_key=str(payload.get("api_key", "")).strip(),
-        dataset=str(payload.get("dataset", "EQUS.MINI")).strip() or "EQUS.MINI",
+        dataset=dataset,
         schema=str(payload.get("schema", "trades")).strip() or "trades",
         stype_in=str(payload.get("stype_in", "raw_symbol")).strip() or "raw_symbol",
         ticks_per_bar=max(int(payload.get("ticks_per_bar", 50)), 1),
+        apply_equity_session_filter=bool(apply_filter),
     )
 
 
@@ -1075,12 +1151,50 @@ def _parse_symbols(value: Any, *, fallback: tuple[str, ...]) -> tuple[str, ...]:
     if value is None:
         return fallback
     if isinstance(value, str):
-        items = tuple(item.strip().upper() for item in value.split(",") if item.strip())
+        items = tuple(
+            normalize_market_symbol(item)
+            for item in value.split(",")
+            if item.strip()
+        )
         return items or fallback
     if isinstance(value, list):
-        items = tuple(str(item).strip().upper() for item in value if str(item).strip())
+        items = tuple(
+            normalize_market_symbol(str(item))
+            for item in value
+            if str(item).strip()
+        )
         return items or fallback
     raise ValueError("market.symbols must be a list or comma-separated string")
+
+
+def _parse_stream_symbols(value: Any) -> tuple[str, ...]:
+    if value is None or value == "" or value == []:
+        return ()
+    if isinstance(value, str):
+        return tuple(
+            normalize_market_symbol(item)
+            for item in value.split(",")
+            if item.strip()
+        )
+    if isinstance(value, list):
+        return tuple(
+            normalize_market_symbol(str(item))
+            for item in value
+            if str(item).strip()
+        )
+    raise ValueError("market.stream_symbols must be a list or comma-separated string")
+
+
+def _parse_stream_to_trade(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("market.stream_to_trade must be an object")
+    return {
+        normalize_market_symbol(str(key)): normalize_market_symbol(str(mapped))
+        for key, mapped in value.items()
+        if str(key).strip() and str(mapped).strip()
+    }
 
 
 def _parse_timeframes(value: Any, *, fallback: tuple[str, ...]) -> tuple[str, ...]:

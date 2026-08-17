@@ -12,6 +12,7 @@ import threading
 from datetime import datetime, time, timezone
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
+from config import normalize_market_symbol
 from market_data_transformer import DATABENTO_STREAM_BAR_FIELDS
 from market_session_scheduler import is_equity_streaming_session, parse_hhmm
 from schwab_auth import _load_dotenv
@@ -41,6 +42,7 @@ class DatabentoStreamSession:
         stream_start_local: time = time(4, 0),
         stream_end_local: time = time(20, 0),
         trading_days_only: bool = True,
+        apply_equity_session_filter: bool = True,
         on_open_external: Optional[Callable[[], None]] = None,
         on_close_external: Optional[Callable[[], None]] = None,
         on_error_external: Optional[Callable[[Exception], None]] = None,
@@ -51,7 +53,7 @@ class DatabentoStreamSession:
         if not api_key.strip():
             raise ValueError("Databento API key is required (set DATABENTO_API_KEY)")
         self._api_key = api_key.strip()
-        self._symbols = tuple(symbol.upper() for symbol in symbols)
+        self._symbols = tuple(normalize_market_symbol(symbol) for symbol in symbols)
         self._processor = processor
         self._dataset = dataset
         self._schema = schema
@@ -61,6 +63,7 @@ class DatabentoStreamSession:
         self._stream_start_local = stream_start_local
         self._stream_end_local = stream_end_local
         self._trading_days_only = trading_days_only
+        self._apply_equity_session_filter = apply_equity_session_filter
         self._bar_builder = TickBarBuilder(ticks_per_bar=ticks_per_bar)
         self._symbol_by_instrument_id: dict[int, str] = {}
         self._on_open_external = on_open_external
@@ -96,6 +99,9 @@ class DatabentoStreamSession:
             app.market.stream_timeframe,
             fallback=databento.ticks_per_bar,
         )
+        apply_filter = databento.apply_equity_session_filter
+        if apply_filter is None:
+            apply_filter = not databento.dataset.upper().startswith("GLBX")
         return cls(
             api_key=api_key,
             symbols=symbols,
@@ -108,6 +114,7 @@ class DatabentoStreamSession:
             stream_start_local=parse_hhmm(historical.extended_session_start_local),
             stream_end_local=parse_hhmm(historical.extended_session_end_local),
             trading_days_only=historical.trading_days_only,
+            apply_equity_session_filter=bool(apply_filter),
             **kwargs,
         )
 
@@ -143,14 +150,17 @@ class DatabentoStreamSession:
 
         logger.info(
             "Subscribed to Databento %s/%s for %s (%dt bars); "
-            "accepting prints %s-%s %s",
+            "accepting prints %s",
             self._dataset,
             self._schema,
             ", ".join(self._symbols),
             self._ticks_per_bar,
-            self._stream_start_local.strftime("%H:%M"),
-            self._stream_end_local.strftime("%H:%M"),
-            self._market_timezone,
+            (
+                f"{self._stream_start_local.strftime('%H:%M')}-"
+                f"{self._stream_end_local.strftime('%H:%M')} {self._market_timezone}"
+                if self._apply_equity_session_filter
+                else "all session hours (equity filter off)"
+            ),
         )
         if self._on_open_external is not None:
             self._on_open_external()
@@ -236,7 +246,7 @@ class DatabentoStreamSession:
             return
 
         timestamp = _record_timestamp(record)
-        if not is_equity_streaming_session(
+        if self._apply_equity_session_filter and not is_equity_streaming_session(
             timestamp,
             session_start_local=self._stream_start_local,
             session_end_local=self._stream_end_local,
@@ -305,14 +315,15 @@ class DatabentoStreamSession:
 
     def _handle_symbol_mapping(self, record: Any) -> None:
         instrument_id = int(record.instrument_id)
-        # Prefer the subscribed input symbol (e.g. SPY) over venue raw output.
-        symbol = str(
+        # Prefer the subscribed input symbol (e.g. ES.n.0 / SPY) over venue raw output.
+        raw_symbol = str(
             getattr(record, "stype_in_symbol", None)
             or getattr(record, "stype_out_symbol", "")
             or ""
-        ).upper()
-        if not symbol:
+        ).strip()
+        if not raw_symbol:
             return
+        symbol = normalize_market_symbol(raw_symbol)
         with self._lock:
             self._symbol_by_instrument_id[instrument_id] = symbol
         logger.info(

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from session_trade_recorder import SessionTradeRecorder
+from session_trade_recorder import TRADE_COLUMNS, SessionTradeRecorder
 from tick_bar_builder import TickBarBuilder
 
 
@@ -64,6 +64,73 @@ def test_session_trade_recorder_merges_existing_partition(tmp_path: Path) -> Non
     frame = pd.read_parquet(tmp_path / "trades" / "SPY" / "2026-08-13.parquet")
     assert len(frame) == 2
     assert list(frame["price"]) == [100.0, 101.0]
+
+
+def test_session_trade_recorder_stores_full_databento_fields(tmp_path: Path) -> None:
+    recorder = SessionTradeRecorder(
+        local_root=tmp_path,
+        bucket_name="unused-bucket",
+        prefix="trades",
+        remote_enabled=False,
+    )
+    ts = datetime(2026, 8, 17, 15, 0, tzinfo=timezone.utc)
+    recorder.record_trade(
+        symbol="ES.n.0",
+        timestamp=ts,
+        price=7792.25,
+        size=1,
+        side="B",
+        raw_symbol="ESU6",
+        price_raw=7792250000000,
+        action="T",
+        depth=0,
+        flags=0,
+        sequence=12345,
+        instrument_id=42140870,
+        publisher_id=1,
+        rtype=0,
+        ts_event=1_786_982_268_000_000_000,
+        ts_recv=1_786_982_268_000_020_000,
+        ts_in_delta=17523,
+        ts_index=1_786_982_268_000_020_000,
+    )
+    recorder.flush()
+    frame = pd.read_parquet(tmp_path / "trades" / "ES.n.0" / "2026-08-17.parquet")
+    assert list(frame.columns) == list(TRADE_COLUMNS)
+    row = frame.iloc[0]
+    assert row["symbol"] == "ES.n.0"
+    assert row["raw_symbol"] == "ESU6"
+    assert row["price"] == 7792.25
+    assert int(row["sequence"]) == 12345
+    assert int(row["instrument_id"]) == 42140870
+    assert int(row["ts_in_delta"]) == 17523
+
+
+def test_session_trade_recorder_dedupes_on_sequence(tmp_path: Path) -> None:
+    recorder = SessionTradeRecorder(
+        local_root=tmp_path,
+        bucket_name="unused-bucket",
+        prefix="trades",
+        remote_enabled=False,
+    )
+    ts = datetime(2026, 8, 17, 15, 0, tzinfo=timezone.utc)
+    common = dict(
+        symbol="ES.n.0",
+        timestamp=ts,
+        price=7792.0,
+        size=1,
+        side="A",
+        sequence=99,
+        instrument_id=1,
+        ts_event=1_786_982_268_000_000_000,
+    )
+    recorder.record_trade(**common)
+    recorder.flush()
+    recorder.record_trade(**common)  # exact duplicate
+    summary = recorder.flush()
+    assert summary.rows_buffered == 1
+    frame = pd.read_parquet(tmp_path / "trades" / "ES.n.0" / "2026-08-17.parquet")
+    assert len(frame) == 1
 
 
 def test_tick_bar_builder_flush_emits_partial_bar() -> None:

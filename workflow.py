@@ -59,6 +59,7 @@ from option_selector import (
     synthetic_atm_call,
     synthetic_atm_option,
     synthetic_atm_put,
+    underlying_price_from_chain,
 )
 from option_quote import OptionQuoteSnapshot
 from ibkr_tws_account_sync import IbkrTwsAccountSync, IbkrTwsAccountSnapshot
@@ -147,7 +148,13 @@ class WorkflowConfig:
 
     @property
     def symbols(self) -> tuple[str, ...]:
+        """Trade underlyings (option/equity roots), e.g. SPY."""
         return self.app.market.symbols
+
+    @property
+    def stream_symbols(self) -> tuple[str, ...]:
+        """Indicator/stream symbols (may be futures continuous, e.g. ES.n.0)."""
+        return self.app.market.stream_symbols
 
     @property
     def market_config(self):
@@ -423,7 +430,16 @@ class TradingWorkflow:
         registry: Optional[StrategyRegistry] = None,
     ) -> None:
         self._config = config
-        self._symbols = config.symbols
+        self._stream_symbols = config.stream_symbols
+        self._trade_symbols = config.symbols
+        # Back-compat alias used by stream subscription / indicator registration.
+        self._symbols = self._stream_symbols
+        if self._stream_symbols != self._trade_symbols:
+            logger.info(
+                "Stream/trade split: indicators on %s → trade options on %s",
+                ", ".join(self._stream_symbols),
+                ", ".join(self._trade_symbols),
+            )
 
         self.bus = bus or EventBus()
         self.trade_logger = TradeLogger(self.bus, log_path=config.audit_log_path)
@@ -1255,7 +1271,7 @@ class TradingWorkflow:
             if isinstance(self._account_sync, SchwabAccountSync):
                 snapshot = self._account_sync.sync_positions(
                     self.position_tracker,
-                    watchlist=self._symbols,
+                    watchlist=self._trade_symbols,
                     account_hash=self._config.schwab_account_hash,
                     account_number=self._config.schwab_account_number,
                 )
@@ -1265,7 +1281,7 @@ class TradingWorkflow:
                     self._connect_ibkr_runtime()
                 snapshot = self._account_sync.sync_positions(
                     self.position_tracker,
-                    watchlist=self._symbols,
+                    watchlist=self._trade_symbols,
                 )
                 source = "ibkr_tws_account_sync"
             self._account_snapshot = snapshot
@@ -1781,7 +1797,7 @@ class TradingWorkflow:
             self._gex_monitor = GexRegimeMonitor(
                 chain_client,
                 self.bus,
-                symbols=self._symbols,
+                symbols=self._trade_symbols,
                 poll_interval_seconds=gex.poll_interval_seconds,
                 strike_count=gex.strike_count,
                 days_to_expiration=gex.days_to_expiration,
@@ -1792,7 +1808,7 @@ class TradingWorkflow:
             slots = ", ".join(gex.level_refresh_times_local)
             logger.info(
                 "GEX monitor configured for %s (%sDTE, level refresh at %s %s)",
-                ", ".join(self._symbols),
+                ", ".join(self._trade_symbols),
                 gex.days_to_expiration,
                 slots,
                 self._config.app.app.timezone,
@@ -1807,31 +1823,36 @@ class TradingWorkflow:
         strategy_timeframe = self._config.market_config.strategy_timeframe
         if bar.timeframe != strategy_timeframe:
             return
+        trade_underlying = self._trade_underlying_for(bar.symbol)
         if self._gex_monitor is None:
             if bar.symbol not in self._gex_waiting_snapshot_logged:
                 logger.warning(
                     "gex_scalp %s: GEX monitor not running — enable gex.enabled in config",
-                    bar.symbol,
+                    trade_underlying,
                 )
                 self._gex_waiting_snapshot_logged.add(bar.symbol)
             return
 
-        anchored = self._gex_monitor.get_latest(bar.symbol)
+        anchored = self._gex_monitor.get_latest(trade_underlying)
         if anchored is None:
             if bar.symbol not in self._gex_waiting_snapshot_logged:
                 slots = ", ".join(self._config.app.gex.level_refresh_times_local)
                 logger.info(
                     "gex_scalp %s: waiting for first GEX level snapshot "
                     "(refresh schedule: %s)",
-                    bar.symbol,
+                    trade_underlying,
                     slots,
                 )
                 self._gex_waiting_snapshot_logged.add(bar.symbol)
             return
         self._gex_waiting_snapshot_logged.discard(bar.symbol)
 
+        live_spot = self._approx_trade_spot_from_stream(
+            trade_underlying,
+            stream_close=bar.close,
+        )
         # Keep walls/flip from the scheduled snapshot; reclassify regime vs live spot.
-        gex = anchored.with_live_spot(bar.close)
+        gex = anchored.with_live_spot(live_spot)
 
         history = self._volume_history.setdefault(
             bar.symbol,
@@ -1840,7 +1861,7 @@ class TradingWorkflow:
         history.append(bar.volume)
         volume_sma = sum(history) / len(history) if history else 0.0
 
-        position = self.position_tracker.get_position_for_underlying(bar.symbol)
+        position = self.position_tracker.get_position_for_underlying(trade_underlying)
         has_open_position = position is not None and abs(position.quantity) > 0
 
         gex_settings = self._config.app.gex
@@ -1892,7 +1913,9 @@ class TradingWorkflow:
         gex_settings = self._config.app.gex
         history = self._volume_history.get(bar.symbol, deque())
         volume_sma = sum(history) / len(history) if history else 0.0
-        position = self.position_tracker.get_position_for_underlying(bar.symbol)
+        position = self.position_tracker.get_position_for_underlying(
+            self._trade_underlying_for(bar.symbol)
+        )
         has_open_position = position is not None and abs(position.quantity) > 0
 
         ctx = StrategyEvaluationContext(
@@ -2164,6 +2187,23 @@ class TradingWorkflow:
         if signal.action == SignalAction.HOLD:
             return
 
+        # Indicators may stream a futures symbol (ES.n.0) while options trade SPY.
+        stream_symbol = signal.symbol
+        trade_underlying = self._trade_underlying_for(stream_symbol)
+        trade_spot = self._resolve_trade_spot(
+            trade_underlying,
+            stream_close=signal.close,
+        )
+        signal = StrategySignal(
+            symbol=trade_underlying,
+            timeframe=signal.timeframe,
+            timestamp=signal.timestamp,
+            action=signal.action,
+            strategy_name=signal.strategy_name,
+            close=trade_spot,
+            indicators=signal.indicators,
+        )
+
         if signal.action == SignalAction.EXIT:
             self._exit_open_position_on_signal(signal)
             return
@@ -2221,9 +2261,9 @@ class TradingWorkflow:
                 self._config.app.workflow.no_new_trades_after_utc,
             )
             return
-        if opens_new_trade and not self._has_enough_warmup_bars(signal.symbol):
+        if opens_new_trade and not self._has_enough_warmup_bars(stream_symbol):
             needed = self._config.min_warmup_bars
-            have = self._warmup_bar_count(signal.symbol)
+            have = self._warmup_bar_count(stream_symbol)
             logger.info(
                 "Blocking %s for %s; waiting for warmup "
                 "(%d/%d %s bars from storage+live) before new entries",
@@ -2234,9 +2274,9 @@ class TradingWorkflow:
                 self._config.market_config.strategy_timeframe,
             )
             return
-        if opens_new_trade and not self._has_enough_volume_history(signal.symbol):
+        if opens_new_trade and not self._has_enough_volume_history(stream_symbol):
             needed = max(self._config.app.gex.volume_lookback_bars, 1)
-            have = len(self._volume_history.get(signal.symbol, ()))
+            have = len(self._volume_history.get(stream_symbol, ()))
             logger.info(
                 "Blocking %s for %s; waiting for volume history "
                 "(%d/%d %s bars from GCS+live) before new entries",
@@ -2810,7 +2850,7 @@ class TradingWorkflow:
                 return select_otm_contract_from_chain(
                     chain,
                     underlying,
-                    spot_price,
+                    underlying_price_from_chain(chain) or spot_price,
                     side=contract_side,
                     target_dte=options.days_to_expiration,
                     otm_strikes=options.otm_strikes,
@@ -2916,12 +2956,13 @@ class TradingWorkflow:
             return
 
         timeframe = self._config.market_config.strategy_timeframe
-        for symbol in self._symbols:
+        for symbol in self._trade_symbols:
             position = self.position_tracker.get_position_for_underlying(symbol)
             if position is None or position.asset_type != "OPTION":
                 continue
 
-            snapshot = self.indicator_coordinator.get_latest(symbol, timeframe)
+            stream_symbol = self._stream_symbol_for(symbol)
+            snapshot = self.indicator_coordinator.get_latest(stream_symbol, timeframe)
             if snapshot is None:
                 logger.info(
                     "Keeping restored %s; indicators not ready for reconciliation",
@@ -2943,7 +2984,14 @@ class TradingWorkflow:
                 )
                 continue
 
-            underlying_spot = self.indicator_coordinator.latest_close(symbol, timeframe)
+            underlying_spot = self.indicator_coordinator.latest_close(
+                stream_symbol, timeframe
+            )
+            if underlying_spot is not None and underlying_spot > 0:
+                underlying_spot = self._approx_trade_spot_from_stream(
+                    symbol,
+                    stream_close=float(underlying_spot),
+                )
             if underlying_spot is None:
                 underlying_spot = (
                     position.underlying_entry_price or position.average_entry_price
@@ -3177,19 +3225,79 @@ class TradingWorkflow:
         if chain_underlying is not None and chain_underlying > 0:
             return chain_underlying
 
-        one_minute = self.indicator_coordinator.latest_close(underlying_symbol, "1m")
+        stream_symbol = self._stream_symbol_for(underlying_symbol)
+        one_minute = self.indicator_coordinator.latest_close(stream_symbol, "1m")
         if one_minute is not None and one_minute > 0:
-            return one_minute
+            return self._approx_trade_spot_from_stream(
+                underlying_symbol,
+                stream_close=one_minute,
+            )
 
         strategy_timeframe = self._config.market_config.strategy_timeframe
         strategy_close = self.indicator_coordinator.latest_close(
-            underlying_symbol,
+            stream_symbol,
             strategy_timeframe,
         )
         if strategy_close is not None and strategy_close > 0:
-            return strategy_close
+            return self._approx_trade_spot_from_stream(
+                underlying_symbol,
+                stream_close=strategy_close,
+            )
 
         return fallback_spot
+
+    def _trade_underlying_for(self, stream_symbol: str) -> str:
+        """Map streamed indicator symbol to the option trade underlying."""
+        try:
+            return self._config.market_config.trade_underlying_for(stream_symbol)
+        except KeyError:
+            return stream_symbol.upper()
+
+    def _stream_symbol_for(self, trade_underlying: str) -> str:
+        """Map trade underlying back to the streamed indicator symbol."""
+        try:
+            return self._config.market_config.stream_symbol_for(trade_underlying)
+        except KeyError:
+            return trade_underlying.upper()
+
+    def _approx_trade_spot_from_stream(
+        self,
+        trade_underlying: str,
+        *,
+        stream_close: float,
+    ) -> float:
+        """Convert a stream close to trade-underlying scale when needed.
+
+        ES futures (~10x SPY) must not be used raw for SPY strike selection.
+        Prefer Schwab chain underlyingPrice in option resolve; this is a fallback.
+        """
+        if stream_close <= 0:
+            return stream_close
+        trade = trade_underlying.upper()
+        stream = self._stream_symbol_for(trade)
+        if stream == trade or trade not in {"SPY", "IVV", "VOO"}:
+            return stream_close
+        # Continuous ES / MES vs SPY ETF approximation.
+        if stream.upper().startswith("ES") and stream_close > 2000:
+            return stream_close / 10.0
+        if stream.upper().startswith("MES") and stream_close > 2000:
+            return stream_close / 10.0
+        return stream_close
+
+    def _resolve_trade_spot(
+        self,
+        trade_underlying: str,
+        *,
+        stream_close: float,
+    ) -> float:
+        """Best available trade-underlying spot for logging / fallback strike math.
+
+        Option chain selection prefers Schwab ``underlyingPrice`` when available.
+        """
+        return self._approx_trade_spot_from_stream(
+            trade_underlying,
+            stream_close=stream_close,
+        )
 
     def _resolve_option_exit(
         self,

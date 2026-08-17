@@ -209,8 +209,11 @@ def test_repo_config_json_is_databento_5t_schwab_broker() -> None:
     config = AppConfig.load("config.json")
     assert config.workflow.stream_provider == "databento"
     assert config.market.symbols == ("SPY",)
+    assert config.market.stream_symbols == ("ES.n.0",)
     assert config.market.stream_timeframe == "5t"
     assert config.market.strategy_timeframe == "5t"
+    assert config.databento.dataset == "GLBX.MDP3"
+    assert config.databento.stype_in == "continuous"
     assert config.strategies == ("gaussian_ma_crossover",)
     assert config.indicators.gaussian_ma is not None
     assert config.indicators.gaussian_ma.fast.sigma_divisor == 10.0
