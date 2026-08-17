@@ -199,7 +199,12 @@
     "max_reconnects_per_hour": 5,
     "max_order_round_trip_seconds": 10,
     "module_silence_seconds": 300,
-    "startup_grace_seconds": 180
+    "startup_grace_seconds": 180,
+    "max_queue_depth": 50000,
+    "max_flush_lag_seconds": 120,
+    "max_missed_bars": 5,
+    "max_api_errors_per_hour": 10,
+    "max_trading_errors_per_hour": 10
   },
   "schwab": {
     "callback_url": "https://127.0.0.1",

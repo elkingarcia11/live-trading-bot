@@ -26,9 +26,21 @@ class SchwabOptionsChainClient:
         return cls(SchwabMarketDataClient.from_env(load_dotenv=load_dotenv))
 
     @classmethod
-    def from_config(cls, app: AppConfig) -> SchwabOptionsChainClient:
+    def from_config(
+        cls,
+        app: AppConfig,
+        *,
+        session: Optional[Any] = None,
+        auth_client: Optional[Any] = None,
+        market_data_client: Optional[SchwabMarketDataClient] = None,
+    ) -> SchwabOptionsChainClient:
         """Build a chain client from a loaded AppConfig."""
-        return cls(SchwabMarketDataClient.from_config(app))
+        client = market_data_client or SchwabMarketDataClient.from_config(
+            app,
+            session=session,
+            auth_client=auth_client,
+        )
+        return cls(client)
 
     def fetch_chain(
         self,

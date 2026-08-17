@@ -311,7 +311,13 @@ class DatabentoStreamSession:
             float(bar.get("close") or price),
             float(bar.get("volume") or 0.0),
         )
-        self._processor.process_message(json.dumps(payload))
+        try:
+            self._processor.process_message(json.dumps(payload))
+        except Exception:
+            logger.exception(
+                "Databento bar processor failed for %s; stream continues",
+                symbol,
+            )
 
     def _handle_symbol_mapping(self, record: Any) -> None:
         instrument_id = int(record.instrument_id)

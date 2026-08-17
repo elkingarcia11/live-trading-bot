@@ -416,6 +416,11 @@ class HealthSettings:
     max_order_round_trip_seconds: float = 10.0
     module_silence_seconds: float = 300.0
     startup_grace_seconds: float = 180.0
+    max_queue_depth: int = 50_000
+    max_flush_lag_seconds: float = 120.0
+    max_missed_bars: int = 5
+    max_api_errors_per_hour: int = 10
+    max_trading_errors_per_hour: int = 10
 
 
 @dataclass(frozen=True)
@@ -1009,6 +1014,13 @@ def _parse_health_settings(payload: dict[str, Any]) -> HealthSettings:
         ),
         module_silence_seconds=float(payload.get("module_silence_seconds", 300)),
         startup_grace_seconds=float(payload.get("startup_grace_seconds", 180)),
+        max_queue_depth=int(payload.get("max_queue_depth", 50_000)),
+        max_flush_lag_seconds=float(payload.get("max_flush_lag_seconds", 120)),
+        max_missed_bars=int(payload.get("max_missed_bars", 5)),
+        max_api_errors_per_hour=int(payload.get("max_api_errors_per_hour", 10)),
+        max_trading_errors_per_hour=int(
+            payload.get("max_trading_errors_per_hour", 10)
+        ),
     )
 
 

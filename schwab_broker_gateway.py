@@ -51,7 +51,13 @@ class SchwabBrokerGateway:
         self._preview = preview
 
     @classmethod
-    def from_env(cls, *, load_dotenv: bool = True) -> SchwabBrokerGateway:
+    def from_env(
+        cls,
+        *,
+        load_dotenv: bool = True,
+        session: Optional[requests.Session] = None,
+        auth_client: Optional[SchwabAuthClient] = None,
+    ) -> SchwabBrokerGateway:
         """Build a Schwab broker gateway from config.json."""
         if load_dotenv:
             _load_dotenv()
@@ -59,7 +65,11 @@ class SchwabBrokerGateway:
         from config import get_config
 
         app = get_config(reload=True)
-        trader_client = SchwabTraderClient.from_env(load_dotenv=False)
+        trader_client = SchwabTraderClient.from_env(
+            load_dotenv=False,
+            session=session,
+            auth_client=auth_client,
+        )
         broker = app.broker
         return cls(
             trader_client,
@@ -287,6 +297,8 @@ def build_broker_gateway(
     use_in_memory: bool,
     fill_price: float = 100.0,
     ibkr_runtime: Optional["IbkrTwsRuntime"] = None,
+    session: Optional[requests.Session] = None,
+    auth_client: Optional[SchwabAuthClient] = None,
 ):
     """Return the configured broker gateway for the workflow."""
     from order_manager import InMemoryBrokerGateway
@@ -303,4 +315,4 @@ def build_broker_gateway(
         if ibkr_runtime is not None:
             return IbkrTwsBrokerGateway.from_runtime(ibkr_runtime)
         return IbkrTwsBrokerGateway.from_env()
-    return SchwabBrokerGateway.from_env()
+    return SchwabBrokerGateway.from_env(session=session, auth_client=auth_client)

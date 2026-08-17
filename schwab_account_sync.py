@@ -12,7 +12,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 
+import requests
+
 from position_tracker import Position, PositionTracker
+from schwab_auth import SchwabAuthClient
 from schwab_trader_client import SchwabAccountSnapshot, SchwabTraderClient, SchwabTraderError
 
 logger = logging.getLogger(__name__)
@@ -25,9 +28,19 @@ class SchwabAccountSync:
         self._trader_client = trader_client
 
     @classmethod
-    def from_env(cls) -> SchwabAccountSync:
-        """Build an account sync helper from environment variables."""
-        return cls(SchwabTraderClient.from_env())
+    def from_env(
+        cls,
+        *,
+        session: Optional[requests.Session] = None,
+        auth_client: Optional[SchwabAuthClient] = None,
+    ) -> SchwabAccountSync:
+        """Build account sync with optional shared HTTP/auth clients."""
+        return cls(
+            SchwabTraderClient.from_env(
+                session=session,
+                auth_client=auth_client,
+            )
+        )
 
     def fetch_snapshots(self, *, include_positions: bool = True) -> tuple[SchwabAccountSnapshot, ...]:
         """Fetch balances and positions for every linked Schwab account."""

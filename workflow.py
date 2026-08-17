@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from bar_alignment import aggregation_checkpoint, align_bucket_start, last_completed_minute, to_utc
+from bar_alignment import aggregation_checkpoint, align_bucket_start, last_completed_minute, timeframe_timedelta, to_utc
 from cloud_storage_repository import CloudStorageRepository
 from data_aggregator import AggregatedBar, DataAggregator
 from event_bus import EventBus, Topics
@@ -74,7 +74,9 @@ from ibkr_tws_streamer import (
 )
 from schwab_market_data_client import SchwabMarketDataClient
 from schwab_options_chain_client import SchwabOptionsChainClient
+from schwab_http import SchwabHttpRuntime
 from schwab_broker_gateway import build_broker_gateway
+from schwab_auth import SchwabAuthClient
 from position_tracker import ExitNotification, ExitReason, Position, PositionTracker
 from signal_evaluator import SignalEvaluator, StrategySignal
 from strategy_registry import (
@@ -298,6 +300,23 @@ class WorkflowConfig:
         return cls(app=app)
 
 
+def _health_thresholds_from_settings(health) -> HealthThresholds:
+    """Map config health settings onto HealthMonitor thresholds."""
+    return HealthThresholds(
+        feed_stale_seconds=health.feed_stale_seconds,
+        indicator_stale_seconds=health.indicator_stale_seconds,
+        max_reconnects_per_hour=health.max_reconnects_per_hour,
+        max_order_round_trip_seconds=health.max_order_round_trip_seconds,
+        module_silence_seconds=health.module_silence_seconds,
+        startup_grace_seconds=health.startup_grace_seconds,
+        max_queue_depth=health.max_queue_depth,
+        max_flush_lag_seconds=health.max_flush_lag_seconds,
+        max_missed_bars=health.max_missed_bars,
+        max_api_errors_per_hour=health.max_api_errors_per_hour,
+        max_trading_errors_per_hour=health.max_trading_errors_per_hour,
+    )
+
+
 class RiskGuard:
     """Pre-trade validation layer between strategy signals and order submission."""
 
@@ -314,6 +333,21 @@ class RiskGuard:
         self._trades_today = 0
         self._daily_realized_pnl = 0.0
         self._trade_date: Optional[date] = None
+
+    def snapshot_daily_state(self) -> tuple[Optional[date], int, float]:
+        """Return daily trade counters so a hot restart can preserve them."""
+        return self._trade_date, self._trades_today, self._daily_realized_pnl
+
+    def restore_daily_state(
+        self,
+        trade_date: Optional[date],
+        trades_today: int,
+        daily_realized_pnl: float,
+    ) -> None:
+        """Restore daily trade counters after rebuilding the risk guard."""
+        self._trade_date = trade_date
+        self._trades_today = max(0, int(trades_today))
+        self._daily_realized_pnl = float(daily_realized_pnl)
 
     def reset_daily_counters(self, trade_date: date) -> None:
         """Reset per-day trade counters when the session date changes."""
@@ -456,14 +490,7 @@ class TradingWorkflow:
             )
         self.health_monitor = HealthMonitor(
             self.bus,
-            thresholds=HealthThresholds(
-                feed_stale_seconds=health.feed_stale_seconds,
-                indicator_stale_seconds=health.indicator_stale_seconds,
-                max_reconnects_per_hour=health.max_reconnects_per_hour,
-                max_order_round_trip_seconds=health.max_order_round_trip_seconds,
-                module_silence_seconds=health.module_silence_seconds,
-                startup_grace_seconds=health.startup_grace_seconds,
-            ),
+            thresholds=_health_thresholds_from_settings(health),
             monitored_modules=monitored_modules,
         )
 
@@ -571,10 +598,14 @@ class TradingWorkflow:
             ),
         )
 
+        self._schwab_http = SchwabHttpRuntime()
+        self._schwab_auth_client: Optional[SchwabAuthClient] = None
         resolved_broker = broker or build_broker_gateway(
             use_in_memory=config.broker_use_in_memory,
             fill_price=config.broker_fill_price,
             ibkr_runtime=self._ibkr_tws_runtime,
+            session=self._schwab_http.session,
+            auth_client=self._try_schwab_auth_client(),
         )
         self.order_manager = OrderManager(
             resolved_broker,
@@ -619,9 +650,17 @@ class TradingWorkflow:
         self._eod_shutdown_on: Optional[date] = None
         self._zero_dte_flattened_on: Optional[date] = None
         self._started = False
+        self._trading_lock = threading.Lock()
+        self._trading_generation = 0
+        self._last_bar_at: dict[tuple[str, str], datetime] = {}
+        self._missed_bars = 0
+        self._last_sampled_dropped_bars = 0
         # Account sync follows the execution broker, not the market-data stream.
         if config.app.broker.provider == "schwab":
-            self._account_sync = SchwabAccountSync.from_env()
+            self._account_sync = SchwabAccountSync.from_env(
+                session=self._schwab_http.session,
+                auth_client=self._try_schwab_auth_client(),
+            )
         elif config.app.broker.provider == "ibkr":
             runtime = self._ibkr_tws_runtime or IbkrTwsRuntime.from_config()
             self._account_sync = IbkrTwsAccountSync.from_runtime(runtime)
@@ -747,6 +786,9 @@ class TradingWorkflow:
             self._gex_monitor.start()
         self._started = True
         logger.info("TradingWorkflow started for %s", ", ".join(self._symbols))
+        logger.info(
+            "Hot-restart trading with SIGHUP (kill -HUP <pid>); Databento stays up"
+        )
 
     @property
     def shutdown_requested(self) -> bool:
@@ -756,6 +798,7 @@ class TradingWorkflow:
     def stop(self, *, persist_reason: str = "shutdown") -> None:
         """Stop health checks, disconnect streams, and dump session data to GCS."""
         if not self._started:
+            self._shutdown_schwab_http()
             return
 
         self._stop_eod.set()
@@ -800,6 +843,81 @@ class TradingWorkflow:
 
         self._started = False
         logger.info("TradingWorkflow stopped for %s", ", ".join(self._symbols))
+        self._shutdown_schwab_http()
+
+    def _shutdown_schwab_http(self) -> None:
+        """Stop Schwab thread pools without touching Databento."""
+        runtime = getattr(self, "_schwab_http", None)
+        if runtime is None:
+            return
+        self._schwab_http = None
+        runtime.shutdown(wait=True)
+
+    def restart_trading(
+        self,
+        *,
+        config: Optional[WorkflowConfig] = None,
+        reload_config: bool = True,
+    ) -> None:
+        """Reload strategy/risk/order wiring without disconnecting Databento.
+
+        Incoming bars are still ingested while this runs; the trading path is
+        skipped for those bars rather than blocking the feed callback.
+        """
+        if config is None and reload_config:
+            config = WorkflowConfig.from_env()
+        elif config is None:
+            config = self._config
+
+        with self._trading_lock:
+            self._apply_trading_reload(config)
+
+    def _apply_trading_reload(self, config: WorkflowConfig) -> None:
+        """Swap strategy/risk objects while holding the trading lock."""
+        previous = self._config
+        if (
+            config.stream_provider != previous.stream_provider
+            or config.stream_symbols != previous.stream_symbols
+        ):
+            logger.warning(
+                "Hot restart keeping live %s session for %s; "
+                "stream_provider/stream_symbols changes are ignored",
+                previous.stream_provider,
+                ", ".join(previous.stream_symbols),
+            )
+
+        daily_state = self.risk_guard.snapshot_daily_state()
+        self._config = config
+        self._trade_symbols = config.symbols
+        self.strategy_registry = build_default_registry(
+            strategy_timeframe=config.market_config.strategy_timeframe,
+        )
+        self.signal_evaluator = SignalEvaluator(self.strategy_registry)
+        self.risk_guard = RiskGuard(
+            max_position_quantity=config.max_position_quantity,
+            max_trades_per_day=(
+                config.app.gex.max_trades_per_day if config.app.gex.enabled else None
+            ),
+            max_daily_loss_dollars=(
+                config.app.gex.max_daily_loss_dollars if config.app.gex.enabled else None
+            ),
+        )
+        self.risk_guard.restore_daily_state(*daily_state)
+        self._strategy_state = {}
+        self._gex_strategy_state = {symbol: {} for symbol in self._trade_symbols}
+        self._gex_status_log = {}
+        self._gex_waiting_snapshot_logged = set()
+        self.health_monitor.set_thresholds(
+            _health_thresholds_from_settings(config.app.health)
+        )
+        self._register_indicator_jobs()
+        self._trading_generation += 1
+        logger.info(
+            "Hot-restarted trading logic generation=%d strategies=%s "
+            "(Databento/stream session left running)",
+            self._trading_generation,
+            ", ".join(config.strategies) or "(none)",
+        )
 
     def _flush_partial_tick_bars(self) -> None:
         """Persist in-progress Databento tick bars before the stream disconnects."""
@@ -868,13 +986,16 @@ class TradingWorkflow:
         )
         if self._trade_recorder is None:
             return
-        self._trade_recorder.record_trade(
-            symbol=symbol,
-            timestamp=timestamp,
-            price=price,
-            size=size,
-            side=side,
-        )
+        try:
+            self._trade_recorder.record_trade(
+                symbol=symbol,
+                timestamp=timestamp,
+                price=price,
+                size=size,
+                side=side,
+            )
+        except Exception:
+            logger.exception("Raw-trade recorder failed for %s; feed continues", symbol)
 
     def _persist_day_state_to_gcs(self, *, reason: str) -> None:
         """Merge session tick bars, raw tape, and transactions into existing GCS history."""
@@ -1321,7 +1442,53 @@ class TradingWorkflow:
             )
 
     def _on_clean_bar(self, bar: CleanBarEvent) -> None:
-        """Publish and process a validated stream bar."""
+        """Publish and process a validated stream bar.
+
+        Ingest (bus + recorders) always runs. Strategy and order code is
+        isolated so a trade bug cannot kill the Databento/feed callback.
+        """
+        try:
+            self._ingest_clean_bar(bar)
+        except Exception:
+            logger.exception(
+                "Feed ingest failed for %s %s; continuing into trading path",
+                bar.symbol,
+                bar.timeframe,
+            )
+        self._submit_trading_path(bar)
+
+    def _submit_trading_path(self, bar: CleanBarEvent) -> None:
+        """Run strategy/orders off the Databento callback (never wait here)."""
+        runtime = getattr(self, "_schwab_http", None)
+        if runtime is None:
+            self._run_trading_path_isolated(bar)
+            return
+        runtime.submit_trading(self._run_trading_path_isolated, bar)
+
+    def _run_trading_path_isolated(self, bar: CleanBarEvent) -> None:
+        """Strategy + order work with lock and exception isolation."""
+        if not self._trading_lock.acquire(blocking=False):
+            logger.warning(
+                "Skipping trading path for %s %s; hot restart in progress",
+                bar.symbol,
+                bar.timeframe,
+            )
+            return
+        try:
+            self._run_trading_path(bar)
+        except Exception:
+            logger.exception(
+                "Trading path failed for %s %s @ %s; feed continues",
+                bar.symbol,
+                bar.timeframe,
+                bar.timestamp.isoformat(),
+            )
+            self.health_monitor.record_trading_error()
+        finally:
+            self._trading_lock.release()
+
+    def _ingest_clean_bar(self, bar: CleanBarEvent) -> None:
+        """Record a live bar without running strategy or order code."""
         if not self._logged_first_live_bar:
             self._logged_first_live_bar = True
             logger.info(
@@ -1341,9 +1508,52 @@ class TradingWorkflow:
             )
         if self._session_recorder is not None:
             self._session_recorder.record_clean_bar(bar)
+        self._note_bar_sequence(bar)
+
+    def _run_trading_path(self, bar: CleanBarEvent) -> None:
+        """Strategy evaluation, managed exits, and order-side follow-up."""
         self._run_process_and_strategy_layers(bar)
+        self._evaluate_gex_strategies(bar)
+        self._check_gex_position_timeouts(bar)
         self._enforce_zero_dte_session_close(bar)
         self._track_open_option_marks(bar)
+
+    def _note_bar_sequence(self, bar: CleanBarEvent) -> None:
+        """Count skipped clock bars (timeframes only) and out-of-order ticks."""
+        key = (bar.symbol.upper(), bar.timeframe)
+        previous = self._last_bar_at.get(key)
+        self._last_bar_at[key] = bar.timestamp
+        if previous is None:
+            return
+        if bar.timestamp < previous:
+            self._missed_bars += 1
+            self.health_monitor.record_missed_bars(1)
+            logger.warning(
+                "Out-of-order %s %s bar (%s < %s)",
+                bar.symbol,
+                bar.timeframe,
+                bar.timestamp.isoformat(),
+                previous.isoformat(),
+            )
+            return
+        try:
+            expected = timeframe_timedelta(bar.timeframe)
+        except ValueError:
+            return
+        gap = bar.timestamp - previous
+        if gap <= expected * 1.5:
+            return
+        missed = max(int(gap / expected) - 1, 1)
+        self._missed_bars += missed
+        self.health_monitor.record_missed_bars(missed)
+        logger.warning(
+            "Missed %d %s %s bar(s) between %s and %s",
+            missed,
+            bar.symbol,
+            bar.timeframe,
+            previous.isoformat(),
+            bar.timestamp.isoformat(),
+        )
 
     def _run_process_and_strategy_layers(self, bar: CleanBarEvent) -> None:
         """Aggregate bars, calculate indicators, and evaluate strategies."""
@@ -1378,9 +1588,14 @@ class TradingWorkflow:
             if aggregated.is_complete and snapshot is not None:
                 self._evaluate_strategies(aggregated, snapshot)
 
+        trade_underlying = self._trade_underlying_for(bar.symbol)
+        trade_spot = self._approx_trade_spot_from_stream(
+            trade_underlying,
+            stream_close=bar.close,
+        )
         self.position_tracker.update_price(
-            bar.symbol,
-            bar.close,
+            trade_underlying,
+            trade_spot,
             timestamp=bar.timestamp,
             evaluate_exits=self._config.managed_exits,
         )
@@ -1397,15 +1612,42 @@ class TradingWorkflow:
         if self._option_stream_active():
             return
 
-        position = self.position_tracker.get_position_for_underlying(bar.symbol)
+        trade_underlying = self._trade_underlying_for(bar.symbol)
+        position = self.position_tracker.get_position_for_underlying(trade_underlying)
         if position is None or position.asset_type != "OPTION":
             return
 
-        mark = self._fetch_live_option_mark(position)
-        if mark is None or mark <= 0:
-            return
+        self._submit_schwab_http(
+            self._refresh_option_mark_job,
+            position,
+            bar.timestamp,
+        )
 
-        self._handle_option_mark(position.symbol, mark, bar.timestamp)
+    def _submit_schwab_http(self, fn, *args: object) -> None:
+        """Fire Schwab REST without waiting on the caller thread."""
+        runtime = getattr(self, "_schwab_http", None)
+        if runtime is None:
+            fn(*args)
+            return
+        runtime.submit_http(fn, *args)
+
+    def _refresh_option_mark_job(
+        self,
+        position: Position,
+        timestamp: datetime,
+    ) -> None:
+        """HTTP worker: fetch a Schwab chain mark and apply it."""
+        try:
+            mark = self._fetch_live_option_mark(position)
+            if mark is None or mark <= 0:
+                return
+            self._handle_option_mark(position.symbol, mark, timestamp)
+        except Exception:
+            logger.exception(
+                "Option mark refresh failed for %s; feed continues",
+                position.symbol,
+            )
+            self.health_monitor.record_api_error()
 
     def _option_stream_active(self) -> bool:
         """Return True when option marks are streamed via LEVELONE_OPTIONS."""
@@ -1493,8 +1735,17 @@ class TradingWorkflow:
         try:
             underlying = (position.underlying_symbol or position.symbol).upper()
             timeframe = self._config.market_config.strategy_timeframe
-            spot = self.indicator_coordinator.latest_close(underlying, timeframe)
-            if spot is None:
+            stream_symbol = self._stream_symbol_for(underlying)
+            stream_close = self.indicator_coordinator.latest_close(
+                stream_symbol,
+                timeframe,
+            )
+            if stream_close is not None and stream_close > 0:
+                spot = self._approx_trade_spot_from_stream(
+                    underlying,
+                    stream_close=stream_close,
+                )
+            else:
                 spot = position.underlying_entry_price or position.average_entry_price
             peak = position.max_mark_price or mark
             if reason == ExitReason.STOP_LOSS:
@@ -1613,6 +1864,7 @@ class TradingWorkflow:
                 position.symbol,
                 exc_info=True,
             )
+            self.health_monitor.record_api_error()
             return None
 
     def _option_unrealized_pnl(self, position: Position, mark: float) -> float:
@@ -1710,8 +1962,13 @@ class TradingWorkflow:
                     strategy_name=strategy_name,
                     state=state,
                 )
-            except ValueError as exc:
-                logger.debug("Skipping %s evaluation: %s", strategy_name, exc)
+            except Exception:
+                logger.exception(
+                    "Strategy %s failed for %s; skipping this bar",
+                    strategy_name,
+                    aggregated.symbol,
+                )
+                self.health_monitor.record_trading_error()
                 continue
 
             self.bus.publish(
@@ -1767,8 +2024,13 @@ class TradingWorkflow:
                     strategy_name=strategy_name,
                     state=state,
                 )
-            except ValueError as exc:
-                logger.debug("Skipping %s evaluation: %s", strategy_name, exc)
+            except Exception:
+                logger.exception(
+                    "Strategy %s failed for %s; skipping this bar",
+                    strategy_name,
+                    bar.symbol,
+                )
+                self.health_monitor.record_trading_error()
                 continue
 
             self.bus.publish(
@@ -1793,7 +2055,12 @@ class TradingWorkflow:
         """Wire the scheduled GEX level refresher when enabled in config."""
         gex = self._config.app.gex
         try:
-            chain_client = SchwabOptionsChainClient.from_config(self._config.app)
+            chain_client = SchwabOptionsChainClient.from_config(
+                self._config.app,
+                session=self._schwab_http_session(),
+                auth_client=self._try_schwab_auth_client(),
+                market_data_client=self._get_market_data_client(),
+            )
             self._gex_monitor = GexRegimeMonitor(
                 chain_client,
                 self.bus,
@@ -1847,9 +2114,9 @@ class TradingWorkflow:
             return
         self._gex_waiting_snapshot_logged.discard(bar.symbol)
 
-        live_spot = self._approx_trade_spot_from_stream(
+        open_px, high_px, low_px, live_spot = self._scaled_trade_ohlc(
             trade_underlying,
-            stream_close=bar.close,
+            bar,
         )
         # Keep walls/flip from the scheduled snapshot; reclassify regime vs live spot.
         gex = anchored.with_live_spot(live_spot)
@@ -1872,17 +2139,17 @@ class TradingWorkflow:
             "gex_stall_body_ratio": gex_settings.stall_body_ratio,
             "gex_long_wick_ratio": gex_settings.long_wick_ratio,
         }
-        state = self._gex_strategy_state.setdefault(bar.symbol, {})
+        state = self._gex_strategy_state.setdefault(trade_underlying, {})
 
         try:
             signal = self.signal_evaluator.evaluate(
-                symbol=bar.symbol,
+                symbol=trade_underlying,
                 timeframe=strategy_timeframe,
                 timestamp=bar.timestamp,
-                close=bar.close,
-                open=bar.open,
-                high=bar.high,
-                low=bar.low,
+                close=live_spot,
+                open=open_px,
+                high=high_px,
+                low=low_px,
                 volume=bar.volume,
                 indicators=indicators,
                 strategy_name="gex_scalp",
@@ -1890,8 +2157,12 @@ class TradingWorkflow:
                 has_open_position=has_open_position,
                 state=state,
             )
-        except ValueError as exc:
-            logger.debug("Skipping gex_scalp evaluation: %s", exc)
+        except Exception:
+            logger.exception(
+                "Strategy gex_scalp failed for %s; skipping this bar",
+                bar.symbol,
+            )
+            self.health_monitor.record_trading_error()
             return
 
         self.bus.publish(
@@ -1918,14 +2189,19 @@ class TradingWorkflow:
         )
         has_open_position = position is not None and abs(position.quantity) > 0
 
+        trade_underlying = self._trade_underlying_for(bar.symbol)
+        open_px, high_px, low_px, close_px = self._scaled_trade_ohlc(
+            trade_underlying,
+            bar,
+        )
         ctx = StrategyEvaluationContext(
-            symbol=bar.symbol,
+            symbol=trade_underlying,
             timeframe=bar.timeframe,
             timestamp=bar.timestamp,
-            close=bar.close,
-            open=bar.open,
-            high=bar.high,
-            low=bar.low,
+            close=close_px,
+            open=open_px,
+            high=high_px,
+            low=low_px,
             volume=bar.volume,
             indicators={
                 "volume_sma": volume_sma,
@@ -1968,9 +2244,9 @@ class TradingWorkflow:
         )
         logger.info(
             "gex_scalp %s @ %s close=%.2f → %s | %s",
-            bar.symbol,
+            trade_underlying,
             bar.timestamp.isoformat(),
-            bar.close,
+            close_px,
             action_label,
             status,
         )
@@ -1999,7 +2275,10 @@ class TradingWorkflow:
             if dte is None or dte != 0:
                 continue
 
-            underlying = (position.underlying_symbol or bar.symbol).upper()
+            underlying = (
+                position.underlying_symbol
+                or self._trade_underlying_for(bar.symbol)
+            ).upper()
             logger.warning(
                 "0DTE session close: flattening %s before market close (bar=%s)",
                 position.symbol,
@@ -2008,7 +2287,10 @@ class TradingWorkflow:
             self._flatten_open_option_position(
                 position=position,
                 underlying_symbol=underlying,
-                underlying_spot=bar.close,
+                underlying_spot=self._approx_trade_spot_from_stream(
+                    underlying,
+                    stream_close=bar.close,
+                ),
                 closed_at=bar.timestamp,
                 strategy_name="zero_dte_close",
                 conditions_met="0DTE flatten before regular session close",
@@ -2024,7 +2306,8 @@ class TradingWorkflow:
         if "gex_scalp" not in self._config.strategies:
             return
 
-        position = self.position_tracker.get_position_for_underlying(bar.symbol)
+        trade_underlying = self._trade_underlying_for(bar.symbol)
+        position = self.position_tracker.get_position_for_underlying(trade_underlying)
         if position is None or position.asset_type != "OPTION":
             return
         if position.force_review_after is None:
@@ -2039,8 +2322,11 @@ class TradingWorkflow:
         )
         self._flatten_open_option_position(
             position=position,
-            underlying_symbol=bar.symbol,
-            underlying_spot=bar.close,
+            underlying_symbol=trade_underlying,
+            underlying_spot=self._approx_trade_spot_from_stream(
+                trade_underlying,
+                stream_close=bar.close,
+            ),
             closed_at=bar.timestamp,
             strategy_name="gex_scalp",
             conditions_met="max hold timer exceeded",
@@ -2184,6 +2470,20 @@ class TradingWorkflow:
 
     def _handle_strategy_signal(self, signal: StrategySignal) -> None:
         """Run risk checks and submit broker orders for actionable signals."""
+        try:
+            self._execute_strategy_signal(signal)
+        except Exception:
+            logger.exception(
+                "Order path failed for %s %s %s; feed continues",
+                signal.strategy_name,
+                signal.action.value,
+                signal.symbol,
+            )
+            self.health_monitor.record_trading_error()
+            self.health_monitor.record_api_error()
+
+    def _execute_strategy_signal(self, signal: StrategySignal) -> None:
+        """Risk-check and submit a strategy signal (may raise)."""
         if signal.action == SignalAction.HOLD:
             return
 
@@ -2884,7 +3184,10 @@ class TradingWorkflow:
         if signal.strategy_name != "gex_scalp":
             return None, None, None
 
-        state = self._gex_strategy_state.get(signal.symbol, {})
+        state = self._gex_strategy_state.get(signal.symbol) or {}
+        if not state:
+            stream_symbol = self._stream_symbol_for(signal.symbol)
+            state = self._gex_strategy_state.get(stream_symbol) or {}
         trigger_level = state.get("trigger_level")
         trigger = float(trigger_level) if trigger_level is not None else None
         entry_iv = None
@@ -3284,6 +3587,27 @@ class TradingWorkflow:
             return stream_close / 10.0
         return stream_close
 
+    def _scaled_trade_ohlc(
+        self,
+        trade_underlying: str,
+        bar: CleanBarEvent,
+    ) -> tuple[float, float, float, float]:
+        """Scale stream OHLC onto the trade-underlying price (e.g. ES → SPY)."""
+        return (
+            self._approx_trade_spot_from_stream(
+                trade_underlying, stream_close=bar.open
+            ),
+            self._approx_trade_spot_from_stream(
+                trade_underlying, stream_close=bar.high
+            ),
+            self._approx_trade_spot_from_stream(
+                trade_underlying, stream_close=bar.low
+            ),
+            self._approx_trade_spot_from_stream(
+                trade_underlying, stream_close=bar.close
+            ),
+        )
+
     def _resolve_trade_spot(
         self,
         trade_underlying: str,
@@ -3444,12 +3768,34 @@ class TradingWorkflow:
             return self._market_data_client
         try:
             self._market_data_client = SchwabMarketDataClient.from_config(
-                self._config.app
+                self._config.app,
+                session=self._schwab_http_session(),
+                auth_client=self._try_schwab_auth_client(),
             )
         except Exception:
             logger.debug("Schwab market data client unavailable for option chains")
             return None
         return self._market_data_client
+
+    def _try_schwab_auth_client(self) -> Optional[SchwabAuthClient]:
+        """Return a shared Schwab auth client, or None if credentials are missing."""
+        if self._schwab_auth_client is not None:
+            return self._schwab_auth_client
+        try:
+            self._schwab_auth_client = SchwabAuthClient.from_env(
+                load_dotenv=False,
+                session=self._schwab_http_session(),
+            )
+        except Exception:
+            logger.debug("Shared Schwab auth client unavailable")
+            return None
+        return self._schwab_auth_client
+
+    def _schwab_http_session(self):
+        runtime = getattr(self, "_schwab_http", None)
+        if runtime is None:
+            return None
+        return runtime.session
 
     def _resolve_equity_quantity(
         self,
@@ -3864,9 +4210,29 @@ class TradingWorkflow:
         interval = self._config.health_check_interval_seconds
         while not self._stop_health.wait(interval):
             try:
+                self._sample_runtime_health()
                 self.health_monitor.check()
             except Exception:
                 logger.exception("Health check failed")
+
+    def _sample_runtime_health(self) -> None:
+        """Push persist-queue and dropped-bar metrics into the health monitor."""
+        queue_depth = 0
+        flush_lag: Optional[float] = None
+        if self._trade_recorder is not None:
+            queue_depth += self._trade_recorder.buffered_row_count
+            flush_lag = self._trade_recorder.flush_elapsed_seconds
+        if self._session_recorder is not None:
+            queue_depth += self._session_recorder.buffered_row_count
+        self.health_monitor.update_runtime_metrics(
+            queue_depth=queue_depth,
+            flush_lag_seconds=flush_lag,
+        )
+        dropped = getattr(self.stream_processor, "dropped_bar_count", 0)
+        delta = dropped - self._last_sampled_dropped_bars
+        if delta > 0:
+            self.health_monitor.record_missed_bars(delta)
+        self._last_sampled_dropped_bars = dropped
 
 
 if __name__ == "__main__":
@@ -3885,6 +4251,17 @@ if __name__ == "__main__":
     if use_live_stream:
         workflow = TradingWorkflow(WorkflowConfig.from_env())
         workflow.start()
+        import signal as signal_module
+
+        def _hot_restart_handler(_signum, _frame) -> None:
+            logger.info("SIGHUP received; hot-restarting trading logic")
+            try:
+                workflow.restart_trading()
+            except Exception:
+                logger.exception("Hot restart failed; Databento session left running")
+
+        if hasattr(signal_module, "SIGHUP"):
+            signal_module.signal(signal_module.SIGHUP, _hot_restart_handler)
         try:
             while not workflow.shutdown_requested:
                 time.sleep(1)

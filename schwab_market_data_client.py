@@ -99,13 +99,22 @@ class SchwabMarketDataClient:
         return cls.from_config(get_config(reload=True))
 
     @classmethod
-    def from_config(cls, app: "AppConfig") -> SchwabMarketDataClient:
+    def from_config(
+        cls,
+        app: "AppConfig",
+        *,
+        session: Optional[requests.Session] = None,
+        auth_client: Optional[SchwabAuthClient] = None,
+    ) -> SchwabMarketDataClient:
         """Build a market data client from a loaded AppConfig."""
-        auth_client = SchwabAuthClient.from_env(load_dotenv=False)
+        resolved_auth = auth_client or SchwabAuthClient.from_env(
+            load_dotenv=False,
+            session=session,
+        )
         historical = app.historical
         market_data = app.market_data
         return cls(
-            auth_client,
+            resolved_auth,
             base_url=_market_data_base_url(app.schwab.price_history_path),
             price_history_path=_price_history_path(app.schwab.price_history_path),
             need_extended_hours_data=historical.need_extended_hours,
@@ -114,6 +123,7 @@ class SchwabMarketDataClient:
             timeout=market_data.request_timeout_seconds,
             max_retries=market_data.max_retries,
             retry_backoff_seconds=market_data.retry_backoff_seconds,
+            session=session,
         )
 
     def request(

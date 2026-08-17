@@ -103,6 +103,7 @@ class StreamDataProcessor:
         self._timeframe_key = timeframe_key
         self._require_minute_alignment = require_minute_alignment
         self._dedup_window = dedup_window
+        self._dropped_bars = 0
 
         self._seen_bars: OrderedDict[tuple[str, datetime], tuple[float, ...]] = (
             OrderedDict()
@@ -133,21 +134,21 @@ class StreamDataProcessor:
             payload = json.loads(raw_message)
         except json.JSONDecodeError:
             logger.warning("Dropping non-JSON stream message: %s", raw_message)
-            return None
+            return self._note_dropped()
 
         if not isinstance(payload, dict):
             logger.warning("Dropping stream message with unsupported shape.")
-            return None
+            return self._note_dropped()
 
         bar_object = payload.get(self._bar_key)
         if not isinstance(bar_object, dict):
             logger.warning("Dropping stream message without bar object at '%s'.", self._bar_key)
-            return None
+            return self._note_dropped()
 
         raw_symbol = payload.get(self._symbol_key, self._default_symbol)
         if raw_symbol is None:
             logger.warning("Dropping stream message without symbol for multi-symbol feed.")
-            return None
+            return self._note_dropped()
 
         symbol = str(raw_symbol).upper()
         timeframe = str(payload.get(self._timeframe_key, self._timeframe))
@@ -178,14 +179,14 @@ class StreamDataProcessor:
         if symbol is None:
             if self._default_symbol is None:
                 logger.warning("Dropping bar without symbol for multi-symbol feed.")
-                return None
+                return self._note_dropped()
             symbol = self._default_symbol
         symbol = symbol.upper()
         timeframe = timeframe or self._timeframe
 
         if symbol not in self._symbols:
             logger.debug("Dropping bar for unsubscribed symbol %s.", symbol)
-            return None
+            return self._note_dropped()
 
         if timeframe != self._timeframe:
             logger.warning(
@@ -194,22 +195,22 @@ class StreamDataProcessor:
                 symbol,
                 timeframe,
             )
-            return None
+            return self._note_dropped()
 
         try:
             ohlcv = self._transformer.from_bars([bar], field_map=self._field_map)
         except ValueError as exc:
             logger.warning("Dropping invalid bar for %s: %s", symbol, exc)
-            return None
+            return self._note_dropped()
 
         if ohlcv.empty:
             logger.warning("Dropping empty bar for %s.", symbol)
-            return None
+            return self._note_dropped()
 
         row = ohlcv.iloc[0]
         if not self._is_valid_bar(row):
             logger.warning("Dropping bar that failed validation for %s.", symbol)
-            return None
+            return self._note_dropped()
 
         event = CleanBarEvent(
             symbol=symbol,
@@ -300,9 +301,33 @@ class StreamDataProcessor:
                 self._seen_bars.popitem(last=False)
 
     def _publish(self, event: CleanBarEvent) -> None:
-        """Deliver a clean bar event to all registered consumers."""
-        for consumer in self._consumers:
-            consumer(event)
+        """Deliver a clean bar event to all registered consumers.
+
+        Consumer exceptions are swallowed so a strategy/order bug cannot kill
+        the upstream feed callback.
+        """
+        for consumer in list(self._consumers):
+            try:
+                consumer(event)
+            except Exception:
+                logger.exception(
+                    "Bar consumer failed for %s %s at %s",
+                    event.symbol,
+                    event.timeframe,
+                    event.timestamp.isoformat(),
+                )
+
+    def _note_dropped(self) -> None:
+        """Increment the dropped-bar counter and return None."""
+        with self._lock:
+            self._dropped_bars += 1
+        return None
+
+    @property
+    def dropped_bar_count(self) -> int:
+        """Bars rejected by validation (excludes duplicates)."""
+        with self._lock:
+            return self._dropped_bars
 
     @property
     def symbols(self) -> frozenset[str]:

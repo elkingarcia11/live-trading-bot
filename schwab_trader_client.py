@@ -175,7 +175,13 @@ class SchwabTraderClient:
         self._resolved_account_hash: Optional[str] = None
 
     @classmethod
-    def from_env(cls, *, load_dotenv: bool = True) -> SchwabTraderClient:
+    def from_env(
+        cls,
+        *,
+        load_dotenv: bool = True,
+        session: Optional[requests.Session] = None,
+        auth_client: Optional[SchwabAuthClient] = None,
+    ) -> SchwabTraderClient:
         """Build a trader client from config.json and environment secrets."""
         if load_dotenv:
             _load_dotenv()
@@ -184,7 +190,10 @@ class SchwabTraderClient:
 
         app = get_config(reload=True)
         schwab = app.schwab
-        auth_client = SchwabAuthClient.from_env(load_dotenv=False)
+        resolved_auth = auth_client or SchwabAuthClient.from_env(
+            load_dotenv=False,
+            session=session,
+        )
         base_url = schwab.trader_base_url
         preference_path = schwab.user_preference_path
         if preference_path.startswith("http"):
@@ -197,7 +206,7 @@ class SchwabTraderClient:
             accounts_path = accounts_path.rstrip("/").split("/")[-1]
 
         return cls(
-            auth_client,
+            resolved_auth,
             base_url=base_url,
             user_preference_path=preference_path,
             account_numbers_path=_suffix_path(
@@ -208,6 +217,7 @@ class SchwabTraderClient:
             orders_path_template=schwab.orders_path,
             preview_order_path_template=schwab.preview_order_path,
             timeout=app.market_data.request_timeout_seconds,
+            session=session,
         )
 
     def get_user_preference(self) -> list[dict[str, Any]]:

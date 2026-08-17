@@ -3,8 +3,9 @@
 Responsibility: Runtime observability and health checks.
 
 Tracks feed latency, reconnect frequency, indicator timing, order round-trip
-latency, and silent modules. Publishes health alerts when thresholds are
-breached. Does not execute trades, persist audit logs, or own pub/sub routing.
+latency, persist queue depth, flush lag, missed bars, API errors, and silent
+modules. Publishes health alerts when thresholds are breached. Does not
+execute trades, persist audit logs, or own pub/sub routing.
 """
 
 from __future__ import annotations
@@ -41,6 +42,11 @@ class HealthThresholds:
     max_order_round_trip_seconds: float = 10.0
     module_silence_seconds: float = 300.0
     startup_grace_seconds: float = 180.0
+    max_queue_depth: int = 50_000
+    max_flush_lag_seconds: float = 120.0
+    max_missed_bars: int = 5
+    max_api_errors_per_hour: int = 10
+    max_trading_errors_per_hour: int = 10
 
 
 PIPELINE_MODULES = (
@@ -62,6 +68,11 @@ class HealthSnapshot:
     last_reconnect_at: Optional[datetime] = None
     avg_indicator_latency_seconds: Optional[float] = None
     avg_order_round_trip_seconds: Optional[float] = None
+    queue_depth: int = 0
+    flush_lag_seconds: Optional[float] = None
+    missed_bars: int = 0
+    api_errors_hour: int = 0
+    trading_errors_hour: int = 0
     stale_modules: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -78,6 +89,11 @@ class HealthSnapshot:
             ),
             "avg_indicator_latency_seconds": self.avg_indicator_latency_seconds,
             "avg_order_round_trip_seconds": self.avg_order_round_trip_seconds,
+            "queue_depth": self.queue_depth,
+            "flush_lag_seconds": self.flush_lag_seconds,
+            "missed_bars": self.missed_bars,
+            "api_errors_hour": self.api_errors_hour,
+            "trading_errors_hour": self.trading_errors_hour,
             "stale_modules": self.stale_modules,
             "notes": self.notes,
         }
@@ -133,6 +149,11 @@ class HealthMonitor:
         self._indicator_latencies: deque[float] = deque(maxlen=100)
         self._order_round_trips: deque[float] = deque(maxlen=100)
         self._pending_orders: dict[str, _PendingOrder] = {}
+        self._queue_depth = 0
+        self._flush_lag_seconds: Optional[float] = None
+        self._missed_bars = 0
+        self._api_error_times: deque[datetime] = deque()
+        self._trading_error_times: deque[datetime] = deque()
         self._last_snapshot: Optional[HealthSnapshot] = None
         self._started = False
         self._lock = threading.Lock()
@@ -148,6 +169,41 @@ class HealthMonitor:
         self._started_at = datetime.now(timezone.utc)
         self._started = True
         logger.info("HealthMonitor started")
+
+    def set_thresholds(self, thresholds: HealthThresholds) -> None:
+        """Replace health thresholds (used by trading hot-restart)."""
+        self._thresholds = thresholds
+
+    def update_runtime_metrics(
+        self,
+        *,
+        queue_depth: Optional[int] = None,
+        flush_lag_seconds: Optional[float] = None,
+    ) -> None:
+        """Sample persist-path metrics that are not published on the bus."""
+        with self._lock:
+            if queue_depth is not None:
+                self._queue_depth = max(0, int(queue_depth))
+            self._flush_lag_seconds = flush_lag_seconds
+
+    def record_missed_bars(self, count: int = 1) -> None:
+        """Count dropped or skipped bars relative to the expected sequence."""
+        if count <= 0:
+            return
+        with self._lock:
+            self._missed_bars += int(count)
+
+    def record_api_error(self, *, at: Optional[datetime] = None) -> None:
+        """Record a vendor/broker API or stream protocol error."""
+        stamped = at or datetime.now(timezone.utc)
+        with self._lock:
+            self._api_error_times.append(stamped)
+
+    def record_trading_error(self, *, at: Optional[datetime] = None) -> None:
+        """Record a caught strategy/order exception that did not kill the feed."""
+        stamped = at or datetime.now(timezone.utc)
+        with self._lock:
+            self._trading_error_times.append(stamped)
 
     def check(self) -> HealthSnapshot:
         """Evaluate current health and publish an alert if status worsened.
@@ -171,6 +227,11 @@ class HealthMonitor:
             avg_indicator_latency = self._average(self._indicator_latencies)
             avg_order_round_trip = self._average(self._order_round_trips)
             last_reconnect_at = self._reconnect_times[-1] if self._reconnect_times else None
+            queue_depth = self._queue_depth
+            flush_lag = self._flush_lag_seconds
+            missed_bars = self._missed_bars
+            api_errors = self._count_last_hour(self._api_error_times, now)
+            trading_errors = self._count_last_hour(self._trading_error_times, now)
 
             for module in self._monitored_modules:
                 last_seen = self._last_module_event_at.get(module)
@@ -211,6 +272,31 @@ class HealthMonitor:
                 f"Average order round-trip {avg_order_round_trip:.2f}s exceeds threshold"
             )
 
+        if queue_depth > self._thresholds.max_queue_depth:
+            status = HealthStatus.DEGRADED
+            notes.append(
+                f"Queue depth {queue_depth} exceeds {self._thresholds.max_queue_depth}"
+            )
+
+        if (
+            flush_lag is not None
+            and flush_lag > self._thresholds.max_flush_lag_seconds
+        ):
+            status = HealthStatus.DEGRADED
+            notes.append(f"Flush lag {flush_lag:.1f}s exceeds threshold")
+
+        if missed_bars > self._thresholds.max_missed_bars:
+            status = HealthStatus.DEGRADED
+            notes.append(f"Missed bars {missed_bars} exceeds threshold")
+
+        if api_errors > self._thresholds.max_api_errors_per_hour:
+            status = HealthStatus.DEGRADED
+            notes.append(f"API errors {api_errors} in last hour")
+
+        if trading_errors > self._thresholds.max_trading_errors_per_hour:
+            status = HealthStatus.DEGRADED
+            notes.append(f"Trading-path errors {trading_errors} in last hour")
+
         if stale_modules:
             status = HealthStatus.UNHEALTHY
             notes.append(f"Silent modules: {', '.join(stale_modules)}")
@@ -230,6 +316,11 @@ class HealthMonitor:
             last_reconnect_at=last_reconnect_at,
             avg_indicator_latency_seconds=avg_indicator_latency,
             avg_order_round_trip_seconds=avg_order_round_trip,
+            queue_depth=queue_depth,
+            flush_lag_seconds=flush_lag,
+            missed_bars=missed_bars,
+            api_errors_hour=api_errors,
+            trading_errors_hour=trading_errors,
             stale_modules=stale_modules,
             notes=notes,
         )
@@ -305,6 +396,9 @@ class HealthMonitor:
             if event.topic == Topics.STREAM_RECONNECTING:
                 self._reconnect_times.append(now)
 
+            if event.topic == Topics.STREAM_ERROR:
+                self._api_error_times.append(now)
+
             if event.topic == Topics.ORDER_UPDATED:
                 self._track_order_update(event)
 
@@ -347,10 +441,14 @@ class HealthMonitor:
 
     def _reconnect_count_last_hour(self, now: datetime) -> int:
         """Count reconnect events in the trailing hour."""
+        return self._count_last_hour(self._reconnect_times, now)
+
+    def _count_last_hour(self, times: deque[datetime], now: datetime) -> int:
+        """Count timestamps in the trailing hour, dropping older entries."""
         cutoff = now - timedelta(hours=1)
-        while self._reconnect_times and self._reconnect_times[0] < cutoff:
-            self._reconnect_times.popleft()
-        return len(self._reconnect_times)
+        while times and times[0] < cutoff:
+            times.popleft()
+        return len(times)
 
     def _seconds_since(
         self,

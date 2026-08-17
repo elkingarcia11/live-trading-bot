@@ -12,6 +12,7 @@ import base64
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -316,12 +317,18 @@ class SchwabAuthClient:
         self._token_store = token_store
         self._session = session or requests.Session()
         self._tokens: Optional[SchwabTokens] = None
+        self._token_lock = threading.RLock()
 
         if self._token_store is not None:
             self._tokens = self._token_store.load()
 
     @classmethod
-    def from_env(cls, *, load_dotenv: bool = True) -> SchwabAuthClient:
+    def from_env(
+        cls,
+        *,
+        load_dotenv: bool = True,
+        session: Optional[requests.Session] = None,
+    ) -> SchwabAuthClient:
         """Build an auth client from environment variables."""
         if load_dotenv:
             _load_dotenv()
@@ -340,7 +347,7 @@ class SchwabAuthClient:
         )
 
         token_store = build_token_store_from_config()
-        client = cls(config, token_store=token_store)
+        client = cls(config, token_store=token_store, session=session)
 
         access_token = secret("SCHWAB_ACCESS_TOKEN")
         refresh_token = secret("SCHWAB_REFRESH_TOKEN")
@@ -355,16 +362,19 @@ class SchwabAuthClient:
 
     def get_access_token(self, *, force_refresh: bool = False) -> str:
         """Return a valid access token, refreshing when needed."""
-        if self._tokens is None:
-            raise SchwabAuthError(
-                "No Schwab tokens available. Complete OAuth and set "
-                "SCHWAB_REFRESH_TOKEN or SCHWAB_TOKEN_FILE."
-            )
+        # Option-mark and serialized trading workers share this auth client.
+        # Only one worker may inspect/refresh the token at a time.
+        with self._token_lock:
+            if self._tokens is None:
+                raise SchwabAuthError(
+                    "No Schwab tokens available. Complete OAuth and set "
+                    "SCHWAB_REFRESH_TOKEN or SCHWAB_TOKEN_FILE."
+                )
 
-        if force_refresh or self._tokens.is_expired():
-            self._tokens = self.refresh_tokens(self._tokens.refresh_token)
+            if force_refresh or self._tokens.is_expired():
+                self._tokens = self.refresh_tokens(self._tokens.refresh_token)
 
-        return self._tokens.access_token
+            return self._tokens.access_token
 
     def refresh_tokens(self, refresh_token: str) -> SchwabTokens:
         """Exchange a refresh token for a new access token."""
