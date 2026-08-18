@@ -25,6 +25,7 @@ class EodSchedule:
     market_timezone: str = "America/New_York"
     flatten_time_local: Optional[time] = None
     shutdown_time_local: Optional[time] = None
+    shutdown_enabled: bool = True
 
 
 def parse_utc_hhmm(value: str) -> time:
@@ -174,7 +175,7 @@ def should_shutdown(
     shutdown_on: date | None,
 ) -> bool:
     """Return True when the process should exit once for ``now``'s local market date."""
-    if not schedule.enabled:
+    if not schedule.enabled or not schedule.shutdown_enabled:
         return False
     now = _to_utc(now)
     local_day = _schedule_local_day(now, schedule)

@@ -205,19 +205,23 @@ def test_tick_bar_builder_rejects_non_positive_ticks() -> None:
         parse_tick_timeframe("0t")
 
 
-def test_repo_config_json_is_databento_5t_schwab_broker() -> None:
+def test_repo_config_json_is_databento_400t_schwab_broker() -> None:
     config = AppConfig.load("config.json")
     assert config.workflow.stream_provider == "databento"
     assert config.market.symbols == ("SPY",)
     assert config.market.stream_symbols == ("ES.n.0",)
-    assert config.market.stream_timeframe == "5t"
-    assert config.market.strategy_timeframe == "5t"
+    assert config.market.stream_timeframe == "400t"
+    assert config.market.strategy_timeframe == "400t"
     assert config.databento.dataset == "GLBX.MDP3"
     assert config.databento.stype_in == "continuous"
+    assert config.databento.ticks_per_bar == 400
+    assert config.historical.timeframe == "400t"
     assert config.strategies == ("gaussian_ma_crossover",)
     assert config.indicators.gaussian_ma is not None
-    assert config.indicators.gaussian_ma.fast.sigma_divisor == 10.0
-    assert config.indicators.gaussian_ma.slow.sigma_divisor == 7.0
+    assert config.indicators.gaussian_ma.fast.length == 30
+    assert config.indicators.gaussian_ma.fast.sigma_divisor == 7.0
+    assert config.indicators.gaussian_ma.slow.length == 19
+    assert config.indicators.gaussian_ma.slow.sigma_divisor == 4.0
     assert config.gex.enabled is False
     assert config.broker.provider == "schwab"
     assert config.options.days_to_expiration == 2
@@ -225,6 +229,7 @@ def test_repo_config_json_is_databento_5t_schwab_broker() -> None:
     assert config.gex.days_to_expiration == 2
     assert config.workflow.warmup_from_storage is True
     assert config.workflow.min_warmup_bars == 100
+    assert config.workflow.eod_shutdown_enabled is False
     assert config.gcs.transactions_prefix == "transactions"
     assert config.historical.extended_session_start_local == "04:00"
     assert config.historical.extended_session_end_local == "20:00"

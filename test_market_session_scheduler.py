@@ -41,6 +41,17 @@ def test_should_shutdown_once_after_shutdown_time() -> None:
     assert should_shutdown(now, schedule=schedule, shutdown_on=date(2026, 6, 16)) is False
 
 
+def test_should_shutdown_skipped_when_shutdown_disabled() -> None:
+    schedule = EodSchedule(
+        shutdown_time_local=time(20, 0),
+        shutdown_enabled=False,
+        market_timezone="America/New_York",
+    )
+    now = datetime(2026, 6, 16, 20, 0, 5, tzinfo=timezone.utc)
+
+    assert should_shutdown(now, schedule=schedule, shutdown_on=None) is False
+
+
 def test_eod_actions_skip_weekends() -> None:
     schedule = EodSchedule(trading_days_only=True)
     saturday = datetime(2026, 6, 20, 20, 5, tzinfo=timezone.utc)

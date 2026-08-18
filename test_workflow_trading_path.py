@@ -47,7 +47,7 @@ def _bare_workflow(**overrides: object) -> TradingWorkflow:
     workflow._logged_first_live_bar = True
     workflow._live_regular_hours_seen = True
     workflow._session_recorder = None
-    workflow._trade_recorder = None
+    workflow._trade_persist = None
     workflow._last_bar_at = {}
     workflow._missed_bars = 0
     workflow._last_sampled_dropped_bars = 0
@@ -440,10 +440,10 @@ def test_hot_restart_skips_trading_without_blocking_ingest() -> None:
 
 def test_sample_runtime_health_reports_queue_and_flush_lag() -> None:
     workflow = _bare_workflow()
-    recorder = MagicMock()
-    recorder.buffered_row_count = 42
-    recorder.flush_elapsed_seconds = 9.5
-    workflow._trade_recorder = recorder
+    persist = MagicMock()
+    persist.approx_queued.return_value = 42
+    persist.poll_stats.return_value = [{"kind": "flush", "duration_s": 9.5}]
+    workflow._trade_persist = persist
     session = MagicMock()
     session.buffered_row_count = 8
     workflow._session_recorder = session
@@ -455,3 +455,61 @@ def test_sample_runtime_health_reports_queue_and_flush_lag() -> None:
     assert snapshot.queue_depth == 50
     assert snapshot.flush_lag_seconds == 9.5
     assert snapshot.missed_bars == 4
+
+
+def test_eod_session_close_flattens_open_positions_at_4pm_et() -> None:
+    workflow = _bare_workflow()
+    workflow._config = WorkflowConfig.from_app_config(
+        AppConfig.from_dict(
+            {
+                "market": {
+                    "symbols": ["SPY"],
+                    "stream_symbols": ["ES.n.0"],
+                    "stream_to_trade": {"ES.n.0": "SPY"},
+                    "stream_timeframe": "5t",
+                    "strategy_timeframe": "5t",
+                },
+                "workflow": {
+                    "eod_enabled": True,
+                    "eod_flatten_time_local": "16:00",
+                    "eod_shutdown_time_local": "20:00",
+                },
+            }
+        )
+    )
+    workflow._eod_flattened_on = None
+    workflow._flatten_all_positions_eod = MagicMock()
+    before_close = CleanBarEvent(
+        symbol="ES.n.0",
+        timeframe="5t",
+        timestamp=datetime(2026, 8, 17, 19, 55, tzinfo=timezone.utc),
+        open=5_000.0,
+        high=5_010.0,
+        low=4_990.0,
+        close=5_000.0,
+        volume=10.0,
+    )
+    at_close = CleanBarEvent(
+        symbol="ES.n.0",
+        timeframe="5t",
+        timestamp=datetime(2026, 8, 17, 20, 0, tzinfo=timezone.utc),
+        open=5_000.0,
+        high=5_010.0,
+        low=4_990.0,
+        close=5_005.0,
+        volume=10.0,
+    )
+
+    workflow._enforce_eod_session_close(before_close)
+    workflow._flatten_all_positions_eod.assert_not_called()
+
+    workflow._enforce_eod_session_close(at_close)
+    workflow._flatten_all_positions_eod.assert_called_once_with(
+        at_close.timestamp,
+        bar=at_close,
+    )
+    assert workflow._eod_flattened_on == datetime(2026, 8, 17, tzinfo=timezone.utc).date()
+
+    workflow._flatten_all_positions_eod.reset_mock()
+    workflow._enforce_eod_session_close(at_close)
+    workflow._flatten_all_positions_eod.assert_not_called()

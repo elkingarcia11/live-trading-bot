@@ -15,7 +15,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
-from typing import Literal, Optional, Sequence
+from typing import Any, Literal, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -108,8 +108,14 @@ from market_session_scheduler import (
 )
 from trade_logger import RiskDecisionRecord, TradeLogger
 from transaction_ledger import TransactionLedger, TransactionRecord
-from session_ohlcv_recorder import SessionOhlcvRecorder
-from session_trade_recorder import SessionTradeRecorder, build_trade_recorder
+from session_ohlcv_recorder import SessionFlushSummary, SessionOhlcvRecorder
+from session_trade_recorder import databento_trade_row
+from trade_persist import (
+    DEFAULT_COMPACT_INTERVAL_S,
+    DEFAULT_QUEUE_MAXSIZE,
+    TradePersistClient,
+    TradePersistWriterConfig,
+)
 from workflow_warmup import (
     build_storage_repository,
     indicator_warmup_needed,
@@ -282,6 +288,7 @@ class WorkflowConfig:
             market_timezone=self.app.app.timezone,
             flatten_time_local=flatten_local,
             shutdown_time_local=shutdown_local,
+            shutdown_enabled=workflow.eod_shutdown_enabled,
         )
 
     @property
@@ -561,6 +568,7 @@ class TradingWorkflow:
                 on_close_external=self._on_stream_closed,
                 on_error_external=self._on_stream_error,
                 on_trade=self._on_raw_trade,
+                on_databento_trade=self._on_databento_trade,
             )
         else:
             self._schwab_stream = None
@@ -643,12 +651,13 @@ class TradingWorkflow:
 
         self._health_thread: Optional[threading.Thread] = None
         self._eod_thread: Optional[threading.Thread] = None
+        self._ohlcv_flush_thread: Optional[threading.Thread] = None
         self._stop_health = threading.Event()
         self._stop_eod = threading.Event()
+        self._stop_ohlcv_flush = threading.Event()
         self._shutdown_requested = threading.Event()
         self._eod_flattened_on: Optional[date] = None
         self._eod_shutdown_on: Optional[date] = None
-        self._zero_dte_flattened_on: Optional[date] = None
         self._started = False
         self._trading_lock = threading.Lock()
         self._trading_generation = 0
@@ -671,7 +680,8 @@ class TradingWorkflow:
         ] = None
         self._market_data_client: Optional[SchwabMarketDataClient] = None
         self._session_recorder: Optional[SessionOhlcvRecorder] = None
-        self._trade_recorder: Optional[SessionTradeRecorder] = None
+        self._trade_persist: Optional[TradePersistClient] = None
+        self._trade_persist_drops = 0
         self._logged_first_live_bar = False
         self._live_regular_hours_seen = False
         self._flattening_contracts: set[str] = set()
@@ -708,20 +718,35 @@ class TradingWorkflow:
                     use_daily_partitions=config.app.gcs.use_daily_partitions,
                 )
                 logger.info(
-                    "Session OHLCV recorder enabled for %s (flush on shutdown)",
+                    "Session OHLCV recorder enabled for %s (%s)",
                     ", ".join(persist_timeframes),
+                    (
+                        f"periodic flush every {DEFAULT_COMPACT_INTERVAL_S:.0f}s"
+                        if not config.app.workflow.eod_shutdown_enabled
+                        else "flush on shutdown"
+                    ),
                 )
             except Exception:
                 logger.exception("Session OHLCV recorder unavailable")
         if config.persist_raw_trades:
             try:
-                self._trade_recorder = build_trade_recorder(config.app)
+                writer_config = TradePersistWriterConfig.from_app(
+                    config.app,
+                    compact_interval_seconds=DEFAULT_COMPACT_INTERVAL_S,
+                )
+                self._trade_persist = TradePersistClient.start(
+                    writer_config,
+                    queue_maxsize=DEFAULT_QUEUE_MAXSIZE,
+                )
                 logger.info(
-                    "Session raw-trade recorder enabled (prefix=%s, flush on shutdown)",
+                    "Background raw-trade persist enabled (prefix=%s; "
+                    "append every %d rows; compact every %.0fs)",
                     config.app.gcs.trades_prefix,
+                    writer_config.every_rows,
+                    writer_config.compact_interval_seconds,
                 )
             except Exception:
-                logger.exception("Session raw-trade recorder unavailable")
+                logger.exception("Session raw-trade persist unavailable")
 
         self._register_indicator_jobs()
         self._wire_passive_listeners()
@@ -773,6 +798,12 @@ class TradingWorkflow:
         self._start_health_checks()
         if self._config.eod_schedule.enabled:
             self._start_eod_scheduler()
+        if (
+            self._config.persist_session_bars
+            and self._session_recorder is not None
+            and not self._config.eod_schedule.shutdown_enabled
+        ):
+            self._start_ohlcv_flush_scheduler()
         if self._gex_monitor is not None:
             if self._config.app.gex.poll_on_startup:
                 try:
@@ -807,6 +838,12 @@ class TradingWorkflow:
             and threading.current_thread() is not self._eod_thread
         ):
             self._eod_thread.join(timeout=2.0)
+        self._stop_ohlcv_flush.set()
+        if (
+            self._ohlcv_flush_thread is not None
+            and threading.current_thread() is not self._ohlcv_flush_thread
+        ):
+            self._ohlcv_flush_thread.join(timeout=2.0)
         self._stop_health.set()
         if (
             self._health_thread is not None
@@ -972,7 +1009,7 @@ class TradingWorkflow:
         size: float,
         side: str = "",
     ) -> None:
-        """Buffer one vendor trade print for shutdown persistence."""
+        """Publish one vendor trade print to the event bus."""
         self.bus.publish(
             Topics.MARKET_TRADE,
             {
@@ -984,20 +1021,110 @@ class TradingWorkflow:
             },
             source="databento_streamer",
         )
-        if self._trade_recorder is None:
+
+    def _on_databento_trade(
+        self,
+        record: Any,
+        symbol: str,
+        raw_symbol: str,
+    ) -> None:
+        """Enqueue one Databento trade for background parquet persist."""
+        if self._trade_persist is None:
             return
         try:
-            self._trade_recorder.record_trade(
+            row = databento_trade_row(
+                record,
                 symbol=symbol,
-                timestamp=timestamp,
-                price=price,
-                size=size,
-                side=side,
+                raw_symbol=raw_symbol,
             )
+            if row is None:
+                return
+            if not self._trade_persist.try_put(row):
+                self._trade_persist_drops += 1
+                if self._trade_persist_drops in {1, 100, 1000} or (
+                    self._trade_persist_drops % 10_000 == 0
+                ):
+                    logger.warning(
+                        "Raw-trade persist queue full; dropped %d print(s) "
+                        "(queued=%d)",
+                        self._trade_persist_drops,
+                        self._trade_persist.approx_queued(),
+                    )
         except Exception:
-            logger.exception("Raw-trade recorder failed for %s; feed continues", symbol)
+            logger.exception("Raw-trade persist failed for %s; feed continues", symbol)
 
-    def _persist_day_state_to_gcs(self, *, reason: str) -> None:
+    def _flush_session_ohlcv(self, *, reason: str) -> Optional[SessionFlushSummary]:
+        """Merge buffered live bars into cumulative OHLCV history."""
+        if self._session_recorder is None:
+            return None
+        flushed = self.aggregator.flush()
+        strategy_timeframe = self._config.market_config.strategy_timeframe
+        for aggregated in flushed:
+            if aggregated.timeframe != strategy_timeframe:
+                continue
+            self._session_recorder.record_aggregated_bar(aggregated)
+        buffered = self._session_recorder.buffered_row_count
+        if buffered:
+            logger.info(
+                "OHLCV flush (%s): merging %d buffered bar(s) into stored history",
+                reason,
+                buffered,
+            )
+        summary = self._session_recorder.flush()
+        if summary.rows_written:
+            logger.info(
+                "OHLCV flush (%s) complete: new_rows=%d partitions_touched=%d uris=%s",
+                reason,
+                summary.rows_written,
+                summary.partitions_written,
+                list(summary.storage_uris),
+            )
+        return summary
+
+    def _checkpoint_account_and_transactions(self, *, reason: str) -> None:
+        """Persist forward-test balance and upload the transactions ledger."""
+        if self._forward_test_account is not None:
+            try:
+                self._forward_test_account.save()
+                logger.info("Account checkpoint (%s): forward-test account saved", reason)
+            except Exception:
+                logger.exception(
+                    "Account checkpoint (%s): forward-test account save failed", reason
+                )
+
+        if self._transaction_ledger is None:
+            return
+        try:
+            gcs = self._config.app.gcs
+            uri = self._transaction_ledger.upload_to_gcs(
+                bucket_name=gcs.bucket_name,
+                prefix=gcs.transactions_prefix,
+                credentials_path=gcs.credentials_path,
+                project_id=gcs.project_id,
+            )
+            if uri:
+                logger.info(
+                    "Account checkpoint (%s): transaction ledger uploaded to %s",
+                    reason,
+                    uri,
+                )
+            else:
+                logger.info(
+                    "Account checkpoint (%s): transaction ledger kept local at %s",
+                    reason,
+                    self._transaction_ledger.path,
+                )
+        except Exception:
+            logger.exception(
+                "Account checkpoint (%s): transaction ledger upload failed", reason
+            )
+
+    def _persist_day_state_to_gcs(
+        self,
+        *,
+        reason: str,
+        shutdown_trade_persist: bool = True,
+    ) -> None:
         """Merge session tick bars, raw tape, and transactions into existing GCS history."""
         logger.info(
             "=== History merge (%s): dump/merge into existing GCS "
@@ -1009,86 +1136,66 @@ class TradingWorkflow:
             self._config.app.gcs.transactions_prefix,
             self._config.app.gcs.bucket_name,
         )
-        if self._forward_test_account is not None:
-            try:
-                self._forward_test_account.save()
-                logger.info("History merge: forward-test account saved")
-            except Exception:
-                logger.exception("History merge: forward-test account save failed")
-
-        if self._session_recorder is None:
-            logger.info("History merge: session OHLCV recorder disabled; skipping bars")
-        else:
-            try:
-                flushed = self.aggregator.flush()
-                strategy_timeframe = self._config.market_config.strategy_timeframe
-                for aggregated in flushed:
-                    if aggregated.timeframe != strategy_timeframe:
-                        continue
-                    self._session_recorder.record_aggregated_bar(aggregated)
-                buffered = self._session_recorder.buffered_row_count
-                if buffered:
-                    logger.info(
-                        "History merge: merging %d new live bar(s) into stored history",
-                        buffered,
-                    )
-                summary = self._session_recorder.flush()
-                logger.info(
-                    "History merge bars complete: new_rows=%d partitions_touched=%d uris=%s",
-                    summary.rows_written,
-                    summary.partitions_written,
-                    list(summary.storage_uris),
-                )
-            except Exception:
-                logger.exception("History merge: session OHLCV flush failed")
-
-        if self._trade_recorder is None:
-            logger.info("History merge: raw-trade recorder disabled; skipping tape")
-        else:
-            try:
-                buffered_trades = self._trade_recorder.buffered_row_count
-                if buffered_trades:
-                    logger.info(
-                        "History merge: merging %d raw trade(s) into stored history",
-                        buffered_trades,
-                    )
-                trade_summary = self._trade_recorder.flush()
-                logger.info(
-                    "History merge trades complete: new_rows=%d partitions_touched=%d uris=%s",
-                    trade_summary.rows_written,
-                    trade_summary.partitions_written,
-                    list(trade_summary.storage_uris),
-                )
-            except Exception:
-                logger.exception("History merge: raw trade flush failed")
-
-        if self._transaction_ledger is None:
-            logger.info(
-                "History merge: transaction ledger disabled; skipping transactions.csv"
-            )
-            return
         try:
-            gcs = self._config.app.gcs
-            uri = self._transaction_ledger.upload_to_gcs(
-                bucket_name=gcs.bucket_name,
-                prefix=gcs.transactions_prefix,
-                credentials_path=gcs.credentials_path,
-                project_id=gcs.project_id,
-            )
-            if uri:
-                logger.info("History merge: transaction ledger uploaded to %s", uri)
-            else:
-                logger.info(
-                    "History merge: transaction ledger kept local at %s",
-                    self._transaction_ledger.path,
-                )
+            self._flush_session_ohlcv(reason=reason)
         except Exception:
-            logger.exception("History merge: transaction ledger upload failed")
+            logger.exception("History merge: session OHLCV flush failed")
+
+        if self._trade_persist is None:
+            logger.info("History merge: raw-trade persist disabled; skipping tape")
+        elif shutdown_trade_persist:
+            try:
+                queued = self._trade_persist.approx_queued()
+                if queued:
+                    logger.info(
+                        "History merge: draining %d queued raw trade(s) "
+                        "before persist shutdown",
+                        queued,
+                    )
+                self._trade_persist.shutdown()
+                flushes = 0
+                compacts = 0
+                for event in self._trade_persist.poll_stats():
+                    kind = event.get("kind")
+                    if kind == "flush":
+                        flushes += 1
+                    elif kind == "compact":
+                        compacts += 1
+                logger.info(
+                    "History merge trades complete: writer stopped "
+                    "(flushes=%d compacts=%d drops=%d)",
+                    flushes,
+                    compacts,
+                    self._trade_persist_drops,
+                )
+            except Exception:
+                logger.exception("History merge: raw trade persist shutdown failed")
+        else:
+            logger.info(
+                "History merge: raw-trade writer keeps running "
+                "(queued=%d; background compact continues)",
+                self._trade_persist.approx_queued(),
+            )
+
+        self._checkpoint_account_and_transactions(reason=reason)
 
     def _wait_until_stream_session_open(self) -> None:
         """If started overnight / after close, wait until the stream window opens."""
         historical = self._config.app.historical
         if not historical.need_extended_hours:
+            return
+        if (
+            self._config.stream_provider == "databento"
+            and not self._config.app.databento.apply_equity_session_filter
+        ):
+            workflow = self._config.app.workflow
+            logger.info(
+                "Day prep complete; starting 24/7 futures stream "
+                "(new entries gated to %s-%s %s)",
+                workflow.entry_start_local or "09:30",
+                workflow.entry_end_local or "16:00",
+                self._config.app.app.timezone,
+            )
             return
         from market_session_scheduler import is_equity_streaming_session
 
@@ -1515,7 +1622,7 @@ class TradingWorkflow:
         self._run_process_and_strategy_layers(bar)
         self._evaluate_gex_strategies(bar)
         self._check_gex_position_timeouts(bar)
-        self._enforce_zero_dte_session_close(bar)
+        self._enforce_eod_session_close(bar)
         self._track_open_option_marks(bar)
 
     def _note_bar_sequence(self, bar: CleanBarEvent) -> None:
@@ -2252,54 +2359,61 @@ class TradingWorkflow:
         )
         self._gex_status_log[bar.symbol] = (status, now)
 
-    def _enforce_zero_dte_session_close(self, bar: CleanBarEvent) -> None:
-        """Flatten same-day (0DTE) options before the regular session close."""
+    def _enforce_eod_session_close(self, bar: CleanBarEvent) -> None:
+        """Flatten every open position when a bar arrives at/after the session close."""
         schedule = self._config.eod_schedule
+        if not schedule.enabled:
+            return
         bar_ts = (
             bar.timestamp.replace(tzinfo=timezone.utc)
             if bar.timestamp.tzinfo is None
             else bar.timestamp.astimezone(timezone.utc)
         )
-        bar_day = bar_ts.date()
-        if self._zero_dte_flattened_on == bar_day:
+        bar_day = bar_ts.astimezone(ZoneInfo(schedule.market_timezone)).date()
+        if self._eod_flattened_on == bar_day:
             return
         if not is_at_or_past_flatten_time(bar.timestamp, schedule=schedule):
             return
 
-        as_of = self._market_today()
-        closed_any = False
-        for position in list(self.position_tracker.list_positions()):
-            if position.asset_type != "OPTION":
-                continue
-            dte = days_to_expiration_for_occ(position.symbol, as_of=as_of)
-            if dte is None or dte != 0:
-                continue
+        logger.info(
+            "EOD session close: flattening open positions on bar %s",
+            bar.timestamp.isoformat(),
+        )
+        self._complete_eod_flatten(
+            bar.timestamp,
+            bar=bar,
+            market_day=bar_day,
+        )
 
-            underlying = (
-                position.underlying_symbol
-                or self._trade_underlying_for(bar.symbol)
-            ).upper()
-            logger.warning(
-                "0DTE session close: flattening %s before market close (bar=%s)",
-                position.symbol,
-                bar.timestamp.isoformat(),
-            )
-            self._flatten_open_option_position(
-                position=position,
-                underlying_symbol=underlying,
-                underlying_spot=self._approx_trade_spot_from_stream(
-                    underlying,
-                    stream_close=bar.close,
-                ),
-                closed_at=bar.timestamp,
-                strategy_name="zero_dte_close",
-                conditions_met="0DTE flatten before regular session close",
-                send_email=self._trade_emailer is not None,
-            )
-            closed_any = True
+    def _complete_eod_flatten(
+        self,
+        closed_at: datetime,
+        *,
+        bar: CleanBarEvent | None = None,
+        market_day: date,
+    ) -> None:
+        """Flatten open positions at RTH close; checkpoint history when streaming 24/7."""
+        try:
+            self._flatten_all_positions_eod(closed_at, bar=bar)
+        except Exception:
+            logger.exception("EOD session close flatten failed")
+        finally:
+            self._eod_flattened_on = market_day
 
-        if closed_any:
-            self._zero_dte_flattened_on = bar_day
+        if self._config.eod_schedule.shutdown_enabled:
+            return
+
+        logger.info(
+            "EOD flatten complete; streaming continues overnight "
+            "(entries resume %s-%s %s)",
+            self._config.app.workflow.entry_start_local or "09:30",
+            self._config.app.workflow.entry_end_local or "16:00",
+            self._config.app.app.timezone,
+        )
+        try:
+            self._checkpoint_account_and_transactions(reason="eod-flatten")
+        except Exception:
+            logger.exception("EOD account checkpoint failed; stream continues")
 
     def _check_gex_position_timeouts(self, bar: CleanBarEvent) -> None:
         """Force-review or exit 0DTE positions that exceed the max hold timer."""
@@ -3991,6 +4105,34 @@ class TradingWorkflow:
             source="stream_connection_manager",
         )
 
+    def _start_ohlcv_flush_scheduler(self) -> None:
+        """Periodically merge buffered bars to GCS while the 24/7 stream runs."""
+        interval = DEFAULT_COMPACT_INTERVAL_S
+        logger.info(
+            "Periodic OHLCV flush enabled (every %.0fs while stream runs)",
+            interval,
+        )
+        self._stop_ohlcv_flush.clear()
+        self._ohlcv_flush_thread = threading.Thread(
+            target=self._ohlcv_flush_loop,
+            name="workflow-ohlcv-flush",
+            daemon=True,
+        )
+        self._ohlcv_flush_thread.start()
+
+    def _ohlcv_flush_loop(self) -> None:
+        """Flush buffered OHLCV on an interval; raw trades use their own writer."""
+        interval = DEFAULT_COMPACT_INTERVAL_S
+        while not self._stop_ohlcv_flush.wait(interval):
+            try:
+                if (
+                    self._session_recorder is not None
+                    and self._session_recorder.buffered_row_count > 0
+                ):
+                    self._flush_session_ohlcv(reason="periodic")
+            except Exception:
+                logger.exception("Periodic OHLCV flush failed; will retry")
+
     def _start_eod_scheduler(self) -> None:
         """Watch the clock and flatten/shutdown at configured session times."""
         schedule = self._config.eod_schedule
@@ -4001,13 +4143,15 @@ class TradingWorkflow:
             )
         else:
             flatten_label = f"{schedule.flatten_time_utc.strftime('%H:%M')} UTC"
-        if schedule.shutdown_time_local is not None:
+        if schedule.shutdown_time_local is not None and schedule.shutdown_enabled:
             shutdown_label = (
                 f"{schedule.shutdown_time_local.strftime('%H:%M')} "
                 f"{schedule.market_timezone}"
             )
-        else:
+        elif schedule.shutdown_enabled:
             shutdown_label = f"{schedule.shutdown_time_utc.strftime('%H:%M')} UTC"
+        else:
+            shutdown_label = "disabled (24/7 stream)"
         logger.info(
             "EOD scheduler enabled: flatten %s, shutdown %s",
             flatten_label,
@@ -4038,14 +4182,10 @@ class TradingWorkflow:
                     logger.info(
                         "EOD: flattening all open positions by regular-session close"
                     )
-                    try:
-                        self._flatten_all_positions_eod(now)
-                    except Exception:
-                        logger.exception(
-                            "EOD position flatten failed; shutdown will still proceed"
-                        )
-                    finally:
-                        self._eod_flattened_on = market_day
+                    self._complete_eod_flatten(
+                        now,
+                        market_day=market_day,
+                    )
 
                 if should_shutdown(
                     now,
@@ -4067,7 +4207,12 @@ class TradingWorkflow:
             except Exception:
                 logger.exception("EOD scheduler iteration failed; retrying")
 
-    def _flatten_all_positions_eod(self, closed_at: datetime) -> None:
+    def _flatten_all_positions_eod(
+        self,
+        closed_at: datetime,
+        *,
+        bar: CleanBarEvent | None = None,
+    ) -> None:
         """Sell every open position at the end of the regular session."""
         positions = self.position_tracker.list_positions()
         if not positions:
@@ -4075,11 +4220,23 @@ class TradingWorkflow:
             return
 
         timeframe = self._config.market_config.strategy_timeframe
+        bar_underlying: Optional[str] = None
+        bar_spot: Optional[float] = None
+        if bar is not None:
+            bar_underlying = self._trade_underlying_for(bar.symbol).upper()
+            bar_spot = self._approx_trade_spot_from_stream(
+                bar_underlying,
+                stream_close=bar.close,
+            )
+
         for position in positions:
             underlying = (position.underlying_symbol or position.symbol).upper()
-            spot = self.indicator_coordinator.latest_close(underlying, timeframe)
-            if spot is None:
-                spot = position.last_mark_price or position.average_entry_price
+            if bar_spot is not None and underlying == bar_underlying:
+                spot = bar_spot
+            else:
+                spot = self.indicator_coordinator.latest_close(underlying, timeframe)
+                if spot is None:
+                    spot = position.last_mark_price or position.average_entry_price
 
             if position.asset_type == "OPTION":
                 self._flatten_open_option_position(
@@ -4219,9 +4376,12 @@ class TradingWorkflow:
         """Push persist-queue and dropped-bar metrics into the health monitor."""
         queue_depth = 0
         flush_lag: Optional[float] = None
-        if self._trade_recorder is not None:
-            queue_depth += self._trade_recorder.buffered_row_count
-            flush_lag = self._trade_recorder.flush_elapsed_seconds
+        if self._trade_persist is not None:
+            queue_depth += self._trade_persist.approx_queued()
+            for event in self._trade_persist.poll_stats():
+                duration = event.get("duration_s")
+                if duration is not None:
+                    flush_lag = float(duration)
         if self._session_recorder is not None:
             queue_depth += self._session_recorder.buffered_row_count
         self.health_monitor.update_runtime_metrics(

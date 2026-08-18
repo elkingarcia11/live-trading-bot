@@ -10,8 +10,8 @@
     "stream_to_trade": {
       "ES.n.0": "SPY"
     },
-    "stream_timeframe": "5t",
-    "strategy_timeframe": "5t",
+    "stream_timeframe": "400t",
+    "strategy_timeframe": "400t",
     "aggregation_timeframes": []
   },
   "indicators": {
@@ -41,12 +41,12 @@
     "gaussian_ma": {
       "enabled": true,
       "fast": {
-        "length": 20,
-        "sigma_divisor": 10.0
+        "length": 30,
+        "sigma_divisor": 7.0
       },
       "slow": {
-        "length": 20,
-        "sigma_divisor": 7.0
+        "length": 19,
+        "sigma_divisor": 4.0
       }
     }
   },
@@ -67,6 +67,7 @@
     "eod_shutdown_time_utc": "00:00",
     "eod_flatten_time_local": "16:00",
     "eod_shutdown_time_local": "20:00",
+    "eod_shutdown_enabled": false,
     "entry_start_local": "09:30",
     "entry_end_local": "16:00",
     "no_new_trades_after_utc": ""
@@ -89,10 +90,11 @@
     "dataset": "GLBX.MDP3",
     "schema": "trades",
     "stype_in": "continuous",
-    "ticks_per_bar": 5
+    "ticks_per_bar": 400,
+    "apply_equity_session_filter": false
   },
   "historical": {
-    "timeframe": "5t",
+    "timeframe": "400t",
     "frequency_type": "minute",
     "frequency": 1,
     "need_extended_hours": true,
@@ -122,6 +124,7 @@
     "ohlcv_prefix": "ohlcv",
     "trades_prefix": "trades",
     "transactions_prefix": "transactions",
+    "backtest_prefix": "backtests",
     "credentials_path": "gcs-sa.json",
     "project_id": "algo-trader-466023",
     "use_daily_partitions": true,

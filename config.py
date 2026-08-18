@@ -261,6 +261,8 @@ class WorkflowSettings:
     # Flatten at RTH close (16:00 ET); shutdown can stay at post-market end (20:00 ET).
     eod_flatten_time_local: str = "16:00"
     eod_shutdown_time_local: str = "20:00"
+    # When false the workflow keeps streaming after RTH (e.g. 24/7 ES); flatten still runs.
+    eod_shutdown_enabled: bool = True
     # New entries only inside [entry_start_local, entry_end_local) market-local time.
     # Default 09:30-16:00 ET => last open allowed through 15:59 ET.
     entry_start_local: str = "09:30"
@@ -321,6 +323,7 @@ class GcsSettings:
     ohlcv_prefix: str = "ohlcv"
     trades_prefix: str = "trades"
     transactions_prefix: str = "transactions"
+    backtest_prefix: str = "backtests"
     credentials_path: str = ""
     project_id: str = ""
     use_daily_partitions: bool = True
@@ -579,6 +582,10 @@ class AppConfig:
                     gcs_payload.get("transactions_prefix", "transactions")
                 ).strip()
                 or "transactions",
+                backtest_prefix=str(
+                    gcs_payload.get("backtest_prefix", "backtests")
+                ).strip()
+                or "backtests",
                 credentials_path=credentials_path,
                 project_id=str(
                     gcs_payload.get("project_id")
@@ -820,6 +827,7 @@ def _parse_workflow_settings(
         eod_shutdown_time_utc=str(payload.get("eod_shutdown_time_utc", "20:00")),
         eod_flatten_time_local=str(payload.get("eod_flatten_time_local", "16:00")),
         eod_shutdown_time_local=str(payload.get("eod_shutdown_time_local", "20:00")),
+        eod_shutdown_enabled=bool(payload.get("eod_shutdown_enabled", True)),
         entry_start_local=str(payload.get("entry_start_local", "09:30")),
         entry_end_local=str(payload.get("entry_end_local", "16:00")),
         no_new_trades_after_utc=str(payload.get("no_new_trades_after_utc", "")),

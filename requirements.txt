@@ -1,4 +1,6 @@
 databento>=0.40.0
+numba>=0.59.0
+numpy>=1.26.0
 google-cloud-storage>=2.14.0
 ibapi>=9.81.1
 pandas>=2.1.0
@@ -6,3 +8,7 @@ pyarrow>=14.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 websocket-client>=1.7.0
+zstandard>=0.22.0
+tqdm>=4.66.0
+plotly>=5.22.0
+streamlit>=1.36.0

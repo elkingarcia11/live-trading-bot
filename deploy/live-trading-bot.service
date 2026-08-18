@@ -1,0 +1,25 @@
+[Unit]
+Description=Live trading workflow (24/7 Databento ES stream)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=DEPLOY_USER
+Group=DEPLOY_USER
+WorkingDirectory=REPO_ROOT
+Environment=TZ=America/New_York
+Environment=PYTHONUNBUFFERED=1
+Environment=GOOGLE_CLOUD_PROJECT=algo-trader-466023
+EnvironmentFile=-REPO_ROOT/.env
+ExecStart=REPO_ROOT/.venv/bin/python -u REPO_ROOT/workflow.py
+Restart=always
+RestartSec=15
+# Graceful shutdown: flush partial bars + GCS checkpoint (may take ~2 min).
+TimeoutStopSec=180
+
+StandardOutput=append:REPO_ROOT/logs/workflow.log
+StandardError=append:REPO_ROOT/logs/workflow.log
+
+[Install]
+WantedBy=multi-user.target

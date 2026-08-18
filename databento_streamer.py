@@ -49,6 +49,9 @@ class DatabentoStreamSession:
         on_trade: Optional[
             Callable[[str, datetime, float, float, str], None]
         ] = None,
+        on_databento_trade: Optional[
+            Callable[[Any, str, str], None]
+        ] = None,
     ) -> None:
         if not api_key.strip():
             raise ValueError("Databento API key is required (set DATABENTO_API_KEY)")
@@ -65,14 +68,16 @@ class DatabentoStreamSession:
         self._trading_days_only = trading_days_only
         self._apply_equity_session_filter = apply_equity_session_filter
         self._bar_builder = TickBarBuilder(ticks_per_bar=ticks_per_bar)
-        self._symbol_by_instrument_id: dict[int, str] = {}
         self._on_open_external = on_open_external
         self._on_close_external = on_close_external
         self._on_error_external = on_error_external
         self._on_trade = on_trade
+        self._on_databento_trade = on_databento_trade
         self._client: Any = None
         self._connected = False
         self._lock = threading.Lock()
+        self._symbol_by_instrument_id: dict[int, str] = {}
+        self._raw_symbol_by_instrument_id: dict[int, str] = {}
         self._outside_session_logged = False
         self._last_progress_log_at: dict[str, float] = {}
         self._trade_counts: dict[str, int] = {}
@@ -197,6 +202,7 @@ class DatabentoStreamSession:
             self._client = None
             self._connected = False
             self._symbol_by_instrument_id.clear()
+            self._raw_symbol_by_instrument_id.clear()
             self._bar_builder.reset()
 
         if client is not None:
@@ -274,6 +280,17 @@ class DatabentoStreamSession:
         size = float(getattr(record, "size", 0) or 0.0)
         side = str(getattr(record, "side", "") or "")
 
+        if self._on_databento_trade is not None and price > 0:
+            raw_symbol = self._raw_symbol_by_instrument_id.get(
+                int(record.instrument_id), ""
+            )
+            try:
+                self._on_databento_trade(record, symbol, raw_symbol)
+            except Exception:
+                logger.exception(
+                    "Databento on_databento_trade callback failed for %s", symbol
+                )
+
         if self._on_trade is not None and price > 0:
             try:
                 self._on_trade(symbol, timestamp, price, size, side)
@@ -321,21 +338,20 @@ class DatabentoStreamSession:
 
     def _handle_symbol_mapping(self, record: Any) -> None:
         instrument_id = int(record.instrument_id)
-        # Prefer the subscribed input symbol (e.g. ES.n.0 / SPY) over venue raw output.
-        raw_symbol = str(
-            getattr(record, "stype_in_symbol", None)
-            or getattr(record, "stype_out_symbol", "")
-            or ""
-        ).strip()
+        in_sym = str(getattr(record, "stype_in_symbol", None) or "").strip()
+        out_sym = str(getattr(record, "stype_out_symbol", None) or "").strip()
+        raw_symbol = in_sym or out_sym
         if not raw_symbol:
             return
         symbol = normalize_market_symbol(raw_symbol)
         with self._lock:
             self._symbol_by_instrument_id[instrument_id] = symbol
+            self._raw_symbol_by_instrument_id[instrument_id] = out_sym or raw_symbol
         logger.info(
-            "Databento mapped instrument_id=%s -> %s",
+            "Databento mapped instrument_id=%s -> %s%s",
             instrument_id,
             symbol,
+            f" (raw={out_sym})" if out_sym and out_sym != symbol else "",
         )
 
 
