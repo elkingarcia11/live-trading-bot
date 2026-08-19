@@ -23,7 +23,8 @@ def test_parse_login_success_response() -> None:
         ]
     }
     events = parser.parse(json.dumps(payload))
-    assert any(event.event_type == StreamEventType.LOGIN_SUCCESS for event in events)
+    assert any(event.event_type ==
+               StreamEventType.LOGIN_SUCCESS for event in events)
 
 
 def test_parse_login_denied_response() -> None:
@@ -42,7 +43,8 @@ def test_parse_login_denied_response() -> None:
         ]
     }
     events = parser.parse(json.dumps(payload))
-    login_events = [event for event in events if event.event_type == StreamEventType.LOGIN_FAILURE]
+    login_events = [
+        event for event in events if event.event_type == StreamEventType.LOGIN_FAILURE]
     assert len(login_events) == 1
     assert login_events[0].response_code == 3
 
@@ -55,17 +57,27 @@ def test_parse_levelone_option_mark_from_numeric_fields() -> None:
                 "service": "LEVELONE_OPTIONS",
                 "command": "SUBS",
                 "content": [
-                    {"key": "SPY   260622C00450000", "2": 4.9, "3": 5.1, "37": 5.0}
+                    {
+                        "key": "SPY   260622C00450000",
+                        "1": "SPY 450 Call",
+                        "2": 4.9,
+                        "3": 5.1,
+                        "35": 500.25,
+                        "37": 5.0,
+                    }
                 ],
             }
         ]
     }
     events = parser.parse(json.dumps(payload))
-    quotes = [e for e in events if e.event_type == StreamEventType.OPTION_QUOTE]
+    quotes = [e for e in events if e.event_type ==
+              StreamEventType.OPTION_QUOTE]
     assert len(quotes) == 1
     assert quotes[0].payload is not None
     assert quotes[0].payload["symbol"] == "SPY   260622C00450000"
     assert quotes[0].payload["mark"] == 5.0
+    assert quotes[0].payload["description"] == "SPY 450 Call"
+    assert quotes[0].payload["underlying_price"] == 500.25
 
 
 def test_parse_levelone_option_mark_falls_back_to_midpoint() -> None:
@@ -80,7 +92,8 @@ def test_parse_levelone_option_mark_falls_back_to_midpoint() -> None:
         ]
     }
     events = parser.parse(json.dumps(payload))
-    quotes = [e for e in events if e.event_type == StreamEventType.OPTION_QUOTE]
+    quotes = [e for e in events if e.event_type ==
+              StreamEventType.OPTION_QUOTE]
     assert len(quotes) == 1
     assert quotes[0].payload is not None
     assert quotes[0].payload["mark"] == 5.0
@@ -117,7 +130,8 @@ def test_parse_add_subscription_success() -> None:
         ]
     }
     events = parser.parse(json.dumps(payload))
-    assert any(event.event_type == StreamEventType.SUBSCRIBE_SUCCESS for event in events)
+    assert any(event.event_type ==
+               StreamEventType.SUBSCRIBE_SUCCESS for event in events)
 
 
 def test_parse_close_connection_response() -> None:
@@ -133,7 +147,8 @@ def test_parse_close_connection_response() -> None:
         ]
     }
     events = parser.parse(json.dumps(payload))
-    assert any(event.event_type == StreamEventType.CONNECTION_CLOSED for event in events)
+    assert any(event.event_type ==
+               StreamEventType.CONNECTION_CLOSED for event in events)
 
 
 def test_parse_chart_equity_bar() -> None:
@@ -159,7 +174,8 @@ def test_parse_chart_equity_bar() -> None:
         ]
     }
     events = parser.parse(json.dumps(payload))
-    chart_events = [event for event in events if event.event_type == StreamEventType.CHART_BAR]
+    chart_events = [
+        event for event in events if event.event_type == StreamEventType.CHART_BAR]
     assert len(chart_events) == 1
     assert chart_events[0].payload is not None
     assert chart_events[0].payload["symbol"] == "SPY"
@@ -191,7 +207,8 @@ def test_parse_chart_equity_bar_floors_time_and_accepts_forming_bar() -> None:
         ]
     }
     events = parser.parse(json.dumps(payload))
-    chart_events = [event for event in events if event.event_type == StreamEventType.CHART_BAR]
+    chart_events = [
+        event for event in events if event.event_type == StreamEventType.CHART_BAR]
     assert len(chart_events) == 1
     bar_payload = chart_events[0].payload
     assert bar_payload is not None
@@ -254,7 +271,8 @@ def test_parse_chart_equity_repairs_corrupt_open_low_before_publish() -> None:
         ]
     }
     events = parser.parse(json.dumps(payload))
-    chart_events = [event for event in events if event.event_type == StreamEventType.CHART_BAR]
+    chart_events = [
+        event for event in events if event.event_type == StreamEventType.CHART_BAR]
     assert len(chart_events) == 1
     bar = chart_events[0].payload["bar"]
     assert bar["open"] == 753.2

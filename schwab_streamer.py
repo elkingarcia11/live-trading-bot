@@ -32,8 +32,9 @@ CHART_EQUITY_SERVICE = "CHART_EQUITY"
 ADMIN_SERVICE = "ADMIN"
 
 LEVELONE_OPTIONS_SERVICE = "LEVELONE_OPTIONS"
-# 0=key, 2=bid, 3=ask, 4=last, 37=mark, 38=quote time (ms)
-LEVELONE_OPTIONS_FIELDS = "0,2,3,4,37,38"
+# 0=key, 1=description, 2=bid, 3=ask, 4=last, 35=underlying price,
+# 37=mark, 38=quote time (ms)
+LEVELONE_OPTIONS_FIELDS = "0,1,2,3,4,35,37,38"
 
 RESPONSE_SUCCESS = 0
 RESPONSE_LOGIN_DENIED = 3
@@ -159,12 +160,14 @@ class SchwabStreamMessageParser:
             for item in content:
                 bar = self._chart_equity_item_to_bar(item)
                 if bar is not None:
-                    events.append(StreamEvent(StreamEventType.CHART_BAR, payload=bar))
+                    events.append(StreamEvent(
+                        StreamEventType.CHART_BAR, payload=bar))
         elif service == self._option_service:
             for item in content:
                 quote = self._levelone_option_item_to_quote(item)
                 if quote is not None:
-                    events.append(StreamEvent(StreamEventType.OPTION_QUOTE, payload=quote))
+                    events.append(StreamEvent(
+                        StreamEventType.OPTION_QUOTE, payload=quote))
         return events
 
     def _levelone_option_item_to_quote(self, item: object) -> Optional[dict[str, Any]]:
@@ -179,6 +182,10 @@ class SchwabStreamMessageParser:
         ask = _option_field(item, "3", "ASK_PRICE")
         last = _option_field(item, "4", "LAST_PRICE")
         mark = _option_field(item, "37", "MARK_PRICE", "MARK")
+        description = str(item.get("1") or item.get("DESCRIPTION") or "")
+        underlying_price = _option_field(
+            item, "35", "UNDERLYING_PRICE", "UNDERLYING_PRICE"
+        )
         quote_time = item.get("38", item.get("QUOTE_TIME_MILLIS"))
 
         if mark is None or mark <= 0:
@@ -191,7 +198,9 @@ class SchwabStreamMessageParser:
 
         return {
             "symbol": symbol,
+            "description": description,
             "mark": mark,
+            "underlying_price": underlying_price,
             "bid": bid,
             "ask": ask,
             "last": last,
@@ -206,7 +215,8 @@ class SchwabStreamMessageParser:
         if not symbol:
             return None
 
-        chart_time = item.get("7", item.get("CHART_TIME_MILLIS", item.get("CHART_TIME")))
+        chart_time = item.get("7", item.get(
+            "CHART_TIME_MILLIS", item.get("CHART_TIME")))
         if chart_time is None:
             return None
 
@@ -262,7 +272,8 @@ class SchwabStreamSession:
         option_fields: str = LEVELONE_OPTIONS_FIELDS,
         subscribe_on_connect: bool = True,
         on_open_external: Optional[Callable[[], None]] = None,
-        on_close_external: Optional[Callable[[Optional[int], Optional[str]], None]] = None,
+        on_close_external: Optional[Callable[[
+            Optional[int], Optional[str]], None]] = None,
         on_error_external: Optional[Callable[[Exception], None]] = None,
         on_option_quote: Optional[Callable[[dict[str, Any]], None]] = None,
         ping_interval: float = 20.0,
@@ -371,7 +382,8 @@ class SchwabStreamSession:
     def add_symbols(self, symbols: Sequence[str]) -> None:
         """Add symbols to the active chart subscription using the ADD command."""
         if not self._logged_in:
-            raise RuntimeError("Cannot add symbols before Schwab stream login succeeds")
+            raise RuntimeError(
+                "Cannot add symbols before Schwab stream login succeeds")
         self._send_chart_equity_command("ADD", symbols)
 
     def subscribe_option(self, occ_symbol: str) -> None:
@@ -431,7 +443,8 @@ class SchwabStreamSession:
             if event.event_type == StreamEventType.HEARTBEAT:
                 continue
             if event.event_type == StreamEventType.CONNECTION_CLOSED:
-                logger.warning("Schwab streamer closed the connection: %s", event.message)
+                logger.warning(
+                    "Schwab streamer closed the connection: %s", event.message)
                 self._force_reconnect()
                 continue
             if event.event_type == StreamEventType.LOGIN_SUCCESS:
@@ -458,7 +471,8 @@ class SchwabStreamSession:
                 )
                 continue
             if event.event_type == StreamEventType.SUBSCRIBE_FAILURE:
-                logger.error("Schwab chart subscription failed: %s", event.message)
+                logger.error(
+                    "Schwab chart subscription failed: %s", event.message)
                 continue
             if event.event_type == StreamEventType.OPTION_SUBSCRIBE_SUCCESS:
                 logger.info(
@@ -468,7 +482,8 @@ class SchwabStreamSession:
                 )
                 continue
             if event.event_type == StreamEventType.OPTION_SUBSCRIBE_FAILURE:
-                logger.error("Schwab option subscription failed: %s", event.message)
+                logger.error(
+                    "Schwab option subscription failed: %s", event.message)
                 continue
             if event.event_type == StreamEventType.OPTION_QUOTE and event.payload is not None:
                 if self._on_option_quote is not None:
@@ -489,11 +504,13 @@ class SchwabStreamSession:
             self._login_retries += 1
             try:
                 self._trader_client.get_access_token(force_refresh=True)
-                logger.info("Refreshing Schwab access token and retrying stream login")
+                logger.info(
+                    "Refreshing Schwab access token and retrying stream login")
                 self._send_login()
                 return
             except Exception:
-                logger.exception("Failed to refresh Schwab access token for stream login")
+                logger.exception(
+                    "Failed to refresh Schwab access token for stream login")
 
         self._force_reconnect()
 
@@ -565,7 +582,8 @@ class SchwabStreamSession:
         try:
             self._send_request(request)
         except Exception:
-            logger.debug("Schwab stream logout failed during disconnect", exc_info=True)
+            logger.debug(
+                "Schwab stream logout failed during disconnect", exc_info=True)
 
     def _send_chart_equity_subs(self) -> None:
         if not self._logged_in:
@@ -612,7 +630,8 @@ class SchwabStreamSession:
         if not self._logged_in:
             return
 
-        normalized = [symbol.upper() for symbol in symbols if str(symbol).strip()]
+        normalized = [symbol.upper()
+                      for symbol in symbols if str(symbol).strip()]
         if not normalized:
             return
 
@@ -795,8 +814,10 @@ if __name__ == "__main__":
     def on_bar(event: CleanBarEvent) -> None:
         print(event.to_dict())
 
-    processor = build_schwab_stream_processor(symbols=("SPY",), consumers=[on_bar])
-    session = SchwabStreamSession.from_env(symbols=("SPY",), processor=processor)
+    processor = build_schwab_stream_processor(
+        symbols=("SPY",), consumers=[on_bar])
+    session = SchwabStreamSession.from_env(
+        symbols=("SPY",), processor=processor)
     print(f"Connecting to {session.connection_manager.url}")
     session.refresh_streamer_info()
     session.connect()

@@ -157,6 +157,24 @@ class TradePersistClient:
         except Full:
             return False
 
+    def put_reliably(
+        self,
+        row: Mapping[str, Any],
+        *,
+        timeout_seconds: float = 1.0,
+    ) -> bool:
+        """Enqueue a row with bounded waits until it is accepted or closed."""
+        if self._closed:
+            return False
+        while not self._closed:
+            try:
+                self._queue.put(row, timeout=max(0.01, timeout_seconds))
+                return True
+            except Full:
+                logger.warning(
+                    "Raw trade persist queue is full; waiting for writer")
+        return False
+
     def approx_queued(self) -> int:
         try:
             return int(self._queue.qsize())
@@ -249,8 +267,9 @@ def run_trade_persist_writer(
         except Exception:
             ok = False
             written = len(rows)
+            batch = rows + batch
             logger.exception(
-                "Append (%s) failed for %d row(s); rows remain only in failed batch",
+                "Append (%s) failed for %d row(s); retaining batch for retry",
                 reason,
                 written,
             )

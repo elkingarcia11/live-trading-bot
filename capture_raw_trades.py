@@ -214,7 +214,8 @@ def main() -> int:
         now = time.monotonic()
         last_metrics_at = now
         rows_since_metrics = 0
-        logger.info(metrics.snapshot_line(now=now, buffered=persist.approx_queued()))
+        logger.info(metrics.snapshot_line(
+            now=now, buffered=persist.approx_queued()))
 
     def _maybe_log_metrics(*, force: bool = False) -> None:
         if force:
@@ -239,7 +240,8 @@ def main() -> int:
         if rtype_name == "SymbolMappingMsg":
             instrument_id = int(getattr(record, "instrument_id", 0) or 0)
             in_sym = str(getattr(record, "stype_in_symbol", "") or "").strip()
-            out_sym = str(getattr(record, "stype_out_symbol", "") or "").strip()
+            out_sym = str(
+                getattr(record, "stype_out_symbol", "") or "").strip()
             mapped = normalize_market_symbol(in_sym or out_sym)
             if instrument_id and mapped:
                 symbol_by_id[instrument_id] = mapped
@@ -271,7 +273,7 @@ def main() -> int:
             metrics.note_rejected()
             return
 
-        if not persist.try_put(row):
+        if not persist.put_reliably(row):
             metrics.note_persist_drop()
 
         metrics.note_trade()
@@ -279,7 +281,8 @@ def main() -> int:
         price = float(getattr(record, "pretty_price", 0) or 0)
         size = float(getattr(record, "size", 0) or 0)
         side = str(
-            getattr(getattr(record, "side", None), "value", getattr(record, "side", ""))
+            getattr(getattr(record, "side", None),
+                    "value", getattr(record, "side", ""))
             or ""
         )
         seq = getattr(record, "sequence", None)
