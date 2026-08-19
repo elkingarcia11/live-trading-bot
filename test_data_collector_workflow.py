@@ -1,4 +1,4 @@
-"""Focused tests for raw collector buffering and ATM seed extraction."""
+"""Focused tests for the ES raw collector and its buffering."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from data_collector_workflow import (
     DataCollectorWorkflow,
     TICK_TIMEFRAMES,
     DailyCsvBuffer,
-    _chain_underlying_price,
 )
 from tick_bar_builder import TickBarBuilder
 
@@ -74,7 +73,3 @@ def test_es_tick_bar_is_routed_to_matching_buffer() -> None:
     assert buffers["25t"].rows[0]["open"] == 5000.0
     assert buffers["25t"].rows[0]["close"] == 5024.0
     assert buffers["50t"].rows == []
-
-
-def test_chain_underlying_price_uses_current_quote() -> None:
-    assert _chain_underlying_price({"underlying": {"last": 501.25}}) == 501.25

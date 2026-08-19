@@ -152,7 +152,8 @@ class WorkflowConfig:
 
     def __post_init__(self) -> None:
         if self.stream_provider == "generic" and not self.websocket_url:
-            raise ValueError("websocket_url is required when stream_provider='generic'")
+            raise ValueError(
+                "websocket_url is required when stream_provider='generic'")
 
     @property
     def symbols(self) -> tuple[str, ...]:
@@ -483,7 +484,8 @@ class TradingWorkflow:
             )
 
         self.bus = bus or EventBus()
-        self.trade_logger = TradeLogger(self.bus, log_path=config.audit_log_path)
+        self.trade_logger = TradeLogger(
+            self.bus, log_path=config.audit_log_path)
         health = config.app.health
         monitored_modules = (
             "stream_data_processor",
@@ -631,14 +633,17 @@ class TradingWorkflow:
         if transactions_path:
             self._transaction_ledger = TransactionLedger(transactions_path)
         if config.email_forward_test:
-            self._trade_emailer = TradeEmailer(EmailerConfig.from_app_config(config.app))
+            self._trade_emailer = TradeEmailer(
+                EmailerConfig.from_app_config(config.app))
             try:
                 self._forward_test_account = ForwardTestAccount.from_app_config(
                     config.app
                 )
-                self._forward_test_account.restore_positions(self.position_tracker)
+                self._forward_test_account.restore_positions(
+                    self.position_tracker)
             except Exception:
-                logger.exception("Forward-test account unavailable; using static balance")
+                logger.exception(
+                    "Forward-test account unavailable; using static balance")
             logger.info(
                 "Forward-test mode enabled: approved signals email %s (no broker orders)",
                 ", ".join(config.app.email.recipients),
@@ -791,7 +796,8 @@ class TradingWorkflow:
             )
             self._databento_stream.connect()
         else:
-            logger.info("Connecting market data stream at %s", self._config.websocket_url)
+            logger.info("Connecting market data stream at %s",
+                        self._config.websocket_url)
             self.stream_manager.connect()
         if self._config.sync_broker_positions_on_start:
             self._sync_broker_positions()
@@ -807,7 +813,8 @@ class TradingWorkflow:
         if self._gex_monitor is not None:
             if self._config.app.gex.poll_on_startup:
                 try:
-                    logger.info("Running startup GEX chain poll before live stream")
+                    logger.info(
+                        "Running startup GEX chain poll before live stream")
                     self._gex_monitor.poll_once(reason="startup")
                     self._gex_monitor.mark_past_slots_fired()
                 except Exception:
@@ -870,13 +877,15 @@ class TradingWorkflow:
             elif self._stream_manager is not None:
                 self.stream_manager.disconnect()
         except Exception:
-            logger.exception("Stream disconnect failed during %s", persist_reason)
+            logger.exception(
+                "Stream disconnect failed during %s", persist_reason)
 
         if self._gex_monitor is not None:
             try:
                 self._gex_monitor.stop()
             except Exception:
-                logger.exception("GEX monitor stop failed during %s", persist_reason)
+                logger.exception(
+                    "GEX monitor stop failed during %s", persist_reason)
 
         self._started = False
         logger.info("TradingWorkflow stopped for %s", ", ".join(self._symbols))
@@ -941,7 +950,8 @@ class TradingWorkflow:
         )
         self.risk_guard.restore_daily_state(*daily_state)
         self._strategy_state = {}
-        self._gex_strategy_state = {symbol: {} for symbol in self._trade_symbols}
+        self._gex_strategy_state = {symbol: {}
+                                    for symbol in self._trade_symbols}
         self._gex_status_log = {}
         self._gex_waiting_snapshot_logged = set()
         self.health_monitor.set_thresholds(
@@ -963,7 +973,8 @@ class TradingWorkflow:
         try:
             payloads = self._databento_stream.flush_partial_bars()
         except Exception:
-            logger.exception("Failed flushing partial tick bars before shutdown")
+            logger.exception(
+                "Failed flushing partial tick bars before shutdown")
             return
         for payload in payloads:
             bar = payload.get("bar") or {}
@@ -1051,7 +1062,8 @@ class TradingWorkflow:
                         self._trade_persist.approx_queued(),
                     )
         except Exception:
-            logger.exception("Raw-trade persist failed for %s; feed continues", symbol)
+            logger.exception(
+                "Raw-trade persist failed for %s; feed continues", symbol)
 
     def _flush_session_ohlcv(self, *, reason: str) -> Optional[SessionFlushSummary]:
         """Merge buffered live bars into cumulative OHLCV history."""
@@ -1086,7 +1098,8 @@ class TradingWorkflow:
         if self._forward_test_account is not None:
             try:
                 self._forward_test_account.save()
-                logger.info("Account checkpoint (%s): forward-test account saved", reason)
+                logger.info(
+                    "Account checkpoint (%s): forward-test account saved", reason)
             except Exception:
                 logger.exception(
                     "Account checkpoint (%s): forward-test account save failed", reason
@@ -1142,7 +1155,8 @@ class TradingWorkflow:
             logger.exception("History merge: session OHLCV flush failed")
 
         if self._trade_persist is None:
-            logger.info("History merge: raw-trade persist disabled; skipping tape")
+            logger.info(
+                "History merge: raw-trade persist disabled; skipping tape")
         elif shutdown_trade_persist:
             try:
                 queued = self._trade_persist.approx_queued()
@@ -1169,7 +1183,8 @@ class TradingWorkflow:
                     self._trade_persist_drops,
                 )
             except Exception:
-                logger.exception("History merge: raw trade persist shutdown failed")
+                logger.exception(
+                    "History merge: raw trade persist shutdown failed")
         else:
             logger.info(
                 "History merge: raw-trade writer keeps running "
@@ -1492,7 +1507,8 @@ class TradingWorkflow:
     def _sync_broker_positions(self) -> None:
         """Load broker positions into the local position tracker."""
         if self._account_sync is None:
-            logger.warning("Broker position sync requested but account sync is unavailable")
+            logger.warning(
+                "Broker position sync requested but account sync is unavailable")
             return
 
         try:
@@ -1531,7 +1547,8 @@ class TradingWorkflow:
                 source=source,
             )
         except Exception as exc:
-            logger.exception("Failed to sync broker account positions: %s", exc)
+            logger.exception(
+                "Failed to sync broker account positions: %s", exc)
             self.bus.publish(
                 Topics.STREAM_ERROR,
                 {"error": f"account position sync failed: {exc}"},
@@ -1720,7 +1737,8 @@ class TradingWorkflow:
             return
 
         trade_underlying = self._trade_underlying_for(bar.symbol)
-        position = self.position_tracker.get_position_for_underlying(trade_underlying)
+        position = self.position_tracker.get_position_for_underlying(
+            trade_underlying)
         if position is None or position.asset_type != "OPTION":
             return
 
@@ -1775,7 +1793,8 @@ class TradingWorkflow:
             return
         if mark_value <= 0:
             return
-        self._handle_option_mark(symbol, mark_value, datetime.now(timezone.utc))
+        self._handle_option_mark(
+            symbol, mark_value, datetime.now(timezone.utc))
 
     def _handle_option_mark(
         self,
@@ -1840,7 +1859,8 @@ class TradingWorkflow:
             return
         self._flattening_contracts.add(key)
         try:
-            underlying = (position.underlying_symbol or position.symbol).upper()
+            underlying = (
+                position.underlying_symbol or position.symbol).upper()
             timeframe = self._config.market_config.strategy_timeframe
             stream_symbol = self._stream_symbol_for(underlying)
             stream_close = self.indicator_coordinator.latest_close(
@@ -1935,7 +1955,8 @@ class TradingWorkflow:
         try:
             self._schwab_stream.subscribe_option(occ_symbol)
         except Exception:
-            logger.exception("Failed to subscribe option stream for %s", occ_symbol)
+            logger.exception(
+                "Failed to subscribe option stream for %s", occ_symbol)
 
     def _unsubscribe_option_contract(self, occ_symbol: str) -> None:
         """Stop streaming marks for a closed option contract."""
@@ -2188,7 +2209,8 @@ class TradingWorkflow:
                 self._config.app.app.timezone,
             )
         except Exception:
-            logger.exception("GEX monitor unavailable; gex_scalp will not receive snapshots")
+            logger.exception(
+                "GEX monitor unavailable; gex_scalp will not receive snapshots")
 
     def _evaluate_gex_strategies(self, bar: CleanBarEvent) -> None:
         """Evaluate stream-native GEX strategies on each clean stream bar."""
@@ -2210,7 +2232,8 @@ class TradingWorkflow:
         anchored = self._gex_monitor.get_latest(trade_underlying)
         if anchored is None:
             if bar.symbol not in self._gex_waiting_snapshot_logged:
-                slots = ", ".join(self._config.app.gex.level_refresh_times_local)
+                slots = ", ".join(
+                    self._config.app.gex.level_refresh_times_local)
                 logger.info(
                     "gex_scalp %s: waiting for first GEX level snapshot "
                     "(refresh schedule: %s)",
@@ -2235,7 +2258,8 @@ class TradingWorkflow:
         history.append(bar.volume)
         volume_sma = sum(history) / len(history) if history else 0.0
 
-        position = self.position_tracker.get_position_for_underlying(trade_underlying)
+        position = self.position_tracker.get_position_for_underlying(
+            trade_underlying)
         has_open_position = position is not None and abs(position.quantity) > 0
 
         gex_settings = self._config.app.gex
@@ -2421,7 +2445,8 @@ class TradingWorkflow:
             return
 
         trade_underlying = self._trade_underlying_for(bar.symbol)
-        position = self.position_tracker.get_position_for_underlying(trade_underlying)
+        position = self.position_tracker.get_position_for_underlying(
+            trade_underlying)
         if position is None or position.asset_type != "OPTION":
             return
         if position.force_review_after is None:
@@ -2624,7 +2649,8 @@ class TradingWorkflow:
 
         options = self._config.app.options
         if options.enabled and signal.action in {SignalAction.BUY, SignalAction.SELL}:
-            position = self.position_tracker.get_position_for_underlying(signal.symbol)
+            position = self.position_tracker.get_position_for_underlying(
+                signal.symbol)
             if (
                 position is not None
                 and position.asset_type == "OPTION"
@@ -2644,7 +2670,8 @@ class TradingWorkflow:
                     return
             self._close_existing_option_on_flip(signal)
 
-        position = self.position_tracker.get_position_for_underlying(signal.symbol)
+        position = self.position_tracker.get_position_for_underlying(
+            signal.symbol)
         current_quantity = position.quantity if position is not None else 0.0
         option_put_entry = options.enabled and signal.action == SignalAction.SELL
         option_entry = option_put_entry or (
@@ -2717,7 +2744,8 @@ class TradingWorkflow:
         self.bus.publish(Topics.RISK_DECISION, decision, source="risk_guard")
 
         if not decision.approved:
-            logger.info("Risk guard blocked %s for %s", signal.action.value, signal.symbol)
+            logger.info("Risk guard blocked %s for %s",
+                        signal.action.value, signal.symbol)
             return
 
         if opens_new_trade:
@@ -2727,7 +2755,8 @@ class TradingWorkflow:
             fill_result: Optional[ForwardTestFillResult] = None
             closed_position = None
             if signal.action == SignalAction.SELL and not option_put_entry:
-                closed_position = self.position_tracker.get_position(resolved.symbol)
+                closed_position = self.position_tracker.get_position(
+                    resolved.symbol)
             try:
                 fill_result = self._record_forward_test_fill(
                     signal,
@@ -2832,7 +2861,8 @@ class TradingWorkflow:
 
     def _exit_open_position_on_signal(self, signal: StrategySignal) -> None:
         """Flatten any open position for a signal that closes to flat (no flip)."""
-        position = self.position_tracker.get_position_for_underlying(signal.symbol)
+        position = self.position_tracker.get_position_for_underlying(
+            signal.symbol)
         if position is None or abs(position.quantity) <= 0:
             return
 
@@ -3374,12 +3404,14 @@ class TradingWorkflow:
 
         timeframe = self._config.market_config.strategy_timeframe
         for symbol in self._trade_symbols:
-            position = self.position_tracker.get_position_for_underlying(symbol)
+            position = self.position_tracker.get_position_for_underlying(
+                symbol)
             if position is None or position.asset_type != "OPTION":
                 continue
 
             stream_symbol = self._stream_symbol_for(symbol)
-            snapshot = self.indicator_coordinator.get_latest(stream_symbol, timeframe)
+            snapshot = self.indicator_coordinator.get_latest(
+                stream_symbol, timeframe)
             if snapshot is None:
                 logger.info(
                     "Keeping restored %s; indicators not ready for reconciliation",
@@ -3419,7 +3451,8 @@ class TradingWorkflow:
                 aligned = option_position_aligned_with_gaussian_crossover(
                     contract_type, float(fast), float(slow)
                 )
-                bias_label = "bullish" if float(fast) > float(slow) else "bearish"
+                bias_label = "bullish" if float(
+                    fast) > float(slow) else "bearish"
             else:
                 aligned = option_position_aligned_with_gaussian(
                     contract_type, float(underlying_spot), float(gauss_ma)
@@ -3606,7 +3639,8 @@ class TradingWorkflow:
 
     def _close_existing_option_on_flip(self, signal: StrategySignal) -> None:
         """Flatten an opposite-side option before entering the new flip direction."""
-        position = self.position_tracker.get_position_for_underlying(signal.symbol)
+        position = self.position_tracker.get_position_for_underlying(
+            signal.symbol)
         if position is None or position.asset_type != "OPTION":
             return
 
@@ -3643,7 +3677,8 @@ class TradingWorkflow:
             return chain_underlying
 
         stream_symbol = self._stream_symbol_for(underlying_symbol)
-        one_minute = self.indicator_coordinator.latest_close(stream_symbol, "1m")
+        one_minute = self.indicator_coordinator.latest_close(
+            stream_symbol, "1m")
         if one_minute is not None and one_minute > 0:
             return self._approx_trade_spot_from_stream(
                 underlying_symbol,
@@ -3766,7 +3801,8 @@ class TradingWorkflow:
                         strike_count=max(options.strike_count, 10),
                         days_to_expiration=days_to_expiration,
                     )
-                    exit_mark = resolve_option_exit_from_chain(chain, position.symbol)
+                    exit_mark = resolve_option_exit_from_chain(
+                        chain, position.symbol)
                     if exit_mark is not None:
                         return (
                             exit_mark.premium,
@@ -3887,7 +3923,8 @@ class TradingWorkflow:
                 auth_client=self._try_schwab_auth_client(),
             )
         except Exception:
-            logger.debug("Schwab market data client unavailable for option chains")
+            logger.debug(
+                "Schwab market data client unavailable for option chains")
             return None
         return self._market_data_client
 
@@ -4022,7 +4059,8 @@ class TradingWorkflow:
 
     def _on_position_exit(self, notification: ExitNotification) -> None:
         """Publish stop/target exits and submit flattening orders."""
-        self.bus.publish(Topics.POSITION_EXIT, notification, source="position_tracker")
+        self.bus.publish(Topics.POSITION_EXIT, notification,
+                         source="position_tracker")
 
         quantity = abs(notification.position.quantity)
         if quantity <= 0:
@@ -4200,7 +4238,8 @@ class TradingWorkflow:
                     try:
                         self.stop(persist_reason="eod")
                     except Exception:
-                        logger.exception("EOD shutdown encountered an unexpected failure")
+                        logger.exception(
+                            "EOD shutdown encountered an unexpected failure")
                     finally:
                         self._shutdown_requested.set()
                     return
@@ -4230,11 +4269,13 @@ class TradingWorkflow:
             )
 
         for position in positions:
-            underlying = (position.underlying_symbol or position.symbol).upper()
+            underlying = (
+                position.underlying_symbol or position.symbol).upper()
             if bar_spot is not None and underlying == bar_underlying:
                 spot = bar_spot
             else:
-                spot = self.indicator_coordinator.latest_close(underlying, timeframe)
+                spot = self.indicator_coordinator.latest_close(
+                    underlying, timeframe)
                 if spot is None:
                     spot = position.last_mark_price or position.average_entry_price
 
@@ -4322,7 +4363,8 @@ class TradingWorkflow:
             timestamp=closed_at,
         )
         self.position_tracker.close_position(position.symbol)
-        logger.info("EOD closed equity %s at %.2f", position.symbol, exit_price)
+        logger.info("EOD closed equity %s at %.2f",
+                    position.symbol, exit_price)
 
         if self._trade_emailer is None:
             return
@@ -4350,7 +4392,8 @@ class TradingWorkflow:
                 time_bought=position.opened_at,
             )
         except Exception:
-            logger.exception("Failed to send EOD exit email for %s", position.symbol)
+            logger.exception(
+                "Failed to send EOD exit email for %s", position.symbol)
 
     def _start_health_checks(self) -> None:
         """Run periodic health checks in a background thread."""
@@ -4418,7 +4461,8 @@ if __name__ == "__main__":
             try:
                 workflow.restart_trading()
             except Exception:
-                logger.exception("Hot restart failed; Databento session left running")
+                logger.exception(
+                    "Hot restart failed; Databento session left running")
 
         if hasattr(signal_module, "SIGHUP"):
             signal_module.signal(signal_module.SIGHUP, _hot_restart_handler)
@@ -4457,4 +4501,5 @@ if __name__ == "__main__":
 
     snapshot = workflow.health_monitor.check()
     print("Health:", json.dumps(snapshot.to_dict(), indent=2))
-    print("Open positions:", [p.symbol for p in workflow.position_tracker.list_positions()])
+    print("Open positions:", [
+          p.symbol for p in workflow.position_tracker.list_positions()])

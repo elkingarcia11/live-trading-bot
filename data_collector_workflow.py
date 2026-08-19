@@ -1,4 +1,4 @@
-"""Raw Databento futures and Schwab ATM-options collection workflow."""
+"""Raw Databento ES trade collection with periodic local and GCS flushes."""
 
 from __future__ import annotations
 
@@ -11,22 +11,18 @@ import smtplib
 import threading
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, time as day_time, timezone
+from datetime import date, datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Optional
-from zoneinfo import ZoneInfo
+from typing import Any, Iterable, Mapping, Optional
 
 from google.cloud import storage
 
-from option_selector import select_atm_call_from_chain, select_atm_put_from_chain
 from session_trade_recorder import databento_trade_row
-from schwab_streamer import SchwabStreamSession, build_schwab_stream_processor
 from tick_bar_builder import TickBarBuilder
 
 logger = logging.getLogger(__name__)
 
-OPTION_COLUMNS = ("timestamp", "description", "mark_price", "underlying_price")
 TICK_TIMEFRAMES = ("25t", "50t", "100t", "200t", "400t", "800t", "1200t")
 TICK_BAR_COLUMNS = (
     "timestamp", "symbol", "timeframe", "open", "high", "low", "close",
@@ -151,158 +147,8 @@ class ConnectionEmailer:
                 "Could not send %s connection notification", component)
 
 
-class SchwabAtmOptionsCollector:
-    """Observe and rotate the ATM SPY call and put during regular hours."""
-
-    def __init__(self, app: Any, *, on_state: Callable[[str, bool, str], None]) -> None:
-        from schwab_options_chain_client import SchwabOptionsChainClient
-
-        self._app = app
-        self._chain = SchwabOptionsChainClient.from_config(app)
-        self._on_state = on_state
-        self._lock = threading.Lock()
-        self._stop = threading.Event()
-        self._update_thread: Optional[threading.Thread] = None
-        self._session: Optional[SchwabStreamSession] = None
-        self._active: dict[str, str] = {}
-        self._pending_underlying: Optional[float] = None
-        gcs = app.gcs
-        client = storage.Client()
-        self._call = DailyCsvBuffer(
-            local_root=Path(gcs.local_fallback_path) / "collector",
-            bucket_name=gcs.bucket_name,
-            client=client,
-            filename="call.csv",
-            columns=OPTION_COLUMNS,
-            key_columns=OPTION_COLUMNS,
-        )
-        self._put = DailyCsvBuffer(
-            local_root=Path(gcs.local_fallback_path) / "collector",
-            bucket_name=gcs.bucket_name,
-            client=client,
-            filename="put.csv",
-            columns=OPTION_COLUMNS,
-            key_columns=OPTION_COLUMNS,
-        )
-
-    def start(self) -> None:
-        processor = build_schwab_stream_processor(
-            symbols=("SPY",), consumers=[])
-        self._session = SchwabStreamSession.from_env(
-            symbols=("SPY",),
-            processor=processor,
-            on_open_external=lambda: self._on_state(
-                "Schwab options", True, "stream open"),
-            on_close_external=lambda code, reason: self._on_state(
-                "Schwab options", False, f"close={code} {reason or ''}"
-            ),
-            on_error_external=lambda error: logger.warning(
-                "Schwab stream error: %s", error),
-            on_option_quote=self._on_quote,
-        )
-        self._stop.clear()
-        self._update_thread = threading.Thread(
-            target=self._update_loop, name="atm-option-selector", daemon=True)
-        self._update_thread.start()
-        self._session.connect()
-        try:
-            chain = self._chain.fetch_chain(
-                "SPY",
-                contract_type="ALL",
-                strike_count=self._app.options.strike_count,
-                days_to_expiration=self._app.options.days_to_expiration,
-                include_underlying_quote=True,
-            )
-            underlying = _chain_underlying_price(chain)
-            if underlying is not None:
-                self._select_contracts(underlying)
-        except Exception:
-            logger.exception("Could not seed initial ATM SPY options")
-
-    def stop(self) -> None:
-        self._stop.set()
-        if self._session is not None:
-            self._session.disconnect()
-        if self._update_thread is not None:
-            self._update_thread.join(timeout=5)
-        for buffer in (self._call, self._put):
-            try:
-                buffer.flush()
-            except Exception:
-                logger.exception("Final Schwab options flush failed")
-
-    def _on_quote(self, quote: dict[str, Any]) -> None:
-        symbol = str(quote.get("symbol") or "").upper()
-        underlying = _positive_float(quote.get("underlying_price"))
-        if underlying is not None:
-            with self._lock:
-                self._pending_underlying = underlying
-        with self._lock:
-            side = next(
-                (name for name, active in self._active.items() if active == symbol), None)
-        if side is None or underlying is None:
-            return
-        timestamp = _quote_timestamp(quote.get("quote_time"))
-        row = {
-            "timestamp": timestamp,
-            "description": str(quote.get("description") or symbol),
-            "mark_price": float(quote["mark"]),
-            "underlying_price": underlying,
-        }
-        (self._call if side == "call" else self._put).add(row)
-
-    def _update_loop(self) -> None:
-        last_flush = time.monotonic()
-        while not self._stop.wait(0.25):
-            with self._lock:
-                underlying = self._pending_underlying
-                self._pending_underlying = None
-            if underlying is not None:
-                try:
-                    self._select_contracts(underlying)
-                except Exception:
-                    logger.exception("Could not resolve ATM SPY options")
-            if time.monotonic() - last_flush >= 15:
-                for buffer in (self._call, self._put):
-                    try:
-                        buffer.flush()
-                    except Exception:
-                        logger.exception(
-                            "Periodic Schwab options flush failed")
-                last_flush = time.monotonic()
-
-    def _select_contracts(self, underlying: float) -> None:
-        chain = self._chain.fetch_chain(
-            "SPY",
-            contract_type="ALL",
-            strike_count=self._app.options.strike_count,
-            days_to_expiration=self._app.options.days_to_expiration,
-            include_underlying_quote=True,
-        )
-        as_of = datetime.now(ZoneInfo(self._app.app.timezone)).date()
-        call = select_atm_call_from_chain(
-            chain, "SPY", underlying, target_dte=self._app.options.days_to_expiration, as_of=as_of
-        )
-        put = select_atm_put_from_chain(
-            chain, "SPY", underlying, target_dte=self._app.options.days_to_expiration, as_of=as_of
-        )
-        desired = {"call": call.occ_symbol, "put": put.occ_symbol}
-        with self._lock:
-            current = dict(self._active)
-        if desired == current or self._session is None:
-            return
-        for side, symbol in desired.items():
-            if current.get(side) != symbol:
-                self._session.subscribe_option(symbol)
-        for side, symbol in current.items():
-            if desired.get(side) != symbol:
-                self._session.unsubscribe_option(symbol)
-        with self._lock:
-            self._active = desired
-
-
 class DataCollectorWorkflow:
-    """Run independent 24/7 ES and regular-hours SPY ATM option collectors."""
+    """Run 24/7 ES trade capture and periodic GCS flushes."""
 
     def __init__(self, app: Any) -> None:
         self._app = app
@@ -339,16 +185,10 @@ class DataCollectorWorkflow:
             )
             for timeframe in TICK_TIMEFRAMES
         }
-        self._options = SchwabAtmOptionsCollector(
-            app, on_state=self._emailer.notify)
 
     def run(self) -> None:
         self._install_signals()
-        options_thread = threading.Thread(
-            target=self._options_schedule, name="options-schedule", daemon=True)
-        options_thread.start()
         self._run_databento()
-        self._options.stop()
 
     def _run_databento(self) -> None:
         import databento as db
@@ -457,25 +297,6 @@ class DataCollectorWorkflow:
             "ticks": bar.get("ticks", int(timeframe[:-1])),
         })
 
-    def _options_schedule(self) -> None:
-        timezone_name = self._app.app.timezone
-        tz = ZoneInfo(timezone_name)
-        active = False
-        while not self._stop.wait(1.0):
-            now = datetime.now(tz)
-            should_run = now.weekday() < 5 and day_time(
-                9, 30) <= now.time() < day_time(16, 0)
-            if should_run and not active:
-                try:
-                    self._options.start()
-                    active = True
-                except Exception:
-                    logger.exception(
-                        "Could not start Schwab options collector")
-            elif not should_run and active:
-                self._options.stop()
-                active = False
-
     def _install_signals(self) -> None:
         def stop(*_: object) -> None:
             self._stop.set()
@@ -508,33 +329,6 @@ def _date_key(value: Any) -> str:
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc).date().isoformat()
     return datetime.fromisoformat(str(value).replace("Z", "+00:00")).date().isoformat()
-
-
-def _quote_timestamp(value: Any) -> datetime:
-    if value is None:
-        return datetime.now(timezone.utc)
-    millis = int(float(value))
-    return datetime.fromtimestamp(millis / 1000, tz=timezone.utc)
-
-
-def _positive_float(value: Any) -> Optional[float]:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if result > 0 else None
-
-
-def _chain_underlying_price(chain: Mapping[str, Any]) -> Optional[float]:
-    """Extract the current underlying price from a Schwab chain response."""
-    quote = chain.get("underlying")
-    if not isinstance(quote, Mapping):
-        return None
-    for key in ("last", "mark", "close", "underlyingPrice"):
-        value = _positive_float(quote.get(key))
-        if value is not None:
-            return value
-    return None
 
 
 def _secret(name: str) -> str:

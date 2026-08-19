@@ -210,6 +210,7 @@ def test_repo_config_json_is_databento_400t_schwab_broker() -> None:
     assert config.workflow.stream_provider == "databento"
     assert config.market.symbols == ("SPY",)
     assert config.market.stream_symbols == ("ES.n.0",)
+    assert config.market.stream_to_trade == {"ES.n.0": "SPY"}
     assert config.market.stream_timeframe == "400t"
     assert config.market.strategy_timeframe == "400t"
     assert config.databento.dataset == "GLBX.MDP3"

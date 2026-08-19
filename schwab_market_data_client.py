@@ -116,7 +116,8 @@ class SchwabMarketDataClient:
         return cls(
             resolved_auth,
             base_url=_market_data_base_url(app.schwab.price_history_path),
-            price_history_path=_price_history_path(app.schwab.price_history_path),
+            price_history_path=_price_history_path(
+                app.schwab.price_history_path),
             need_extended_hours_data=historical.need_extended_hours,
             need_previous_close=historical.need_previous_close,
             requests_per_minute=market_data.requests_per_minute,
@@ -137,7 +138,8 @@ class SchwabMarketDataClient:
     ) -> Any:
         """Execute an authenticated Schwab market data HTTP request."""
         if method.upper() != "GET":
-            raise MarketDataApiError(f"Unsupported HTTP method for Schwab market data: {method}")
+            raise MarketDataApiError(
+                f"Unsupported HTTP method for Schwab market data: {method}")
 
         return self._request_json(path, params=params or {})
 
@@ -169,7 +171,8 @@ class SchwabMarketDataClient:
         del page_token_key, page_token_param
 
         request_params = dict(params or {})
-        symbol = str(request_params.pop("symbol", self._symbol_from_path(path))).upper()
+        symbol = str(request_params.pop(
+            "symbol", self._symbol_from_path(path))).upper()
         timeframe = str(request_params.pop("timeframe"))
         start = self._parse_iso_datetime(request_params.pop("start"))
         end = self._parse_iso_datetime(request_params.pop("end"))
@@ -253,7 +256,8 @@ class SchwabMarketDataClient:
                 chunk_end.isoformat(),
                 self._need_extended_hours_data,
             )
-            payload = self._request_json(self._price_history_path, params=params)
+            payload = self._request_json(
+                self._price_history_path, params=params)
             chunk_candles = self._extract_candles(payload)
             collected.extend(self._normalize_candles(chunk_candles))
 
@@ -264,7 +268,7 @@ class SchwabMarketDataClient:
         symbol: str,
         *,
         contract_type: str = "CALL",
-        strike_count: int = 5,
+        strike_count: Optional[int] = 5,
         days_to_expiration: Optional[int] = None,
         include_underlying_quote: bool = True,
     ) -> dict[str, Any]:
@@ -272,14 +276,16 @@ class SchwabMarketDataClient:
         params: dict[str, Any] = {
             "symbol": symbol.upper(),
             "contractType": contract_type.upper(),
-            "strikeCount": strike_count,
             "includeUnderlyingQuote": include_underlying_quote,
         }
+        if strike_count is not None:
+            params["strikeCount"] = strike_count
         if days_to_expiration is not None:
             params["daysToExpiration"] = days_to_expiration
         payload = self._request_json("chains", params=params)
         if not isinstance(payload, dict):
-            raise MarketDataApiError("option chain response must be a JSON object")
+            raise MarketDataApiError(
+                "option chain response must be a JSON object")
         return payload
 
     def _request_json(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
@@ -308,13 +314,15 @@ class SchwabMarketDataClient:
                 if attempt < self._max_retries:
                     _sleep_backoff(self._retry_backoff_seconds, attempt)
                     continue
-                raise MarketDataApiError(f"Request to {url} failed: {exc}") from exc
+                raise MarketDataApiError(
+                    f"Request to {url} failed: {exc}") from exc
 
             if response.status_code == 401 and not refreshed:
                 try:
                     self._auth_client.get_access_token(force_refresh=True)
                 except SchwabAuthError as exc:
-                    raise MarketDataApiError(f"Schwab auth refresh failed: {exc}") from exc
+                    raise MarketDataApiError(
+                        f"Schwab auth refresh failed: {exc}") from exc
                 refreshed = True
                 continue
 
@@ -413,7 +421,8 @@ class SchwabMarketDataClient:
     def _symbol_from_path(self, path: str) -> str:
         segments = [segment for segment in path.split("/") if segment]
         if not segments:
-            raise MarketDataApiError("Price history path must include a symbol")
+            raise MarketDataApiError(
+                "Price history path must include a symbol")
         return segments[-1].upper()
 
     def _parse_iso_datetime(self, value: object) -> datetime:
@@ -475,7 +484,8 @@ def _aggregate_minute_candles(
     buckets: dict[datetime, dict[str, Any]] = {}
 
     for candle in sorted(candles, key=lambda row: str(row.get("datetime", ""))):
-        timestamp = pd.to_datetime(candle["datetime"], utc=True).to_pydatetime()
+        timestamp = pd.to_datetime(
+            candle["datetime"], utc=True).to_pydatetime()
         bucket_start = align_bucket_start(timestamp, timeframe)
         open_price = float(candle["open"])
         high_price = float(candle["high"])
