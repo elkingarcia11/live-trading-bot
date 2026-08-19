@@ -22,14 +22,20 @@ from google.cloud import storage
 from option_selector import select_atm_call_from_chain, select_atm_put_from_chain
 from session_trade_recorder import databento_trade_row
 from schwab_streamer import SchwabStreamSession, build_schwab_stream_processor
+from tick_bar_builder import TickBarBuilder
 
 logger = logging.getLogger(__name__)
 
 OPTION_COLUMNS = ("timestamp", "description", "mark_price", "underlying_price")
+TICK_TIMEFRAMES = ("25t", "50t", "100t", "200t", "400t", "800t", "1200t")
+TICK_BAR_COLUMNS = (
+    "timestamp", "symbol", "timeframe", "open", "high", "low", "close",
+    "volume", "end", "partial", "ticks",
+)
 
 
 class DailyCsvBuffer:
-    """Thread-safe daily CSV buffer with local durability and GCS replication."""
+    """Thread-safe CSV buffer with local durability and GCS replication."""
 
     def __init__(
         self,
@@ -73,22 +79,15 @@ class DailyCsvBuffer:
                 self._pending = []
             if not rows:
                 return 0
-            by_day: dict[str, list[dict[str, Any]]] = {}
-            for row in rows:
-                day = _date_key(row.get("timestamp"))
-                by_day.setdefault(day, []).append(row)
             try:
-                written = 0
-                for day, day_rows in sorted(by_day.items()):
-                    written += self._flush_day(day, day_rows)
-                return written
+                return self._flush_continuous(rows)
             except Exception:
                 with self._lock:
                     self._pending = rows + self._pending
                 raise
 
-    def _flush_day(self, day: str, incoming: list[dict[str, Any]]) -> int:
-        path = self._local_path(day)
+    def _flush_continuous(self, incoming: list[dict[str, Any]]) -> int:
+        path = self._local_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = _read_csv(path, self._columns)
         seen = {_row_key(row, self._key_columns) for row in existing}
@@ -104,15 +103,15 @@ class DailyCsvBuffer:
         temp.write_bytes(payload)
         temp.replace(path)
         if self._remote_enabled:
-            blob = self._ensure_bucket().blob(self._remote_path(day))
+            blob = self._ensure_bucket().blob(self._remote_path())
             blob.upload_from_file(io.BytesIO(payload), content_type="text/csv")
         return len(merged) - len(existing)
 
-    def _local_path(self, day: str) -> Path:
-        return self._local_root / day / self._filename
+    def _local_path(self) -> Path:
+        return self._local_root / self._filename
 
-    def _remote_path(self, day: str) -> str:
-        return "/".join(part for part in (self._prefix, day, self._filename) if part)
+    def _remote_path(self) -> str:
+        return "/".join(part for part in (self._prefix, self._filename) if part)
 
     def _ensure_bucket(self):
         if self._bucket is None:
@@ -312,14 +311,34 @@ class DataCollectorWorkflow:
         gcs = app.gcs
         client = storage.Client()
         self._es = DailyCsvBuffer(
-            local_root=Path(gcs.local_fallback_path) / "collector",
+            local_root=Path(gcs.local_fallback_path) /
+            "collector" / "continuous_data",
             bucket_name=gcs.bucket_name,
             client=client,
+            prefix="continuous_data",
             filename="es.csv",
             columns=("timestamp", "symbol", "raw_symbol", "price", "price_raw", "size", "side", "action", "depth", "flags",
                      "sequence", "instrument_id", "publisher_id", "rtype", "ts_event", "ts_recv", "ts_in_delta", "ts_index"),
             key_columns=("ts_event", "sequence", "instrument_id"),
         )
+        self._es_tick_builders = {
+            timeframe: TickBarBuilder(
+                ticks_per_bar=int(timeframe[:-1]))
+            for timeframe in TICK_TIMEFRAMES
+        }
+        self._es_tick_buffers = {
+            timeframe: DailyCsvBuffer(
+                local_root=Path(gcs.local_fallback_path) /
+                "collector" / "continuous_data",
+                bucket_name=gcs.bucket_name,
+                client=client,
+                prefix="continuous_data",
+                filename=f"es_{timeframe}.csv",
+                columns=TICK_BAR_COLUMNS,
+                key_columns=("symbol", "timeframe", "timestamp"),
+            )
+            for timeframe in TICK_TIMEFRAMES
+        }
         self._options = SchwabAtmOptionsCollector(
             app, on_state=self._emailer.notify)
 
@@ -363,6 +382,7 @@ class DataCollectorWorkflow:
                     instrument_id, symbols[0]), raw_symbol=raw_symbol_by_id.get(instrument_id, ""))
                 if row is not None:
                     self._es.add(row)
+                    self._add_es_tick_bars(row)
 
             def on_error(error: Exception) -> None:
                 logger.exception("Databento stream error: %s", error)
@@ -378,6 +398,8 @@ class DataCollectorWorkflow:
                 while not self._stop.wait(0.25):
                     if time.monotonic() - last_flush >= 15:
                         self._es.flush()
+                        for buffer in self._es_tick_buffers.values():
+                            buffer.flush()
                         last_flush = time.monotonic()
             except Exception as error:
                 logger.exception("Databento connection failed: %s", error)
@@ -391,8 +413,49 @@ class DataCollectorWorkflow:
                         pass
         try:
             self._es.flush()
+            for builder in self._es_tick_builders.values():
+                for payload in builder.flush():
+                    self._add_tick_bar_payload(payload)
+            for buffer in self._es_tick_buffers.values():
+                buffer.flush()
         except Exception:
             logger.exception("Final Databento flush failed")
+
+    def _add_es_tick_bars(self, row: Mapping[str, Any]) -> None:
+        timestamp = row.get("timestamp")
+        if not isinstance(timestamp, datetime):
+            return
+        for timeframe, builder in self._es_tick_builders.items():
+            payload = builder.update(
+                symbol=str(row.get("symbol") or "ES"),
+                price=float(row.get("price") or 0),
+                size=float(row.get("size") or 0),
+                timestamp=timestamp,
+            )
+            if payload is not None:
+                self._add_tick_bar_payload(payload)
+
+    def _add_tick_bar_payload(self, payload: Mapping[str, Any]) -> None:
+        bar = payload.get("bar")
+        if not isinstance(bar, Mapping):
+            return
+        timeframe = str(payload.get("timeframe") or "")
+        buffer = self._es_tick_buffers.get(timeframe)
+        if buffer is None:
+            return
+        buffer.add({
+            "timestamp": bar.get("datetime", ""),
+            "symbol": payload.get("symbol", ""),
+            "timeframe": timeframe,
+            "open": bar.get("open", ""),
+            "high": bar.get("high", ""),
+            "low": bar.get("low", ""),
+            "close": bar.get("close", ""),
+            "volume": bar.get("volume", ""),
+            "end": bar.get("end", ""),
+            "partial": bar.get("partial", False),
+            "ticks": bar.get("ticks", int(timeframe[:-1])),
+        })
 
     def _options_schedule(self) -> None:
         timezone_name = self._app.app.timezone
