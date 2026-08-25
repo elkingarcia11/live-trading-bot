@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -47,6 +47,7 @@ StreamProvider = Literal["generic", "schwab", "ibkr", "databento"]
 BrokerProvider = Literal["schwab", "ibkr"]
 
 _config: Optional["AppConfig"] = None
+_config_overrides: Optional["WorkflowConfigOverrides"] = None
 
 
 @dataclass(frozen=True)
@@ -619,12 +620,171 @@ class AppConfig:
         )
 
 
+@dataclass(frozen=True)
+class WorkflowConfigOverrides:
+    """Per-run CLI overrides layered on top of ``config.json``.
+
+    Every field is ``Optional``; a ``None`` value means "use the
+    ``config.json`` value (or dataclass default)". Callers may supply any
+    combination, so omitted flags keep their configured defaults.
+
+    Fields map to:
+    * ``timeframe`` -> ``market.stream_timeframe`` and ``market.strategy_timeframe``
+      (the Databento ``ticks_per_bar`` is derived automatically from a tick label).
+    * ``fast_gma_length`` / ``fast_gma_sigma`` ->
+      ``indicators.gaussian_ma.fast.length`` / ``sigma_divisor``.
+    * ``slow_gma_length`` / ``slow_gma_sigma`` ->
+      ``indicators.gaussian_ma.slow.length`` / ``sigma_divisor``.
+    * ``position_size`` -> ``risk.max_position_quantity``
+      (the max trade position size in contracts/shares).
+    """
+
+    timeframe: Optional[str] = None
+    fast_gma_length: Optional[int] = None
+    fast_gma_sigma: Optional[float] = None
+    slow_gma_length: Optional[int] = None
+    slow_gma_sigma: Optional[float] = None
+    position_size: Optional[float] = None
+
+
+def _overrides_fully_default(overrides: "WorkflowConfigOverrides") -> bool:
+    """Return True when no override field was set (override == all-None)."""
+    return overrides == WorkflowConfigOverrides()
+
+
+def _validate_timeframe(timeframe: str) -> str:
+    """Validate a timeframe label (tick ``400t`` or minute ``5m``)."""
+    tf = str(timeframe).strip()
+    if not tf:
+        raise ValueError(
+            "timeframe must be a non-empty label such as '400t' or '5m'"
+        )
+    if tf.endswith("t") or tf.endswith("T"):
+        from tick_bar_builder import parse_tick_timeframe
+
+        parse_tick_timeframe(tf)
+        return tf
+    _timeframe_to_minutes(tf)
+    return tf
+
+
+def apply_config_overrides(
+    app: "AppConfig",
+    overrides: Optional["WorkflowConfigOverrides"],
+) -> "AppConfig":
+    """Return a copy of ``app`` with CLI overrides applied.
+
+    ``None`` or all-``None`` overrides return ``app`` unchanged so the
+    original frozen instance is preserved when nothing is overridden.
+    """
+    if overrides is None or _overrides_fully_default(overrides):
+        return app
+
+    # Timeframe drives both stream bars and strategy/indicator bars from one label.
+    market = app.market
+    if overrides.timeframe is not None:
+        timeframe = _validate_timeframe(overrides.timeframe)
+        market = replace(
+            market,
+            stream_timeframe=timeframe,
+            strategy_timeframe=timeframe,
+        )
+
+    # Gaussian MA legs (only when the indicator is enabled in config.json).
+    indicators = app.indicators
+    gma = indicators.gaussian_ma
+    if gma is not None:
+        fast = gma.fast
+        slow = gma.slow
+        if overrides.fast_gma_length is not None:
+            fast = replace(fast, length=overrides.fast_gma_length)
+        if overrides.fast_gma_sigma is not None:
+            fast = replace(fast, sigma_divisor=overrides.fast_gma_sigma)
+        if overrides.slow_gma_length is not None:
+            slow = replace(slow, length=overrides.slow_gma_length)
+        if overrides.slow_gma_sigma is not None:
+            slow = replace(slow, sigma_divisor=overrides.slow_gma_sigma)
+        if fast is not gma.fast or slow is not gma.slow:
+            gma = replace(gma, fast=fast, slow=slow)
+            indicators = replace(indicators, gaussian_ma=gma)
+    elif any(
+        value is not None
+        for value in (
+            overrides.fast_gma_length,
+            overrides.fast_gma_sigma,
+            overrides.slow_gma_length,
+            overrides.slow_gma_sigma,
+        )
+    ):
+        logger.warning(
+            "Gaussian MA overrides supplied but indicators.gaussian_ma is "
+            "disabled in config; ignoring GMA length/sigma overrides."
+        )
+
+    # Position size: max trade position quantity (contracts/shares).
+    risk = app.risk
+    if overrides.position_size is not None:
+        risk = replace(risk, max_position_quantity=overrides.position_size)
+
+    if market is app.market and indicators is app.indicators and risk is app.risk:
+        return app
+
+    return replace(app, market=market, indicators=indicators, risk=risk)
+
+
+def _overrides_summary(
+    overrides: Optional["WorkflowConfigOverrides"],
+) -> str:
+    """Render a short human-readable summary of installed overrides."""
+    if overrides is None or _overrides_fully_default(overrides):
+        return "(cleared)"
+    parts = [
+        f"{field}={getattr(overrides, field)}"
+        for field in (
+            "timeframe",
+            "fast_gma_length",
+            "fast_gma_sigma",
+            "slow_gma_length",
+            "slow_gma_sigma",
+            "position_size",
+        )
+        if getattr(overrides, field) is not None
+    ]
+    return ", ".join(parts) or "(none)"
+
+
+def set_config_overrides(
+    overrides: Optional["WorkflowConfigOverrides"],
+) -> None:
+    """Install per-run CLI overrides onto the cached config for this process.
+
+    Overrides are applied inside :func:`get_config`, so every reader
+    (live stream sessions, auth, market-data clients, hot-restart reloads)
+    observes the same values. Pass ``None`` to clear previously-installed
+    overrides and restore ``config.json`` defaults.
+    """
+    global _config, _config_overrides
+    _config_overrides = overrides
+    _config = None
+    logger.info("CLI overrides installed: %s", _overrides_summary(overrides))
+
+
 def get_config(*, reload: bool = False) -> AppConfig:
-    """Return the cached application configuration."""
+    """Return the cached application configuration.
+
+    Per-run CLI overrides installed via :func:`set_config_overrides` are
+    applied on load, so every caller observes the same overridden values.
+    """
     global _config
     if _config is None or reload:
         path = os.getenv("CONFIG_PATH", str(DEFAULT_CONFIG_PATH))
-        _config = AppConfig.load(path)
+        loaded = AppConfig.load(path)
+        if _config_overrides is not None and not _overrides_fully_default(
+            _config_overrides
+        ):
+            _config = apply_config_overrides(loaded, _config_overrides)
+        else:
+            _config = loaded
     return _config
 
 

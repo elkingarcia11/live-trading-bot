@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+import math
 import re
 from typing import Any, Optional
 
@@ -100,12 +101,22 @@ def build_occ_symbol(
     return f"{root}{date_part}{right}{strike_millis:08d}"
 
 
+def round_half_up(value: float) -> int:
+    """Round to nearest integer with halves rounding up (645.5 -> 646).
+
+    Python's builtin ``round`` uses banker's rounding (645.5 -> 646 but
+    646.5 -> 646), which does not match the trading rule ">= .5 goes up,
+    <= .5 goes down". This helper implements strict half-up rounding.
+    """
+    return int(math.floor(value + 0.5))
+
+
 def round_atm_strike(underlying_price: float) -> float:
     """Round spot to the nearest standard equity/ETF strike."""
     if underlying_price <= 0:
         raise ValueError("underlying_price must be positive")
     if underlying_price >= 200:
-        return float(round(underlying_price))
+        return float(round_half_up(underlying_price))
     return float(round(underlying_price * 2) / 2)
 
 
@@ -129,8 +140,8 @@ def synthetic_atm_option(
 
     today = as_of or datetime.now(timezone.utc).date()
     expiration = today + timedelta(days=days_to_expiration)
-    atm = round_atm_strike(underlying_price)
-    step = 1.0 if underlying_price >= 200 else 0.5
+    atm = float(round_half_up(underlying_price))
+    step = 1.0
     right = option_right.upper()[0]
     if right == "C":
         strike = atm + (otm_strikes * step)
@@ -245,8 +256,10 @@ def select_otm_contract_from_chain(
 ) -> SelectedOption:
     """Pick the N-th OTM call/put at the configured DTE from a Schwab chain.
 
-    ``otm_strikes=2`` means the second strike out-of-the-money from ATM
-    (call above ATM, put below ATM). ``otm_strikes=0`` selects ATM.
+    Strike rule: round the underlying price half-up (>= .5 up, < .5 down)
+    to a whole-dollar ATM base, then go ``otm_strikes`` out-of-the-money —
+    call strike = base + N, put strike = base - N. When that exact strike
+    is not listed, the nearest available strike is used.
     """
     normalized = side.strip().lower()
     if normalized not in {"call", "put"}:
@@ -286,15 +299,29 @@ def select_otm_contract_from_chain(
         raise ValueError(f"no {option_label} contracts for expiration {best_key}")
 
     strikes = sorted(strike_contracts)
-    atm_idx = min(range(len(strikes)), key=lambda i: abs(strikes[i] - underlying_price))
-    target_idx = atm_idx + otm_strikes if normalized == "call" else atm_idx - otm_strikes
-    if target_idx < 0 or target_idx >= len(strikes):
-        raise ValueError(
-            f"insufficient strikes to select {otm_strikes} OTM {option_label} "
-            f"(ATM={strikes[atm_idx]:.2f}, available={len(strikes)})"
-        )
 
-    best_strike = strikes[target_idx]
+    # Target rule: round spot half-up to a whole-dollar ATM base, then go
+    # ``otm_strikes`` out (call above, put below). E.g. spot 645.5 ->
+    # call 648 (= 646 + 2), put 644 (= 646 - 2) for otm_strikes=2.
+    target_strike = float(
+        round_half_up(underlying_price)
+        + (otm_strikes if normalized == "call" else -otm_strikes)
+    )
+    if target_strike in strike_contracts:
+        best_strike = target_strike
+    else:
+        # Target strike not listed; fall back to nearest available strike.
+        atm_idx = min(range(len(strikes)), key=lambda i: abs(strikes[i] - underlying_price))
+        target_idx = (
+            atm_idx + otm_strikes if normalized == "call" else atm_idx - otm_strikes
+        )
+        if target_idx < 0 or target_idx >= len(strikes):
+            raise ValueError(
+                f"insufficient strikes to select {otm_strikes} OTM {option_label} "
+                f"(ATM={strikes[atm_idx]:.2f}, available={len(strikes)})"
+            )
+        best_strike = strikes[target_idx]
+
     best_contract = strike_contracts[best_strike]
     occ_symbol = str(best_contract.get("symbol", "")).strip()
     if not occ_symbol:

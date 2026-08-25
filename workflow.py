@@ -9,6 +9,7 @@ Does not own low-level transport, indicator math, or broker protocol details.
 
 from __future__ import annotations
 
+import argparse
 import logging
 import threading
 import time
@@ -23,7 +24,12 @@ import pandas as pd
 from bar_alignment import timeframe_timedelta, to_utc
 from data_aggregator import AggregatedBar, DataAggregator
 from event_bus import EventBus, Topics
-from config import AppConfig, load_config
+from config import (
+    AppConfig,
+    WorkflowConfigOverrides,
+    load_config,
+    set_config_overrides,
+)
 from health_monitor import HealthMonitor, HealthThresholds
 from indicator_coordinator import (
     IndicatorCoordinator,
@@ -3992,11 +3998,107 @@ class TradingWorkflow:
         self._last_sampled_dropped_bars = dropped
 
 
+def build_workflow_arg_parser() -> argparse.ArgumentParser:
+    """Build the argparse parser for runtime CLI overrides.
+
+    Every flag is optional; omitted flags fall back to ``config.json``
+    (and dataclass) defaults. This lets a run override any combination of
+    the timeframe, Gaussian MA parameters, and position size.
+    """
+    parser = argparse.ArgumentParser(
+        description=(
+            "Live trading workflow. Omitted flags fall back to config.json "
+            "values. Example:\n"
+            "  python workflow.py --timeframe 25t --fast-gma-length 5 "
+            "--fast-gma-sigma 8.0 --position-size 3"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--timeframe",
+        default=None,
+        metavar="TF",
+        help=(
+            "Aggregation / stream / strategy timeframe (e.g. 25t, 400t, 5m). "
+            "Sets market.stream_timeframe and market.strategy_timeframe and "
+            "derives the Databento ticks_per_bar. Default: config.json."
+        ),
+    )
+    parser.add_argument(
+        "--fast-gma-length",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Fast Gaussian MA length. Default: indicators.gaussian_ma.fast.length.",
+    )
+    parser.add_argument(
+        "--fast-gma-sigma",
+        type=float,
+        default=None,
+        metavar="S",
+        help="Fast Gaussian MA sigma divisor. Default: config.json.",
+    )
+    parser.add_argument(
+        "--slow-gma-length",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Slow Gaussian MA length. Default: indicators.gaussian_ma.slow.length.",
+    )
+    parser.add_argument(
+        "--slow-gma-sigma",
+        type=float,
+        default=None,
+        metavar="S",
+        help="Slow Gaussian MA sigma divisor. Default: config.json.",
+    )
+    parser.add_argument(
+        "--position-size",
+        type=float,
+        default=None,
+        metavar="N",
+        help=(
+            "Max trade position quantity (contracts/shares). Default: "
+            "risk.max_position_quantity."
+        ),
+    )
+    return parser
+
+
+def overrides_from_args(
+    args: argparse.Namespace,
+) -> Optional[WorkflowConfigOverrides]:
+    """Materialize an overrides dataclass from parsed argparse results.
+
+    Returns ``None`` when no override flag was supplied, so the caller can
+    skip installing (no-op) overrides entirely.
+    """
+    mapping = {
+        "timeframe": getattr(args, "timeframe", None),
+        "fast_gma_length": getattr(args, "fast_gma_length", None),
+        "fast_gma_sigma": getattr(args, "fast_gma_sigma", None),
+        "slow_gma_length": getattr(args, "slow_gma_length", None),
+        "slow_gma_sigma": getattr(args, "slow_gma_sigma", None),
+        "position_size": getattr(args, "position_size", None),
+    }
+    provided = {flag: value for flag, value in mapping.items() if value is not None}
+    if not provided:
+        return None
+    logger.info("Applying CLI overrides: %s", ", ".join(provided))
+    return WorkflowConfigOverrides(**provided)
+
+
 if __name__ == "__main__":
     import json
     from datetime import timedelta
 
     logging.basicConfig(level=logging.INFO)
+
+    parser = build_workflow_arg_parser()
+    args = parser.parse_args()
+    overrides = overrides_from_args(args)
+    if overrides is not None:
+        set_config_overrides(overrides)
 
     app = load_config()
     use_live_stream = app.workflow.run_schwab_stream or app.workflow.stream_provider in {
