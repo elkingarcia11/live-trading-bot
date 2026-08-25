@@ -2,8 +2,9 @@
 
 Records instrument and underlying prices at the time of each buy and sell for
 equity and options, plus strike/option-type and indicator snapshots for analysis.
-Local appends stay cheap; call ``upload_to_gcs`` on shutdown to merge into the
-existing GCS ledger (download → concat/dedupe → upload).
+Local appends stay cheap; ``upload_to_gcs`` is available to merge into a central
+GCS ledger but the live workflow keeps everything in memory and writes only a
+local CSV.
 """
 
 from __future__ import annotations
@@ -66,7 +67,8 @@ _BASE_TRANSACTION_COLUMNS = (
 )
 
 _QUOTE_COLUMN_PREFIXES = ("", "entry_")
-_QUOTE_FIELD_SUFFIXES = ("bid", "ask", "mark", "delta", "gamma", "theta", "vega")
+_QUOTE_FIELD_SUFFIXES = ("bid", "ask", "mark", "delta",
+                         "gamma", "theta", "vega")
 
 TRANSACTION_CSV_COLUMNS = _BASE_TRANSACTION_COLUMNS + tuple(
     f"{prefix}{suffix}"
@@ -121,7 +123,8 @@ class TransactionLedger:
 
     def record(self, transaction: TransactionRecord) -> None:
         """Append one transaction row."""
-        strike, option_type, expiration_date = _resolve_contract_fields(transaction)
+        strike, option_type, expiration_date = _resolve_contract_fields(
+            transaction)
         indicators = dict(transaction.indicators or {})
         row = {
             "timestamp": _to_utc(transaction.timestamp).isoformat(),
@@ -169,7 +172,8 @@ class TransactionLedger:
         row.update(quote_csv_fields(transaction.entry_quote, prefix="entry_"))
         with self._lock:
             with self._csv_path.open("a", encoding="utf-8", newline="") as handle:
-                writer = csv.DictWriter(handle, fieldnames=TRANSACTION_CSV_COLUMNS)
+                writer = csv.DictWriter(
+                    handle, fieldnames=TRANSACTION_CSV_COLUMNS)
                 writer.writerow(row)
 
     def upload_to_gcs(
@@ -187,7 +191,8 @@ class TransactionLedger:
             local_rows = _read_transaction_rows(self._csv_path)
 
         if credentials_path:
-            os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS", credentials_path)
+            os.environ.setdefault(
+                "GOOGLE_APPLICATION_CREDENTIALS", credentials_path)
         if project_id:
             os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
 
@@ -260,7 +265,8 @@ class TransactionLedger:
                     column: old_row.get(column, "") for column in TRANSACTION_CSV_COLUMNS
                 }
                 if not migrated.get("indicators_json") and (
-                    old_row.get("gaussian_ma_fast") or old_row.get("gaussian_ma_slow")
+                    old_row.get("gaussian_ma_fast") or old_row.get(
+                        "gaussian_ma_slow")
                 ):
                     migrated["indicators_json"] = _serialize_indicators(
                         {
@@ -394,7 +400,8 @@ def _download_transaction_rows(blob: Any) -> list[dict[str, str]]:
     except NotFound:
         return []
     except Exception:
-        logger.exception("Failed downloading existing transaction ledger from GCS")
+        logger.exception(
+            "Failed downloading existing transaction ledger from GCS")
         return []
     if not raw.strip():
         return []
@@ -426,5 +433,6 @@ def _write_transaction_rows(path: Path, rows: list[dict[str, str]]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(
-                {column: row.get(column, "") for column in TRANSACTION_CSV_COLUMNS}
+                {column: row.get(column, "")
+                 for column in TRANSACTION_CSV_COLUMNS}
             )

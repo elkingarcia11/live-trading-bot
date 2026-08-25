@@ -62,8 +62,6 @@ def test_config_loads_databento_50t_workflow() -> None:
     assert config.workflow.eod_flatten_time_local == "16:00"
     assert config.workflow.eod_shutdown_time_local == "20:00"
     assert config.broker.provider == "schwab"
-    assert config.workflow.persist_session_bars is True
-    assert config.workflow.persist_raw_trades is True
     assert config.gcs.trades_prefix == "trades"
     assert config.gcs.transactions_prefix == "transactions"
 
@@ -219,17 +217,19 @@ def test_repo_config_json_is_databento_400t_schwab_broker() -> None:
     assert config.historical.timeframe == "400t"
     assert config.strategies == ("gaussian_ma_crossover",)
     assert config.indicators.gaussian_ma is not None
-    assert config.indicators.gaussian_ma.fast.length == 30
+    assert config.indicators.gaussian_ma.fast.length == 4
     assert config.indicators.gaussian_ma.fast.sigma_divisor == 7.0
-    assert config.indicators.gaussian_ma.slow.length == 19
-    assert config.indicators.gaussian_ma.slow.sigma_divisor == 4.0
+    assert config.indicators.gaussian_ma.slow.length == 10
+    assert config.indicators.gaussian_ma.slow.sigma_divisor == 9.5
+    assert config.indicators.gaussian_ma.fast.ema_length == 4
+    assert config.indicators.gaussian_ma.slow.sma_length == 3
     assert config.gex.enabled is False
     assert config.broker.provider == "schwab"
     assert config.options.days_to_expiration == 2
     assert config.options.otm_strikes == 2
     assert config.gex.days_to_expiration == 2
-    assert config.workflow.warmup_from_storage is True
-    assert config.workflow.min_warmup_bars == 100
+    assert config.workflow.warmup_from_storage is False
+    assert config.workflow.min_warmup_bars == 1
     assert config.workflow.eod_shutdown_enabled is False
     assert config.gcs.transactions_prefix == "transactions"
     assert config.historical.extended_session_start_local == "04:00"

@@ -63,18 +63,41 @@ def test_config_builds_slow_and_fast_gaussian_ma_jobs() -> None:
 
     keys = {dict(job.params).get("output_key") for job in jobs if job.name == "gaussian_ma"}
     assert keys == {"gaussian_ma_slow", "gaussian_ma_fast"}
-    assert options.trailing_stop_pct == 0.15
-    assert options.stop_loss_pct == 0.10
+    assert options.trailing_stop_pct == 0.10
+    assert options.stop_loss_pct == 0.05
 
     by_key = {
         dict(job.params)["output_key"]: dict(job.params)
         for job in jobs
         if job.name == "gaussian_ma"
     }
-    assert by_key["gaussian_ma_slow"]["length"] == 20
-    assert by_key["gaussian_ma_slow"]["sigma_divisor"] == 7.0
-    assert by_key["gaussian_ma_fast"]["length"] == 20
-    assert by_key["gaussian_ma_fast"]["sigma_divisor"] == 10.0
+    assert by_key["gaussian_ma_slow"]["length"] == 10
+    assert by_key["gaussian_ma_slow"]["sigma_divisor"] == 9.5
+    assert by_key["gaussian_ma_fast"]["length"] == 4
+    assert by_key["gaussian_ma_fast"]["sigma_divisor"] == 7.0
+
+
+def test_gaussian_ma_leg_parses_ema_and_sma_lengths() -> None:
+    from config import _parse_indicator_config
+
+    indicators = _parse_indicator_config(
+        {
+            "max_bars": 500,
+            "dema": {"enabled": False},
+            "supertrend": {"enabled": False},
+            "gaussian_bands": {"enabled": False},
+            "gaussian_ma": {
+                "enabled": True,
+                "fast": {"length": 4, "sigma_divisor": 7.0, "ema_length": 6},
+                "slow": {"length": 10, "sigma_divisor": 9.5, "sma_length": 5},
+            },
+        }
+    )
+    assert indicators.gaussian_ma.fast.ema_length == 6
+    assert indicators.gaussian_ma.slow.sma_length == 5
+    # Unspecified leg smooths fall back to defaults.
+    assert indicators.gaussian_ma.slow.ema_length is None
+    assert indicators.gaussian_ma.fast.sma_length == 3
 
 
 def test_coordinator_updates_gaussian_ma_on_50t_stream_bars() -> None:

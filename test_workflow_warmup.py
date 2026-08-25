@@ -68,6 +68,64 @@ def test_warmup_required_bar_count_includes_gaussian_ma_floor() -> None:
     assert warmup_required_bar_count(app) == 100
 
 
+def test_warmup_required_bar_count_uses_true_gaussian_ma_warmup() -> None:
+    from config import GaussianMaConfig, GaussianMaLegConfig
+
+    app = AppConfig()
+    object.__setattr__(app.indicators, "max_bars", 500)
+    object.__setattr__(app.indicators, "dema", None)
+    object.__setattr__(app.indicators, "supertrend", None)
+    object.__setattr__(app.indicators, "gaussian_bands", None)
+    object.__setattr__(
+        app.indicators,
+        "gaussian_ma",
+        GaussianMaConfig(
+            fast=GaussianMaLegConfig(length=4, sigma_divisor=7.0, ema_length=4),
+            slow=GaussianMaLegConfig(length=10, sigma_divisor=9.5, sma_length=3),
+        ),
+    )
+    object.__setattr__(app.workflow, "min_warmup_bars", 1)
+    # fast = ceil(3.45*(ema_length+1) + length) = ceil(3.45*5 + 4) = ceil(21.25) = 22
+    # slow = slow.length + sma_length - 1 = 10 + 3 - 1 = 12
+    assert warmup_required_bar_count(app) == 22
+
+
+def test_warmup_required_bar_count_slow_gaussian_dominates() -> None:
+    from config import GaussianMaConfig, GaussianMaLegConfig
+
+    app = AppConfig()
+    object.__setattr__(app.indicators, "max_bars", 2000)
+    object.__setattr__(app.indicators, "dema", None)
+    object.__setattr__(app.indicators, "supertrend", None)
+    object.__setattr__(app.indicators, "gaussian_bands", None)
+    object.__setattr__(
+        app.indicators,
+        "gaussian_ma",
+        GaussianMaConfig(
+            fast=GaussianMaLegConfig(length=2, sigma_divisor=7.0, ema_length=1),
+            slow=GaussianMaLegConfig(length=50, sigma_divisor=9.5, sma_length=10),
+        ),
+    )
+    object.__setattr__(app.workflow, "min_warmup_bars", 1)
+    # fast = ceil(3.45*2 + 2) = ceil(8.9) = 9 ; slow = 50 + 10 - 1 = 59
+    assert warmup_required_bar_count(app) == 59
+
+
+def test_warmup_required_bar_count_ema_falls_back_to_fast_length() -> None:
+    from config import GaussianMaConfig
+
+    app = AppConfig()
+    object.__setattr__(app.indicators, "max_bars", 500)
+    object.__setattr__(app.indicators, "dema", None)
+    object.__setattr__(app.indicators, "supertrend", None)
+    object.__setattr__(app.indicators, "gaussian_bands", None)
+    object.__setattr__(app.indicators, "gaussian_ma", GaussianMaConfig())
+    object.__setattr__(app.workflow, "min_warmup_bars", 1)
+    # defaults: fast.length=20 (ema_length None -> 20) ; ceil(3.45*21 + 20) = 93
+    # slow length=20, sma_length=3 -> 22
+    assert warmup_required_bar_count(app) == 93
+
+
 def test_warmup_lookback_duration_for_3m() -> None:
     app = AppConfig()
     object.__setattr__(app.indicators, "max_bars", 500)
@@ -309,7 +367,6 @@ def test_seed_gex_volume_history_caps_at_lookback() -> None:
     config.strategies = ("gex_scalp",)
     config.symbols = ("SPY",)
     config.warmup_from_storage = False
-    config.persist_session_bars = False
     config.market_config.stream_timeframe = "1m"
     config.market_config.strategy_timeframe = "1m"
     config.market_config.aggregation_timeframes = ("1m",)

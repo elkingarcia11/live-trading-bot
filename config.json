@@ -41,12 +41,14 @@
     "gaussian_ma": {
       "enabled": true,
       "fast": {
-        "length": 30,
-        "sigma_divisor": 7.0
+        "length": 4,
+        "sigma_divisor": 7.0,
+        "ema_length": 4
       },
       "slow": {
-        "length": 19,
-        "sigma_divisor": 4.0
+        "length": 10,
+        "sigma_divisor": 9.5,
+        "sma_length": 3
       }
     }
   },
@@ -57,11 +59,9 @@
     "websocket_url": "",
     "subscribe_on_connect": true,
     "audit_log_path": "logs/audit.jsonl",
-    "warmup_from_storage": true,
-    "min_warmup_bars": 100,
+    "warmup_from_storage": false,
+    "min_warmup_bars": 1,
     "startup_sync_lookback_days": 30,
-    "persist_session_bars": true,
-    "persist_raw_trades": true,
     "eod_enabled": true,
     "eod_flatten_time_utc": "23:59",
     "eod_shutdown_time_utc": "00:00",
@@ -159,8 +159,8 @@
     "strike_count": 40,
     "commission_per_contract": 0.65,
     "stream_contract_marks": true,
-    "trailing_stop_pct": 0.15,
-    "stop_loss_pct": 0.10
+    "trailing_stop_pct": 0.10,
+    "stop_loss_pct": 0.05
   },
   "gex": {
     "enabled": false,
@@ -191,7 +191,7 @@
   },
   "forward_test": {
     "initial_balance": 3000,
-    "persist_state": true,
+    "persist_state": false,
     "state_prefix": "forward_test",
     "transactions_csv_path": "data/transactions.csv"
   },

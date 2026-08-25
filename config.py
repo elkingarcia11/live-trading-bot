@@ -165,6 +165,12 @@ class GaussianBandsConfig:
 class GaussianMaLegConfig:
     length: int = DEFAULT_GAUSSIAN_LENGTH
     sigma_divisor: float = DEFAULT_GAUSSIAN_SIGMA_DIVISOR
+    # Fast GMA warmup: EMA smoothing length used by the true fast Gaussian MA.
+    # None falls back to ``length``. Only meaningful for the ``fast`` leg.
+    ema_length: Optional[int] = None
+    # Slow GMA warmup: SMA smoothing length (slow gaussian runs on SMA(sma_length)).
+    # Defaults to 3 per the TradingView Gaussian MA-EZ slow line. Only for ``slow``.
+    sma_length: int = 3
 
 
 @dataclass(frozen=True)
@@ -247,13 +253,11 @@ class WorkflowSettings:
     websocket_url: str = ""
     subscribe_on_connect: bool = True
     audit_log_path: str = "logs/audit.jsonl"
-    # Load prior OHLCV from GCS on startup (before stream connect / before 4:00 ET).
+    # Backwards-compat flag; main workflow starts in-memory (warmup_from_storage=False).
     warmup_from_storage: bool = True
-    # Block new entries until this many strategy-TF bars exist (storage replay + live).
+    # Block new entries until this many strategy-TF bars exist (live stream only).
     min_warmup_bars: int = 100
     startup_sync_lookback_days: int = 30
-    persist_session_bars: bool = True
-    persist_raw_trades: bool = True
     eod_enabled: bool = True
     eod_flatten_time_utc: str = "19:59"
     eod_shutdown_time_utc: str = "20:00"
@@ -765,9 +769,12 @@ def _parse_gaussian_ma_leg(
         return GaussianMaLegConfig(length=default_length, sigma_divisor=default_sigma)
     if not isinstance(payload, dict):
         raise ValueError(f"indicators.gaussian_ma.{field_name} must be an object")
+    ema_length = payload.get("ema_length")
     return GaussianMaLegConfig(
         length=int(payload.get("length", default_length)),
         sigma_divisor=float(payload.get("sigma_divisor", default_sigma)),
+        ema_length=int(ema_length) if ema_length is not None else None,
+        sma_length=max(1, int(payload.get("sma_length", 3))),
     )
 
 
@@ -820,8 +827,6 @@ def _parse_workflow_settings(
         warmup_from_storage=bool(payload.get("warmup_from_storage", True)),
         min_warmup_bars=max(1, int(payload.get("min_warmup_bars", 100))),
         startup_sync_lookback_days=int(payload.get("startup_sync_lookback_days", 30)),
-        persist_session_bars=bool(payload.get("persist_session_bars", True)),
-        persist_raw_trades=bool(payload.get("persist_raw_trades", True)),
         eod_enabled=bool(payload.get("eod_enabled", True)),
         eod_flatten_time_utc=str(payload.get("eod_flatten_time_utc", "19:59")),
         eod_shutdown_time_utc=str(payload.get("eod_shutdown_time_utc", "20:00")),

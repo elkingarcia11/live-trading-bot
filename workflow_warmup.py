@@ -7,6 +7,7 @@ recent bars to warm indicator state before the live 1m stream starts.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import calendar
 from dataclasses import dataclass
@@ -807,6 +808,25 @@ def warmup_lookback_duration(app: "AppConfig", timeframe: str) -> timedelta:
     )
 
 
+def gaussian_ma_warmup_bar_count(app: "AppConfig") -> int:
+    """Return strategy-TF bars needed to compute both Gaussian MA legs.
+
+    Fast = Gaussian over an EMA(ema_length):
+        ceil(3.45 * (ema_length + 1) + fast.length)
+    Slow = Gaussian over an SMA(sma_length):
+        slow.length + sma_length - 1
+    Returns 0 when gaussian_ma is not configured.
+    """
+    if app.indicators.gaussian_ma is None:
+        return 0
+    gma = app.indicators.gaussian_ma
+    fast_ema_length = gma.fast.ema_length or gma.fast.length
+    fast_required = math.ceil(3.45 * (fast_ema_length + 1) + gma.fast.length)
+    slow_sma_length = max(1, gma.slow.sma_length)
+    slow_required = gma.slow.length + slow_sma_length - 1
+    return max(fast_required, slow_required)
+
+
 def warmup_required_bar_count(app: "AppConfig") -> int:
     """Return the number of strategy-timeframe bars needed for warmup/entry gate.
 
@@ -833,12 +853,9 @@ def warmup_required_bar_count(app: "AppConfig") -> int:
         )
 
     if app.indicators.gaussian_ma is not None:
-        gma = app.indicators.gaussian_ma
-        required_bars = max(
-            required_bars,
-            gma.slow.length,
-            gma.fast.length,
-        )
+        # True Gaussian MA warmup needs enough bars for the smoothing stage plus
+        # the gaussian window (fast = Gaussian over EMA, slow = Gaussian over SMA).
+        required_bars = max(required_bars, gaussian_ma_warmup_bar_count(app))
 
     return min(max(1, app.indicators.max_bars), required_bars)
 

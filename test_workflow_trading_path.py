@@ -46,8 +46,6 @@ def _bare_workflow(**overrides: object) -> TradingWorkflow:
     workflow._trading_generation = 0
     workflow._logged_first_live_bar = True
     workflow._live_regular_hours_seen = True
-    workflow._session_recorder = None
-    workflow._trade_persist = None
     workflow._last_bar_at = {}
     workflow._missed_bars = 0
     workflow._last_sampled_dropped_bars = 0
@@ -438,22 +436,16 @@ def test_hot_restart_skips_trading_without_blocking_ingest() -> None:
     workflow._run_trading_path.assert_not_called()
 
 
-def test_sample_runtime_health_reports_queue_and_flush_lag() -> None:
+def test_sample_runtime_health_reports_zero_queue_no_gcs_persist() -> None:
     workflow = _bare_workflow()
-    persist = MagicMock()
-    persist.approx_queued.return_value = 42
-    persist.poll_stats.return_value = [{"kind": "flush", "duration_s": 9.5}]
-    workflow._trade_persist = persist
-    session = MagicMock()
-    session.buffered_row_count = 8
-    workflow._session_recorder = session
     workflow.stream_processor.dropped_bar_count = 4
 
     workflow._sample_runtime_health()
     snapshot = workflow.health_monitor.check()
 
-    assert snapshot.queue_depth == 50
-    assert snapshot.flush_lag_seconds == 9.5
+    # In-memory only: no GCS persist queue or flush lag to report.
+    assert snapshot.queue_depth == 0
+    assert snapshot.flush_lag_seconds is None
     assert snapshot.missed_bars == 4
 
 

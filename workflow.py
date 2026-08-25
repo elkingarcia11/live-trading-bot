@@ -20,8 +20,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from bar_alignment import aggregation_checkpoint, align_bucket_start, last_completed_minute, timeframe_timedelta, to_utc
-from cloud_storage_repository import CloudStorageRepository
+from bar_alignment import timeframe_timedelta, to_utc
 from data_aggregator import AggregatedBar, DataAggregator
 from event_bus import EventBus, Topics
 from config import AppConfig, load_config
@@ -108,21 +107,7 @@ from market_session_scheduler import (
 )
 from trade_logger import RiskDecisionRecord, TradeLogger
 from transaction_ledger import TransactionLedger, TransactionRecord
-from session_ohlcv_recorder import SessionFlushSummary, SessionOhlcvRecorder
-from session_trade_recorder import databento_trade_row
-from trade_persist import (
-    DEFAULT_COMPACT_INTERVAL_S,
-    DEFAULT_QUEUE_MAXSIZE,
-    TradePersistClient,
-    TradePersistWriterConfig,
-)
-from workflow_warmup import (
-    build_storage_repository,
-    indicator_warmup_needed,
-    load_stored_bars,
-    prepare_trading_day_from_storage,
-    warm_start_gex,
-)
+from workflow_warmup import gaussian_ma_warmup_bar_count
 
 logger = logging.getLogger(__name__)
 
@@ -252,20 +237,8 @@ class WorkflowConfig:
         return self.app.email.forward_test
 
     @property
-    def warmup_from_storage(self) -> bool:
-        return self.app.workflow.warmup_from_storage
-
-    @property
     def min_warmup_bars(self) -> int:
         return max(1, int(self.app.workflow.min_warmup_bars))
-
-    @property
-    def persist_session_bars(self) -> bool:
-        return self.app.workflow.persist_session_bars
-
-    @property
-    def persist_raw_trades(self) -> bool:
-        return self.app.workflow.persist_raw_trades
 
     @property
     def eod_schedule(self) -> EodSchedule:
@@ -570,7 +543,6 @@ class TradingWorkflow:
                 on_close_external=self._on_stream_closed,
                 on_error_external=self._on_stream_error,
                 on_trade=self._on_raw_trade,
-                on_databento_trade=self._on_databento_trade,
             )
         else:
             self._schwab_stream = None
@@ -656,10 +628,8 @@ class TradingWorkflow:
 
         self._health_thread: Optional[threading.Thread] = None
         self._eod_thread: Optional[threading.Thread] = None
-        self._ohlcv_flush_thread: Optional[threading.Thread] = None
         self._stop_health = threading.Event()
         self._stop_eod = threading.Event()
-        self._stop_ohlcv_flush = threading.Event()
         self._shutdown_requested = threading.Event()
         self._eod_flattened_on: Optional[date] = None
         self._eod_shutdown_on: Optional[date] = None
@@ -684,9 +654,6 @@ class TradingWorkflow:
             SchwabAccountSnapshot | IbkrTwsAccountSnapshot
         ] = None
         self._market_data_client: Optional[SchwabMarketDataClient] = None
-        self._session_recorder: Optional[SessionOhlcvRecorder] = None
-        self._trade_persist: Optional[TradePersistClient] = None
-        self._trade_persist_drops = 0
         self._logged_first_live_bar = False
         self._live_regular_hours_seen = False
         self._flattening_contracts: set[str] = set()
@@ -704,55 +671,8 @@ class TradingWorkflow:
         self._gex_waiting_snapshot_logged: set[str] = set()
         if config.app.gex.enabled:
             self._init_gex_monitor()
-        if config.persist_session_bars:
-            try:
-                storage = build_storage_repository(config.app)
-                persist_timeframes = (config.market_config.stream_timeframe,)
-                if indicator_warmup_needed(config.app, config.strategies):
-                    persist_timeframes = tuple(
-                        dict.fromkeys(
-                            (
-                                config.market_config.stream_timeframe,
-                                config.app.historical.timeframe,
-                            )
-                        )
-                    )
-                self._session_recorder = SessionOhlcvRecorder(
-                    storage,
-                    timeframes=persist_timeframes,
-                    use_daily_partitions=config.app.gcs.use_daily_partitions,
-                )
-                logger.info(
-                    "Session OHLCV recorder enabled for %s (%s)",
-                    ", ".join(persist_timeframes),
-                    (
-                        f"periodic flush every {DEFAULT_COMPACT_INTERVAL_S:.0f}s"
-                        if not config.app.workflow.eod_shutdown_enabled
-                        else "flush on shutdown"
-                    ),
-                )
-            except Exception:
-                logger.exception("Session OHLCV recorder unavailable")
-        if config.persist_raw_trades:
-            try:
-                writer_config = TradePersistWriterConfig.from_app(
-                    config.app,
-                    compact_interval_seconds=DEFAULT_COMPACT_INTERVAL_S,
-                )
-                self._trade_persist = TradePersistClient.start(
-                    writer_config,
-                    queue_maxsize=DEFAULT_QUEUE_MAXSIZE,
-                )
-                logger.info(
-                    "Background raw-trade persist enabled (prefix=%s; "
-                    "append every %d rows; compact every %.0fs)",
-                    config.app.gcs.trades_prefix,
-                    writer_config.every_rows,
-                    writer_config.compact_interval_seconds,
-                )
-            except Exception:
-                logger.exception("Session raw-trade persist unavailable")
-
+        # In-memory only: bars and trades live in the indicator buffer and stream
+        # aggregation (up to the stream timeframe); no OHLCV/raw-tape dump.
         self._register_indicator_jobs()
         self._wire_passive_listeners()
 
@@ -763,11 +683,8 @@ class TradingWorkflow:
 
         self.trade_logger.start()
         self.health_monitor.start()
-        # Load prior OHLCV from GCS before live ingest (no GEX warmup).
-        if self._config.warmup_from_storage:
-            prepare_trading_day_from_storage(self)
-        elif "gex_scalp" in self._config.strategies and self._config.app.gex.enabled:
-            warm_start_gex(self)
+        # Purely in-memory start: no OHLCV history preload, no GEX volume seeding
+        # from history. Buffers and indicators warm from the live stream aggregation.
         self._reconcile_expired_restored_positions()
         self._reconcile_restored_positions_with_trend()
         self._subscribe_open_option_contracts()
@@ -804,12 +721,6 @@ class TradingWorkflow:
         self._start_health_checks()
         if self._config.eod_schedule.enabled:
             self._start_eod_scheduler()
-        if (
-            self._config.persist_session_bars
-            and self._session_recorder is not None
-            and not self._config.eod_schedule.shutdown_enabled
-        ):
-            self._start_ohlcv_flush_scheduler()
         if self._gex_monitor is not None:
             if self._config.app.gex.poll_on_startup:
                 try:
@@ -834,7 +745,7 @@ class TradingWorkflow:
         return self._shutdown_requested.is_set()
 
     def stop(self, *, persist_reason: str = "shutdown") -> None:
-        """Stop health checks, disconnect streams, and dump session data to GCS."""
+        """Stop health checks, disconnect streams, and checkpoint the ledger."""
         if not self._started:
             self._shutdown_schwab_http()
             return
@@ -845,12 +756,6 @@ class TradingWorkflow:
             and threading.current_thread() is not self._eod_thread
         ):
             self._eod_thread.join(timeout=2.0)
-        self._stop_ohlcv_flush.set()
-        if (
-            self._ohlcv_flush_thread is not None
-            and threading.current_thread() is not self._ohlcv_flush_thread
-        ):
-            self._ohlcv_flush_thread.join(timeout=2.0)
         self._stop_health.set()
         if (
             self._health_thread is not None
@@ -858,12 +763,9 @@ class TradingWorkflow:
         ):
             self._health_thread.join(timeout=2.0)
 
-        # Capture the forming tick bar before disconnect can clear its builder.
-        self._flush_partial_tick_bars()
-
-        # Persist before transport cleanup. A client disconnect can fail or hang,
-        # but it must never prevent the session data checkpoint.
-        self._persist_day_state_to_gcs(reason=persist_reason)
+        # Checkpoint the forward-test account and transactions ledger before
+        # transport cleanup. OHLCV/raw tape stays in memory (no GCS upload).
+        self._checkpoint_account_and_transactions(reason=persist_reason)
 
         try:
             if self._schwab_stream is not None:
@@ -966,52 +868,6 @@ class TradingWorkflow:
             ", ".join(config.strategies) or "(none)",
         )
 
-    def _flush_partial_tick_bars(self) -> None:
-        """Persist in-progress Databento tick bars before the stream disconnects."""
-        if self._databento_stream is None or self._session_recorder is None:
-            return
-        try:
-            payloads = self._databento_stream.flush_partial_bars()
-        except Exception:
-            logger.exception(
-                "Failed flushing partial tick bars before shutdown")
-            return
-        for payload in payloads:
-            bar = payload.get("bar") or {}
-            try:
-                timestamp = datetime.fromisoformat(
-                    str(bar.get("datetime")).replace("Z", "+00:00")
-                )
-            except (TypeError, ValueError):
-                continue
-            if timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=timezone.utc)
-            event = CleanBarEvent(
-                symbol=str(payload.get("symbol") or "").upper(),
-                timeframe=str(payload.get("timeframe") or ""),
-                timestamp=timestamp,
-                open=float(bar.get("open") or 0.0),
-                high=float(bar.get("high") or 0.0),
-                low=float(bar.get("low") or 0.0),
-                close=float(bar.get("close") or 0.0),
-                volume=float(bar.get("volume") or 0.0),
-            )
-            if not event.symbol or not event.timeframe or event.close <= 0:
-                continue
-            self._session_recorder.record_clean_bar(event)
-            logger.info(
-                "Buffered partial %s %s bar for shutdown persist "
-                "(ticks=%s O=%.2f H=%.2f L=%.2f C=%.2f V=%.0f)",
-                event.symbol,
-                event.timeframe,
-                bar.get("ticks"),
-                event.open,
-                event.high,
-                event.low,
-                event.close,
-                event.volume,
-            )
-
     def _on_raw_trade(
         self,
         symbol: str,
@@ -1033,167 +889,31 @@ class TradingWorkflow:
             source="databento_streamer",
         )
 
-    def _on_databento_trade(
-        self,
-        record: Any,
-        symbol: str,
-        raw_symbol: str,
-    ) -> None:
-        """Enqueue one Databento trade for background parquet persist."""
-        if self._trade_persist is None:
-            return
-        try:
-            row = databento_trade_row(
-                record,
-                symbol=symbol,
-                raw_symbol=raw_symbol,
-            )
-            if row is None:
-                return
-            if not self._trade_persist.try_put(row):
-                self._trade_persist_drops += 1
-                if self._trade_persist_drops in {1, 100, 1000} or (
-                    self._trade_persist_drops % 10_000 == 0
-                ):
-                    logger.warning(
-                        "Raw-trade persist queue full; dropped %d print(s) "
-                        "(queued=%d)",
-                        self._trade_persist_drops,
-                        self._trade_persist.approx_queued(),
-                    )
-        except Exception:
-            logger.exception(
-                "Raw-trade persist failed for %s; feed continues", symbol)
-
-    def _flush_session_ohlcv(self, *, reason: str) -> Optional[SessionFlushSummary]:
-        """Merge buffered live bars into cumulative OHLCV history."""
-        if self._session_recorder is None:
-            return None
-        flushed = self.aggregator.flush()
-        strategy_timeframe = self._config.market_config.strategy_timeframe
-        for aggregated in flushed:
-            if aggregated.timeframe != strategy_timeframe:
-                continue
-            self._session_recorder.record_aggregated_bar(aggregated)
-        buffered = self._session_recorder.buffered_row_count
-        if buffered:
-            logger.info(
-                "OHLCV flush (%s): merging %d buffered bar(s) into stored history",
-                reason,
-                buffered,
-            )
-        summary = self._session_recorder.flush()
-        if summary.rows_written:
-            logger.info(
-                "OHLCV flush (%s) complete: new_rows=%d partitions_touched=%d uris=%s",
-                reason,
-                summary.rows_written,
-                summary.partitions_written,
-                list(summary.storage_uris),
-            )
-        return summary
-
     def _checkpoint_account_and_transactions(self, *, reason: str) -> None:
-        """Persist forward-test balance and upload the transactions ledger."""
+        """Checkpoint the in-memory account for graceful shutdown.
+
+        With forward_test.persist_state disabled the account stays in memory;
+        the transactions ledger is an append-only local CSV touched on every fill.
+        """
         if self._forward_test_account is not None:
             try:
                 self._forward_test_account.save()
                 logger.info(
-                    "Account checkpoint (%s): forward-test account saved", reason)
-            except Exception:
-                logger.exception(
-                    "Account checkpoint (%s): forward-test account save failed", reason
-                )
-
-        if self._transaction_ledger is None:
-            return
-        try:
-            gcs = self._config.app.gcs
-            uri = self._transaction_ledger.upload_to_gcs(
-                bucket_name=gcs.bucket_name,
-                prefix=gcs.transactions_prefix,
-                credentials_path=gcs.credentials_path,
-                project_id=gcs.project_id,
-            )
-            if uri:
-                logger.info(
-                    "Account checkpoint (%s): transaction ledger uploaded to %s",
+                    "Account checkpoint (%s): forward-test account checkpointed",
                     reason,
-                    uri,
-                )
-            else:
-                logger.info(
-                    "Account checkpoint (%s): transaction ledger kept local at %s",
-                    reason,
-                    self._transaction_ledger.path,
-                )
-        except Exception:
-            logger.exception(
-                "Account checkpoint (%s): transaction ledger upload failed", reason
-            )
-
-    def _persist_day_state_to_gcs(
-        self,
-        *,
-        reason: str,
-        shutdown_trade_persist: bool = True,
-    ) -> None:
-        """Merge session tick bars, raw tape, and transactions into existing GCS history."""
-        logger.info(
-            "=== History merge (%s): dump/merge into existing GCS "
-            "(1) aggregated tick bars → %s/  (2) raw trades → %s/  "
-            "(3) strategy transactions → %s/  bucket=%s ===",
-            reason,
-            self._config.app.gcs.ohlcv_prefix,
-            self._config.app.gcs.trades_prefix,
-            self._config.app.gcs.transactions_prefix,
-            self._config.app.gcs.bucket_name,
-        )
-        try:
-            self._flush_session_ohlcv(reason=reason)
-        except Exception:
-            logger.exception("History merge: session OHLCV flush failed")
-
-        if self._trade_persist is None:
-            logger.info(
-                "History merge: raw-trade persist disabled; skipping tape")
-        elif shutdown_trade_persist:
-            try:
-                queued = self._trade_persist.approx_queued()
-                if queued:
-                    logger.info(
-                        "History merge: draining %d queued raw trade(s) "
-                        "before persist shutdown",
-                        queued,
-                    )
-                self._trade_persist.shutdown()
-                flushes = 0
-                compacts = 0
-                for event in self._trade_persist.poll_stats():
-                    kind = event.get("kind")
-                    if kind == "flush":
-                        flushes += 1
-                    elif kind == "compact":
-                        compacts += 1
-                logger.info(
-                    "History merge trades complete: writer stopped "
-                    "(flushes=%d compacts=%d drops=%d)",
-                    flushes,
-                    compacts,
-                    self._trade_persist_drops,
                 )
             except Exception:
                 logger.exception(
-                    "History merge: raw trade persist shutdown failed")
-        else:
+                    "Account checkpoint (%s): forward-test account check failed",
+                    reason,
+                )
+
+        if self._transaction_ledger is not None:
             logger.info(
-                "History merge: raw-trade writer keeps running "
-                "(queued=%d; background compact continues)",
-                self._trade_persist.approx_queued(),
+                "Account checkpoint (%s): transaction ledger is local-only at %s",
+                reason,
+                self._transaction_ledger.path,
             )
-
-        self._checkpoint_account_and_transactions(reason=reason)
-
     def _wait_until_stream_session_open(self) -> None:
         """If started overnight / after close, wait until the stream window opens."""
         historical = self._config.app.historical
@@ -1263,7 +983,7 @@ class TradingWorkflow:
         return len(history)
 
     def _has_enough_volume_history(self, symbol: str) -> bool:
-        """True when GCS+live bars have filled the GEX volume lookback window."""
+        """True when live bars have filled the GEX volume lookback window."""
         if not self._config.app.gex.enabled:
             return True
         if "gex_scalp" not in self._config.strategies:
@@ -1273,13 +993,21 @@ class TradingWorkflow:
         return history is not None and len(history) >= needed
 
     def _warmup_bar_count(self, symbol: str) -> int:
-        """Return strategy-TF bars available from storage replay + live stream."""
+        """Return strategy-TF bars buffered from the live stream."""
         timeframe = self._config.market_config.strategy_timeframe
         return self.indicator_coordinator.buffered_bar_count(symbol, timeframe)
 
     def _has_enough_warmup_bars(self, symbol: str) -> bool:
-        """True when at least ``min_warmup_bars`` strategy bars are buffered."""
-        needed = self._config.min_warmup_bars
+        """True when enough strategy bars are buffered to run all needed indicators.
+
+        The threshold is the larger of ``min_warmup_bars`` and the true Gaussian MA
+        warmup (max of Fast-EMA and Slow-SMA windows), so entries only start once
+        both GMA lines are computable.
+        """
+        needed = max(
+            self._config.min_warmup_bars,
+            gaussian_ma_warmup_bar_count(self._config.app),
+        )
         have = self._warmup_bar_count(symbol)
         ready = have >= needed
         key = symbol.upper()
@@ -1294,145 +1022,6 @@ class TradingWorkflow:
             )
         return ready
 
-    def replay_warmup_bar(self, bar: CleanBarEvent) -> None:
-        """Replay one stored 1m bar through aggregation and indicators only."""
-        from ohlc_sanity import repair_ohlc_bar
-
-        open_price, high_price, low_price, close_price = repair_ohlc_bar(
-            bar.open,
-            bar.high,
-            bar.low,
-            bar.close,
-        )
-        if (open_price, high_price, low_price, close_price) != (
-            bar.open,
-            bar.high,
-            bar.low,
-            bar.close,
-        ):
-            bar = CleanBarEvent(
-                symbol=bar.symbol,
-                timeframe=bar.timeframe,
-                timestamp=bar.timestamp,
-                open=open_price,
-                high=high_price,
-                low=low_price,
-                close=close_price,
-                volume=bar.volume,
-            )
-        aggregated_bars = self.aggregator.on_bar(bar)
-        strategy_timeframe = self._config.market_config.strategy_timeframe
-        # Tick/stream-native strategy TFs (e.g. 50t) skip minute rollup.
-        if bar.timeframe == strategy_timeframe:
-            self.indicator_coordinator.on_stream_bar(bar)
-        for aggregated in aggregated_bars:
-            if (
-                aggregated.timeframe == strategy_timeframe
-                and aggregated.is_complete
-            ):
-                self.indicator_coordinator.on_aggregated_bar(aggregated)
-
-    def replay_warmup_aggregated_bar(self, bar: AggregatedBar) -> None:
-        """Replay one stored strategy-timeframe bar into indicator buffers."""
-        from ohlc_sanity import repair_ohlc_bar
-
-        open_price, high_price, low_price, close_price = repair_ohlc_bar(
-            bar.open,
-            bar.high,
-            bar.low,
-            bar.close,
-        )
-        if (open_price, high_price, low_price, close_price) != (
-            bar.open,
-            bar.high,
-            bar.low,
-            bar.close,
-        ):
-            bar = AggregatedBar(
-                symbol=bar.symbol,
-                timeframe=bar.timeframe,
-                timestamp=bar.timestamp,
-                open=open_price,
-                high=high_price,
-                low=low_price,
-                close=close_price,
-                volume=bar.volume,
-                is_complete=bar.is_complete,
-            )
-        self.indicator_coordinator.on_aggregated_bar(bar)
-
-    def seed_live_aggregation_from_storage(
-        self,
-        symbol: str,
-        last_saved_3m: datetime,
-        storage: CloudStorageRepository,
-        *,
-        end: Optional[datetime] = None,
-    ) -> None:
-        """Continue live 1m->3m aggregation after the last stored 3m candle."""
-        app = self._config.app
-        strategy_timeframe = self._config.market_config.strategy_timeframe
-        stream_timeframe = self._config.market_config.stream_timeframe
-        symbol = symbol.upper()
-        last_saved_3m = align_bucket_start(last_saved_3m, strategy_timeframe)
-        now = last_completed_minute(end)
-        completed_through, seed_start = aggregation_checkpoint(
-            last_saved_3m,
-            timeframe=strategy_timeframe,
-            now=now,
-        )
-        self.aggregator.set_completed_through(
-            symbol,
-            strategy_timeframe,
-            completed_through,
-        )
-
-        if now < seed_start:
-            logger.info(
-                "Live %s aligned with last saved candle @ %s (next bucket starts %s)",
-                strategy_timeframe,
-                last_saved_3m.isoformat(),
-                seed_start.isoformat(),
-            )
-            return
-
-        minute_bars = load_stored_bars(
-            storage,
-            symbol,
-            stream_timeframe,
-            seed_start,
-            now,
-            use_daily_partitions=app.gcs.use_daily_partitions,
-        )
-        seeded = 0
-        for row in minute_bars.itertuples(index=False):
-            timestamp = to_utc(pd.Timestamp(row.timestamp).to_pydatetime())
-            if timestamp < seed_start:
-                continue
-            self.replay_warmup_bar(
-                CleanBarEvent(
-                    symbol=symbol,
-                    timeframe=stream_timeframe,
-                    timestamp=timestamp,
-                    open=float(row.open),
-                    high=float(row.high),
-                    low=float(row.low),
-                    close=float(row.close),
-                    volume=float(row.volume),
-                )
-            )
-            seeded += 1
-
-        open_bucket = align_bucket_start(now, strategy_timeframe)
-        logger.info(
-            "Live %s aligned with last saved candle @ %s; checkpoint through %s; "
-            "seeded %d stored 1m bar(s) into open bucket %s",
-            strategy_timeframe,
-            last_saved_3m.isoformat(),
-            completed_through.isoformat(),
-            seeded,
-            open_bucket.isoformat(),
-        )
 
     def process_clean_bar(self, bar: CleanBarEvent) -> None:
         """Run one clean 1-minute bar through the full pipeline.
@@ -1630,8 +1219,6 @@ class TradingWorkflow:
                 "First regular-hours live candle received at %s; trade entries enabled",
                 bar.timestamp.isoformat(),
             )
-        if self._session_recorder is not None:
-            self._session_recorder.record_clean_bar(bar)
         self._note_bar_sequence(bar)
 
     def _run_trading_path(self, bar: CleanBarEvent) -> None:
@@ -1706,8 +1293,6 @@ class TradingWorkflow:
                 aggregated,
                 source="data_aggregator",
             )
-            if self._session_recorder is not None:
-                self._session_recorder.record_aggregated_bar(aggregated)
             snapshot = self._dispatch_indicator_jobs(aggregated, started)
             if aggregated.is_complete and snapshot is not None:
                 self._evaluate_strategies(aggregated, snapshot)
@@ -2703,11 +2288,14 @@ class TradingWorkflow:
             )
             return
         if opens_new_trade and not self._has_enough_warmup_bars(stream_symbol):
-            needed = self._config.min_warmup_bars
+            needed = max(
+                self._config.min_warmup_bars,
+                gaussian_ma_warmup_bar_count(self._config.app),
+            )
             have = self._warmup_bar_count(stream_symbol)
             logger.info(
                 "Blocking %s for %s; waiting for warmup "
-                "(%d/%d %s bars from storage+live) before new entries",
+                "(%d/%d %s bars buffered) before new entries",
                 signal.action.value,
                 signal.symbol,
                 have,
@@ -2720,7 +2308,7 @@ class TradingWorkflow:
             have = len(self._volume_history.get(stream_symbol, ()))
             logger.info(
                 "Blocking %s for %s; waiting for volume history "
-                "(%d/%d %s bars from GCS+live) before new entries",
+                "(%d/%d %s live bars) before new entries",
                 signal.action.value,
                 signal.symbol,
                 have,
@@ -4143,34 +3731,6 @@ class TradingWorkflow:
             source="stream_connection_manager",
         )
 
-    def _start_ohlcv_flush_scheduler(self) -> None:
-        """Periodically merge buffered bars to GCS while the 24/7 stream runs."""
-        interval = DEFAULT_COMPACT_INTERVAL_S
-        logger.info(
-            "Periodic OHLCV flush enabled (every %.0fs while stream runs)",
-            interval,
-        )
-        self._stop_ohlcv_flush.clear()
-        self._ohlcv_flush_thread = threading.Thread(
-            target=self._ohlcv_flush_loop,
-            name="workflow-ohlcv-flush",
-            daemon=True,
-        )
-        self._ohlcv_flush_thread.start()
-
-    def _ohlcv_flush_loop(self) -> None:
-        """Flush buffered OHLCV on an interval; raw trades use their own writer."""
-        interval = DEFAULT_COMPACT_INTERVAL_S
-        while not self._stop_ohlcv_flush.wait(interval):
-            try:
-                if (
-                    self._session_recorder is not None
-                    and self._session_recorder.buffered_row_count > 0
-                ):
-                    self._flush_session_ohlcv(reason="periodic")
-            except Exception:
-                logger.exception("Periodic OHLCV flush failed; will retry")
-
     def _start_eod_scheduler(self) -> None:
         """Watch the clock and flatten/shutdown at configured session times."""
         schedule = self._config.eod_schedule
@@ -4231,8 +3791,8 @@ class TradingWorkflow:
                     shutdown_on=self._eod_shutdown_on,
                 ):
                     logger.info(
-                        "EOD: equity streaming day ended; merging aggregated tick bars, "
-                        "raw trades, and transactions into existing GCS history, then shutting down"
+                        "EOD: equity streaming day ended; checkpointing account "
+                        "and transactions, then shutting down"
                     )
                     self._eod_shutdown_on = market_day
                     try:
@@ -4416,20 +3976,14 @@ class TradingWorkflow:
                 logger.exception("Health check failed")
 
     def _sample_runtime_health(self) -> None:
-        """Push persist-queue and dropped-bar metrics into the health monitor."""
-        queue_depth = 0
-        flush_lag: Optional[float] = None
-        if self._trade_persist is not None:
-            queue_depth += self._trade_persist.approx_queued()
-            for event in self._trade_persist.poll_stats():
-                duration = event.get("duration_s")
-                if duration is not None:
-                    flush_lag = float(duration)
-        if self._session_recorder is not None:
-            queue_depth += self._session_recorder.buffered_row_count
+        """Push dropped-bar metrics into the health monitor.
+
+        In-memory only (no GCS persist queue), so queue depth and flush lag
+        are always zero/none.
+        """
         self.health_monitor.update_runtime_metrics(
-            queue_depth=queue_depth,
-            flush_lag_seconds=flush_lag,
+            queue_depth=0,
+            flush_lag_seconds=None,
         )
         dropped = getattr(self.stream_processor, "dropped_bar_count", 0)
         delta = dropped - self._last_sampled_dropped_bars
