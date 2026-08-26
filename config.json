@@ -5,8 +5,12 @@
     "timezone": "America/New_York"
   },
   "market": {
-    "symbols": ["SPY"],
-    "stream_symbols": ["ES.n.0"],
+    "symbols": [
+      "SPY"
+    ],
+    "stream_symbols": [
+      "ES.n.0"
+    ],
     "stream_to_trade": {
       "ES.n.0": "SPY"
     },
@@ -52,7 +56,9 @@
       }
     }
   },
-  "strategies": ["gaussian_ma_crossover"],
+  "strategies": [
+    "gaussian_ma_crossover"
+  ],
   "workflow": {
     "run_schwab_stream": false,
     "stream_provider": "databento",
@@ -160,13 +166,17 @@
     "commission_per_contract": 0.65,
     "stream_contract_marks": true,
     "trailing_stop_pct": 0.10,
-    "stop_loss_pct": 0.02
+    "stop_loss_pct": 0.05
   },
   "gex": {
     "enabled": false,
     "poll_interval_seconds": 20,
     "poll_on_startup": false,
-    "level_refresh_times_local": ["09:35", "11:30", "15:00"],
+    "level_refresh_times_local": [
+      "09:35",
+      "11:30",
+      "15:00"
+    ],
     "seed_volume_history": false,
     "strike_count": 50,
     "days_to_expiration": 2,
@@ -187,7 +197,9 @@
     "smtp_host": "smtp.gmail.com",
     "smtp_port": 587,
     "sender": "elkinzain@gmail.com",
-    "recipients": ["elkinzain@gmail.com"]
+    "recipients": [
+      "elkinzain@gmail.com"
+    ]
   },
   "forward_test": {
     "initial_balance": 3000,

@@ -178,6 +178,20 @@ def test_parser_parses_all_flags() -> None:
     )
 
 
+def test_time_frame_alias_maps_to_timeframe() -> None:
+    args = build_workflow_arg_parser().parse_args(
+        ["--time-frame", "400t"]
+    )
+    overrides = overrides_from_args(args)
+    assert overrides == WorkflowConfigOverrides(timeframe="400t")
+    # The alias overrides stream + strategy timeframes like --timeframe does.
+    result = apply_config_overrides(
+        _base_app(), WorkflowConfigOverrides(timeframe="400t")
+    )
+    assert result.market.stream_timeframe == "400t"
+    assert result.market.strategy_timeframe == "400t"
+
+
 def test_partial_flags_produce_partial_overrides() -> None:
     overrides = overrides_from_args(
         build_workflow_arg_parser().parse_args(["--position-size", "2"])

@@ -4016,12 +4016,15 @@ def build_workflow_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--timeframe",
+        "--time-frame",
+        dest="timeframe",
         default=None,
         metavar="TF",
         help=(
             "Aggregation / stream / strategy timeframe (e.g. 25t, 400t, 5m). "
             "Sets market.stream_timeframe and market.strategy_timeframe and "
-            "derives the Databento ticks_per_bar. Default: config.json."
+            "derives the Databento ticks_per_bar. Default: config.json. "
+            "Accepts the ``--time-frame`` spelling as an alias."
         ),
     )
     parser.add_argument(
