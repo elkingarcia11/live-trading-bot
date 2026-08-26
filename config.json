@@ -202,7 +202,7 @@
     ]
   },
   "forward_test": {
-    "initial_balance": 3000,
+    "initial_balance": 10000,
     "persist_state": false,
     "state_prefix": "forward_test",
     "transactions_csv_path": "data/transactions.csv"
