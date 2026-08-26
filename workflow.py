@@ -921,6 +921,50 @@ class TradingWorkflow:
                 reason,
                 self._transaction_ledger.path,
             )
+
+        # Append all locally-buffered transactions to the daily GCS ledger
+        # (transactions/YYYY-MM-DD.csv). This runs at every shutdown so no
+        # transaction is lost on cancel / unexpected shutdown / exit / timeout.
+        self.flush_transactions_to_gcs(reason=reason)
+
+    def flush_transactions_to_gcs(self, *, reason: str = "shutdown") -> None:
+        """Append all locally-buffered transactions to daily GCS CSVs.
+
+        Exported only on shutdown (never a periodic flush): graceful EOD stop,
+        KeyboardInterrupt, SIGTERM, and interpreter exit all funnel through here
+        via :meth:`_checkpoint_account_and_transactions` / the atexit hook.
+        Writes each transaction to ``transactions/YYYY-MM-DD.csv`` keyed by its
+        timestamp.
+        """
+        ledger = self._transaction_ledger
+        if ledger is None:
+            return
+        gcs = self._config.app.gcs
+        bucket = (gcs.bucket_name or "").strip()
+        if not bucket:
+            logger.info(
+                "Transaction GCS export (%s): no GCS bucket configured; skipped",
+                reason,
+            )
+            return
+        try:
+            uris = ledger.upload_daily_to_gcs(
+                bucket_name=bucket,
+                prefix=gcs.transactions_prefix,
+                credentials_path=gcs.credentials_path,
+                project_id=gcs.project_id,
+            )
+            logger.info(
+                "Transaction GCS export (%s): %d daily file(s) written",
+                reason,
+                len(uris),
+            )
+        except Exception:
+            logger.exception(
+                "Transaction GCS export (%s) failed; local ledger retained at %s",
+                reason,
+                ledger.path,
+            )
     def _wait_until_stream_session_open(self) -> None:
         """If started overnight / after close, wait until the stream window opens."""
         historical = self._config.app.historical
@@ -2651,6 +2695,7 @@ class TradingWorkflow:
             return
 
         indicators = dict(signal.indicators or {})
+        indicators = dict(signal.indicators or {})
         if not indicators:
             snapshot = self.indicator_coordinator.get_latest(
                 signal.symbol,
@@ -2658,6 +2703,14 @@ class TradingWorkflow:
             )
             if snapshot is not None and snapshot.values:
                 indicators = dict(snapshot.values)
+
+        gma = getattr(self._config.app.indicators, "gaussian_ma", None)
+        fast_cfg = gma.fast if gma is not None else None
+        slow_cfg = gma.slow if gma is not None else None
+        fast_gma_length = fast_cfg.length if fast_cfg is not None else None
+        fast_gma_sigma = fast_cfg.sigma_divisor if fast_cfg is not None else None
+        slow_gma_length = slow_cfg.length if slow_cfg is not None else None
+        slow_gma_sigma = slow_cfg.sigma_divisor if slow_cfg is not None else None
 
         try:
             self._transaction_ledger.record(
@@ -2683,6 +2736,10 @@ class TradingWorkflow:
                     max_unrealized_profit_pct=max_unrealized_profit_pct,
                     max_unrealized_loss_pct=max_unrealized_loss_pct,
                     indicators=indicators,
+                    fast_gma_length=fast_gma_length,
+                    fast_gma_sigma=fast_gma_sigma,
+                    slow_gma_length=slow_gma_length,
+                    slow_gma_sigma=slow_gma_sigma,
                 )
             )
         except Exception:
@@ -4144,13 +4201,28 @@ if __name__ == "__main__":
                 logger.exception(
                     "Hot restart failed; Databento session left running")
 
-        if hasattr(signal_module, "SIGHUP"):
-            signal_module.signal(signal_module.SIGHUP, _hot_restart_handler)
+        def _terminate_handler(_signum, _frame) -> None:
+            logger.info("Termination signal received; stopping gracefully")
+            try:
+                workflow.stop(persist_reason="signal")
+            except Exception:
+                logger.exception("Graceful stop on signal failed")
+
+        # Keep SIGHUP as a hot-restart. Register SIGTERM (e.g. job timeout /
+        # external kill) to stop gracefully, which flushes transactions to GCS.
+        signal_module.signal(signal_module.SIGHUP, _hot_restart_handler)
+        if hasattr(signal_module, "SIGTERM"):
+            signal_module.signal(signal_module.SIGTERM, _terminate_handler)
+
+        # Export transactions to the GCS daily ledger on any exit path: cancel /
+        # Ctrl-C, SIGTERM/timeout, unexpected exception, and normal shutdown.
+        import atexit as _atexit
+        _atexit.register(workflow.flush_transactions_to_gcs)
         try:
             while not workflow.shutdown_requested:
                 time.sleep(1)
         except KeyboardInterrupt:
-            workflow.stop()
+            workflow.stop(persist_reason="keyboard-interrupt")
         else:
             if workflow.shutdown_requested:
                 logger.info("Exiting after scheduled end-of-day shutdown")
@@ -4162,6 +4234,11 @@ if __name__ == "__main__":
 
     workflow.trade_logger.start()
     workflow.health_monitor.start()
+
+    # Ensure transactions are exported to the GCS daily ledger when this
+    # simulation path exits (normal end, cancel, or exception).
+    import atexit as _atexit
+    _atexit.register(workflow.flush_transactions_to_gcs)
 
     base = datetime(2024, 1, 15, 9, 30, tzinfo=timezone.utc)
     for offset in range(30):

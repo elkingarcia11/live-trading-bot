@@ -63,6 +63,10 @@ _BASE_TRANSACTION_COLUMNS = (
     "execution_mode",
     "gaussian_ma_fast",
     "gaussian_ma_slow",
+    "fast_gma_length",
+    "fast_gma_sigma",
+    "slow_gma_length",
+    "slow_gma_sigma",
     "indicators_json",
 )
 
@@ -105,6 +109,10 @@ class TransactionRecord:
     strike: Optional[float] = None
     option_type: str = ""
     expiration_date: str = ""
+    fast_gma_length: Optional[int] = None
+    fast_gma_sigma: Optional[float] = None
+    slow_gma_length: Optional[int] = None
+    slow_gma_sigma: Optional[float] = None
 
 
 class TransactionLedger:
@@ -166,6 +174,10 @@ class TransactionLedger:
             "gaussian_ma_slow": _format_optional_indicator(
                 indicators.get("gaussian_ma_slow")
             ),
+            "fast_gma_length": _format_optional_int(transaction.fast_gma_length),
+            "fast_gma_sigma": _format_optional_number(transaction.fast_gma_sigma),
+            "slow_gma_length": _format_optional_int(transaction.slow_gma_length),
+            "slow_gma_sigma": _format_optional_number(transaction.slow_gma_sigma),
             "indicators_json": _serialize_indicators(indicators),
         }
         row.update(quote_csv_fields(transaction.quote, prefix=""))
@@ -238,6 +250,89 @@ class TransactionLedger:
                 blob_path,
             )
             return None
+
+    def upload_daily_to_gcs(
+        self,
+        *,
+        bucket_name: str,
+        prefix: str = "transactions",
+        credentials_path: str = "",
+        project_id: str = "",
+        client: Optional[storage.Client] = None,
+    ) -> list[str]:
+        """Append all local rows to daily partitioned GCS CSVs.
+
+        Each row is written to ``transactions/YYYY-MM-DD.csv`` keyed by the row's
+        transaction timestamp. If a day's file already exists in GCS its rows are
+        preserved and only genuinely new rows are appended (deduped so repeated
+        shutdown exports never duplicate a leg). Returns the list of ``gs://``
+        URIs written.
+        """
+        with self._lock:
+            local_rows = _read_transaction_rows(self._csv_path)
+
+        if credentials_path:
+            os.environ.setdefault(
+                "GOOGLE_APPLICATION_CREDENTIALS", credentials_path)
+        if project_id:
+            os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
+
+        storage_client = client or storage.Client()
+        if not gcs_bucket_exists(bucket_name, storage_client):
+            logger.warning(
+                "GCS bucket gs://%s not found; keeping transactions at %s only",
+                bucket_name,
+                self._csv_path,
+            )
+            return []
+
+        base_prefix = prefix.strip().strip("/")
+        bucket = storage_client.bucket(bucket_name)
+        by_date: dict[str, list[dict[str, str]]] = {}
+        for row in local_rows:
+            day = _row_transaction_date(row.get("timestamp", ""))
+            if day is None:
+                continue
+            by_date.setdefault(day, []).append(row)
+
+        uris: list[str] = []
+        for day in sorted(by_date):
+            blob_path = f"{base_prefix}/{day}.csv"
+            blob = bucket.blob(blob_path)
+            try:
+                remote_rows = _download_transaction_rows(blob)
+            except Exception:
+                logger.exception(
+                    "Failed downloading existing daily transactions %s",
+                    blob_path,
+                )
+                remote_rows = []
+            merged = _merge_transaction_rows(remote_rows, by_date[day])
+            if not merged:
+                logger.info(
+                    "Daily transaction export skipped; no rows for %s",
+                    blob_path,
+                )
+                continue
+            try:
+                payload = _serialize_transaction_rows(merged)
+                blob.upload_from_string(payload, content_type="text/csv")
+            except Exception:
+                logger.exception(
+                    "Failed uploading daily transactions to gs://%s/%s",
+                    bucket_name,
+                    blob_path,
+                )
+                continue
+            uris.append(f"gs://{bucket_name}/{blob_path}")
+            logger.info(
+                "Appended transactions to %s (existing=%d new=%d total=%d)",
+                f"gs://{bucket_name}/{blob_path}",
+                len(remote_rows),
+                len(by_date[day]),
+                len(merged),
+            )
+        return uris
 
     def _ensure_header(self) -> None:
         if not self._csv_path.exists() or self._csv_path.stat().st_size == 0:
@@ -375,6 +470,27 @@ def _format_optional_pct(value: Optional[float]) -> str:
     return f"{value * 100.0:.2f}%"
 
 
+def _format_optional_int(value: Optional[int]) -> str:
+    """Format an integer indicator parameter (e.g. GMA length) for the ledger CSV."""
+    if value is None or value == "":
+        return ""
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _format_optional_number(value: Any) -> str:
+    """Format a numeric indicator parameter (e.g. GMA sigma divisor)."""
+    if value is None or value == "":
+        return ""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{number:g}"
+
+
 def _format_optional_indicator(value: Any) -> str:
     if value is None or value == "":
         return ""
@@ -436,3 +552,26 @@ def _write_transaction_rows(path: Path, rows: list[dict[str, str]]) -> None:
                 {column: row.get(column, "")
                  for column in TRANSACTION_CSV_COLUMNS}
             )
+
+
+def _serialize_transaction_rows(rows: list[dict[str, str]]) -> str:
+    """Render transaction rows as CSV text including the header row."""
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=TRANSACTION_CSV_COLUMNS)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(
+            {column: row.get(column, "")
+             for column in TRANSACTION_CSV_COLUMNS}
+        )
+    return buffer.getvalue()
+
+
+def _row_transaction_date(timestamp: str) -> Optional[str]:
+    """Return the ``YYYY-MM-DD`` partition date for a transaction timestamp."""
+    if not timestamp:
+        return None
+    day = timestamp[:10]
+    if len(day) == 10 and "-" in day:
+        return day
+    return None
