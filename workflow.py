@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import threading
 import time
 from collections import deque
@@ -4096,6 +4097,26 @@ if __name__ == "__main__":
     from datetime import timedelta
 
     logging.basicConfig(level=logging.INFO)
+
+    # Normalize copy-pasted unicode dashes (em dash / en dash) to the double
+    # hyphen argparse expects, so flags like "—fast-gma-sigma" (pasted from a
+    # rich-text source) are accepted even though the "-" were lost or joined
+    # into a single wide dash. Only touches leading dashes; leaves values alone.
+    def _normalize_leading_dashes(arg: str) -> str:
+        i = 0
+        while i < len(arg) and arg[i] in ("\u2014", "\u2013"):
+            i += 1
+        if i:
+            return "--" + arg[i:]
+        return arg
+
+    normalized_argv = [_normalize_leading_dashes(arg) for arg in sys.argv]
+    if normalized_argv != sys.argv:
+        logger.info(
+            "Normalized unicode dashes in CLI args: %s",
+            " ".join(normalized_argv[1:]),
+        )
+        sys.argv = normalized_argv
 
     parser = build_workflow_arg_parser()
     args = parser.parse_args()
