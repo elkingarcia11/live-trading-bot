@@ -1631,12 +1631,20 @@ class TradingWorkflow:
             self.health_monitor.record_api_error()
             return None
 
-    def _option_unrealized_pnl(self, position: Position, mark: float) -> float:
-        """Return unrealized P&L for an option at ``mark`` net of entry commission."""
+    def _option_pnl_net_of_fees(self, position: Position, mark: float) -> float:
+        """Return option P&L at ``mark`` net of Schwab round-trip fees.
+
+        Charles Schwab charges commission_per_contract on both open and close
+        ($0.65 each by default → $1.30 round-trip per contract).
+        """
         quantity = abs(position.quantity)
         gross = (mark - position.average_entry_price) * quantity * 100.0
-        commission = self._config.app.options.commission_per_contract * quantity
-        return gross - commission
+        per_leg = self._config.app.options.commission_per_contract
+        return gross - (2.0 * per_leg * quantity)
+
+    def _option_unrealized_pnl(self, position: Position, mark: float) -> float:
+        """Return unrealized P&L for an option at ``mark`` net of round-trip fees."""
+        return self._option_pnl_net_of_fees(position, mark)
 
     def _option_cost_basis(self, position: Position) -> float:
         """Return the premium paid to open an option position (the % denominator)."""
@@ -3234,7 +3242,11 @@ class TradingWorkflow:
             entry_instrument_price=position.average_entry_price,
             entry_underlying_price=position.underlying_entry_price,
             trade_amount=fill_result.amount if fill_result is not None else None,
-            trade_pnl=fill_result.trade_pnl if fill_result is not None else None,
+            trade_pnl=(
+                fill_result.trade_pnl
+                if fill_result is not None
+                else self._option_pnl_net_of_fees(position, exit_mark)
+            ),
             timestamp=closed_at,
             quote=exit_quote,
             entry_quote=position.entry_quote,
@@ -3266,7 +3278,11 @@ class TradingWorkflow:
                 exit_underlying_price=exit_underlying,
                 entry_instrument_price=position.average_entry_price,
                 entry_underlying_price=position.underlying_entry_price,
-                profit=fill_result.trade_pnl if fill_result is not None else None,
+                profit=(
+                    fill_result.trade_pnl
+                    if fill_result is not None
+                    else self._option_pnl_net_of_fees(position, exit_mark)
+                ),
                 quantity=quantity,
                 instrument_line=description,
                 account_summary=(
@@ -4068,7 +4084,7 @@ def build_workflow_arg_parser() -> argparse.ArgumentParser:
             "Live trading workflow. Omitted flags fall back to config.json "
             "values. Example:\n"
             "  python workflow.py --timeframe 25t --fast-gma-length 5 "
-            "--fast-gma-sigma 8.0 --position-size 3"
+            "--fast-gma-sigma 8.0 --position-size 2000"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -4117,10 +4133,12 @@ def build_workflow_arg_parser() -> argparse.ArgumentParser:
         "--position-size",
         type=float,
         default=None,
-        metavar="N",
+        metavar="DOLLARS",
         help=(
-            "Max trade position quantity (contracts/shares). Default: "
-            "risk.max_position_quantity."
+            "Per-trade dollar budget. Buys as many whole contracts/shares as "
+            "possible without exceeding this amount "
+            "(options: qty * premium * 100). Default: risk.position_size_pct "
+            "/ risk.position_size_max_dollars from config.json."
         ),
     )
     return parser

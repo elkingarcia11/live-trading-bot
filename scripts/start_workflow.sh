@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Start the live trading workflow (cron / manual).
-# Schedule: daily 11:03 PM America/New_York via crontab.
-
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,6 +23,7 @@ if [[ ! -x "$PYTHON" ]]; then
   exit 1
 fi
 
+# Lock file / PID check
 if [[ -f "$LOCK_FILE" ]]; then
   old_pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
   if [[ -n "${old_pid:-}" ]] && kill -0 "$old_pid" 2>/dev/null; then
@@ -42,7 +40,9 @@ fi
 
 log "Starting workflow from $REPO_ROOT"
 
-# Keep Mac awake while the workflow runs (24/7 stream; no EOD shutdown when configured).
-exec caffeinate -dims "$PYTHON" -u "$REPO_ROOT/workflow.py" >>"$LOG_FILE" 2>&1 &
-echo $! >"$LOCK_FILE"
-log "Workflow started pid $(cat "$LOCK_FILE") — logging to $LOG_FILE"
+# Launch caffeinate in the background without exec so $! captures the PID
+nohup caffeinate -dims "$PYTHON" -u "$REPO_ROOT/workflow.py" >>"$LOG_FILE" 2>&1 &
+PID=$!
+echo "$PID" > "$LOCK_FILE"
+
+log "Workflow started (PID $PID) — logging to $LOG_FILE"

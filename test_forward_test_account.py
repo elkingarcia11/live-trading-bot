@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from forward_test_account import ForwardTestAccount
 
 
@@ -67,9 +69,11 @@ def test_forward_test_account_applies_option_commission_to_cost_basis() -> None:
         asset_type="OPTION",
         closed_at=datetime(2024, 1, 15, 18, 0, tzinfo=timezone.utc),
     )
-    assert sell.trade_pnl == 198.7
-    assert account.cash_balance == 3198.7
-    assert account.realized_pnl == 198.7
+    # Round-trip fees: $0.65 * 2 contracts * 2 legs = $2.60
+    assert sell.amount == pytest.approx(1198.7)
+    assert sell.trade_pnl == pytest.approx(197.4)
+    assert account.cash_balance == pytest.approx(3197.4)
+    assert account.realized_pnl == pytest.approx(197.4)
 
 
 def test_forward_test_account_commission_skips_equity() -> None:

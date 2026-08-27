@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Install (or refresh) a daily cron job that starts the workflow if it is not already running.
-# With 24/7 ES streaming the process stays up; cron is a reboot/crash safety net.
-
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,13 +7,15 @@ CRON_LINE="3 23 * * * $START_SCRIPT # live-trading-bot workflow"
 
 chmod +x "$START_SCRIPT"
 
-printf '%s\n' "$CRON_LINE" | crontab -
+# Safely append or update the cron line without wiping existing crontab
+existing_cron="$(crontab -l 2>/dev/null || true)"
 
-echo "Installed cron job (11:03 PM daily, system local time):"
+if echo "$existing_cron" | grep -qF "$START_SCRIPT"; then
+  echo "Cron job already exists for $START_SCRIPT"
+else
+  (echo "$existing_cron"; echo "$CRON_LINE") | crontab -
+  echo "Cron job installed successfully."
+fi
+
+echo ""
 crontab -l
-echo ""
-echo "Ensure macOS timezone matches America/New_York, or edit the hour in:"
-echo "  crontab -e"
-echo ""
-echo "Logs: $REPO_ROOT/logs/workflow.log"
-echo "Manual start: $START_SCRIPT"

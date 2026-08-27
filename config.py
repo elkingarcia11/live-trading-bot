@@ -368,6 +368,7 @@ class OptionsSettings:
     contract_type: str = "CALL"
     simulated_premium: float = 5.0
     strike_count: int = 5
+    # Charged on both open and close (Schwab round-trip = 2x this amount).
     commission_per_contract: float = 0.65
     stream_contract_marks: bool = True
     trailing_stop_pct: Optional[float] = 0.15
@@ -635,8 +636,10 @@ class WorkflowConfigOverrides:
       ``indicators.gaussian_ma.fast.length`` / ``sigma_divisor``.
     * ``slow_gma_length`` / ``slow_gma_sigma`` ->
       ``indicators.gaussian_ma.slow.length`` / ``sigma_divisor``.
-    * ``position_size`` -> ``risk.max_position_quantity``
-      (the max trade position size in contracts/shares).
+    * ``position_size`` -> dollar budget per trade
+      (``risk.position_size_max_dollars`` with ``position_size_pct=1.0``).
+      Sizing buys the most whole contracts/shares such that
+      ``quantity * unit_cost <= position_size`` (options: premium × 100).
     """
 
     timeframe: Optional[str] = None
@@ -721,10 +724,20 @@ def apply_config_overrides(
             "disabled in config; ignoring GMA length/sigma overrides."
         )
 
-    # Position size: max trade position quantity (contracts/shares).
+    # Position size: per-trade dollar budget (qty * unit cost <= budget).
     risk = app.risk
     if overrides.position_size is not None:
-        risk = replace(risk, max_position_quantity=overrides.position_size)
+        budget = float(overrides.position_size)
+        if budget <= 0:
+            raise ValueError("position_size must be a positive dollar amount")
+        # pct=1.0 so allocation is min(balance, budget). Raise the quantity
+        # ceiling so RiskGuard does not clip dollar-sized option fills.
+        risk = replace(
+            risk,
+            position_size_max_dollars=budget,
+            position_size_pct=1.0,
+            max_position_quantity=max(risk.max_position_quantity, budget),
+        )
 
     if market is app.market and indicators is app.indicators and risk is app.risk:
         return app

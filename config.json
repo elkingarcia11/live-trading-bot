@@ -165,8 +165,8 @@
     "strike_count": 40,
     "commission_per_contract": 0.65,
     "stream_contract_marks": true,
-    "trailing_stop_pct": 0.10,
-    "stop_loss_pct": 0.05
+    "trailing_stop_pct": 0.05,
+    "stop_loss_pct": 0.02
   },
   "gex": {
     "enabled": false,

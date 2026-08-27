@@ -331,10 +331,15 @@ class ForwardTestAccount:
             sell_qty = min(quantity, position.quantity)
             entry_notional = _trade_notional(sell_qty, position.entry_price, asset_type)
             proceeds = _trade_notional(sell_qty, exit_price, asset_type)
+            # Schwab charges $0.65/contract on both open and close ($1.30 round-trip).
             entry_commission = self._option_commission(sell_qty, asset_type)
-            trade_pnl = proceeds - entry_notional - entry_commission
+            exit_commission = self._option_commission(sell_qty, asset_type)
+            trade_pnl = (
+                proceeds - entry_notional - entry_commission - exit_commission
+            )
+            net_credit = proceeds - exit_commission
 
-            self._state.cash_balance += proceeds
+            self._state.cash_balance += net_credit
             self._state.realized_pnl += trade_pnl
             self._state.sell_count += 1
 
@@ -355,7 +360,7 @@ class ForwardTestAccount:
                     underlying_symbol=underlying_symbol,
                     quantity=sell_qty,
                     price=exit_price,
-                    amount=proceeds,
+                    amount=net_credit,
                     realized_pnl=trade_pnl,
                     cash_after=self._state.cash_balance,
                     timestamp=timestamp,
@@ -365,7 +370,7 @@ class ForwardTestAccount:
                 cash_balance=self._state.cash_balance,
                 realized_pnl=self._state.realized_pnl,
                 trade_pnl=trade_pnl,
-                amount=proceeds,
+                amount=net_credit,
             )
             self._persist_locked()
             return result
@@ -390,6 +395,7 @@ class ForwardTestAccount:
 
             sell_qty = position.quantity
             entry_notional = _trade_notional(sell_qty, position.entry_price, asset_type)
+            # Expiration has no closing trade, so only the entry commission applies.
             entry_commission = self._option_commission(sell_qty, asset_type)
             trade_pnl = -entry_notional - entry_commission
 
@@ -423,7 +429,7 @@ class ForwardTestAccount:
             return result
 
     def _option_commission(self, quantity: float, asset_type: str) -> float:
-        """Return the per-contract commission for an options trade."""
+        """Return commission for one options leg (open or close)."""
         if asset_type.upper() != "OPTION":
             return 0.0
         return abs(quantity) * self._option_commission_per_contract

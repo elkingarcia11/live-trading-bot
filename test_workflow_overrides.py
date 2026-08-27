@@ -92,12 +92,21 @@ def test_partial_gma_override_preserves_other_values() -> None:
     assert slow.sigma_divisor == 9.5
 
 
-def test_position_size_override_sets_max_quantity() -> None:
+def test_position_size_override_sets_dollar_budget() -> None:
     result = apply_config_overrides(
-        _base_app(), WorkflowConfigOverrides(position_size=3)
+        _base_app(), WorkflowConfigOverrides(position_size=2000)
     )
-    assert result.risk.max_position_quantity == 3.0
-    assert result.risk.position_size_pct == 0.3
+    assert result.risk.position_size_max_dollars == 2000.0
+    assert result.risk.position_size_pct == 1.0
+    # Quantity ceiling is raised so dollar budget is the binding constraint.
+    assert result.risk.max_position_quantity == 2000.0
+
+
+def test_position_size_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="positive dollar"):
+        apply_config_overrides(
+            _base_app(), WorkflowConfigOverrides(position_size=0)
+        )
 
 
 def test_combined_overrides_apply_together() -> None:
@@ -105,7 +114,7 @@ def test_combined_overrides_apply_together() -> None:
         timeframe="100t",
         fast_gma_length=5,
         slow_gma_sigma=10.0,
-        position_size=7,
+        position_size=2000,
     )
     result = apply_config_overrides(_base_app(), overrides)
     assert result.market.stream_timeframe == "100t"
@@ -114,13 +123,16 @@ def test_combined_overrides_apply_together() -> None:
     assert result.indicators.gaussian_ma.fast.sigma_divisor == 7.0
     assert result.indicators.gaussian_ma.slow.length == 10
     assert result.indicators.gaussian_ma.slow.sigma_divisor == 10.0
-    assert result.risk.max_position_quantity == 7.0
+    assert result.risk.position_size_max_dollars == 2000.0
+    assert result.risk.position_size_pct == 1.0
+    assert result.risk.max_position_quantity == 2000.0
 
 
 def test_original_app_is_not_mutated() -> None:
     fresh = _base_app()
     assert fresh.market.stream_timeframe == "400t"
     assert fresh.risk.max_position_quantity == 10
+    assert fresh.risk.position_size_pct == 0.3
 
 
 def test_invalid_timeframes_raise() -> None:
@@ -164,7 +176,7 @@ def test_parser_parses_all_flags() -> None:
             "--fast-gma-sigma", "8.0",
             "--slow-gma-length", "12",
             "--slow-gma-sigma", "10.5",
-            "--position-size", "4",
+            "--position-size", "2000",
         ]
     )
     overrides = overrides_from_args(args)
@@ -174,7 +186,7 @@ def test_parser_parses_all_flags() -> None:
         fast_gma_sigma=8.0,
         slow_gma_length=12,
         slow_gma_sigma=10.5,
-        position_size=4.0,
+        position_size=2000.0,
     )
 
 
@@ -194,9 +206,9 @@ def test_time_frame_alias_maps_to_timeframe() -> None:
 
 def test_partial_flags_produce_partial_overrides() -> None:
     overrides = overrides_from_args(
-        build_workflow_arg_parser().parse_args(["--position-size", "2"])
+        build_workflow_arg_parser().parse_args(["--position-size", "2000"])
     )
-    assert overrides.position_size == 2.0
+    assert overrides.position_size == 2000.0
     assert overrides.timeframe is None
     assert overrides.fast_gma_length is None
 
@@ -211,16 +223,19 @@ def test_overrides_flow_through_get_config(
     )
     try:
         set_config_overrides(
-            WorkflowConfigOverrides(timeframe="200t", position_size=5)
+            WorkflowConfigOverrides(timeframe="200t", position_size=2000)
         )
         loaded = get_config(reload=True)
         assert loaded.market.stream_timeframe == "200t"
         assert loaded.market.strategy_timeframe == "200t"
-        assert loaded.risk.max_position_quantity == 5.0
+        assert loaded.risk.position_size_max_dollars == 2000.0
+        assert loaded.risk.position_size_pct == 1.0
+        assert loaded.risk.max_position_quantity == 2000.0
 
         set_config_overrides(None)
         restored = get_config(reload=True)
         assert restored.market.stream_timeframe == "400t"
         assert restored.risk.max_position_quantity == 10
+        assert restored.risk.position_size_pct == 0.3
     finally:
         set_config_overrides(None)

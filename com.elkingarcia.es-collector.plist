@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.elkingarcia.es-collector</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-dimsu</string>
+        <string>/Users/elkingarcia/Projects/live-trading-bot/.venv/bin/python</string>
+        <string>/Users/elkingarcia/Projects/live-trading-bot/data_collector_workflow.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/elkingarcia/Projects/live-trading-bot</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>GOOGLE_APPLICATION_CREDENTIALS</key>
+        <string>/Users/elkingarcia/Projects/live-trading-bot/gcs-sa.json</string>
+        <key>HTTP_PROXY</key>
+        <string>http://127.0.0.1:8888</string>
+        <key>HTTPS_PROXY</key>
+        <string>http://127.0.0.1:8888</string>
+        <key>ALL_PROXY</key>
+        <string>http://127.0.0.1:8888</string>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/elkingarcia/Projects/live-trading-bot/logs/es-collector.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/elkingarcia/Projects/live-trading-bot/logs/es-collector.err.log</string>
+</dict>
+</plist>
