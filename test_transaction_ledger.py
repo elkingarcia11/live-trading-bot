@@ -8,27 +8,41 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from transaction_ledger import TransactionLedger, TransactionRecord, TRANSACTION_CSV_COLUMNS
+from google.cloud.exceptions import NotFound
 from option_quote import OptionQuoteSnapshot
+from transaction_ledger import (
+    TRANSACTION_CSV_COLUMNS,
+    TransactionLedger,
+    TransactionRecord,
+)
 
 
-def test_transaction_ledger_writes_header_and_entry_row(tmp_path: Path) -> None:
+def _record(**overrides: object) -> TransactionRecord:
+    values: dict[str, object] = {
+        "entry_timestamp": datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc),
+        "exit_timestamp": datetime(2024, 1, 15, 18, 0, tzinfo=timezone.utc),
+        "timeframe": "50t",
+        "underlying_symbol": "SPY",
+        "instrument_symbol": "SPY240117C00480000",
+        "asset_type": "OPTION",
+        "quantity": 2,
+        "entry_instrument_price": 5.0,
+        "exit_instrument_price": 6.0,
+        "entry_underlying_price": 480.25,
+        "exit_underlying_price": 481.10,
+        "strategy_name": "supertrend",
+    }
+    values.update(overrides)
+    return TransactionRecord(**values)  # type: ignore[arg-type]
+
+
+def test_transaction_ledger_writes_round_trip_row(tmp_path: Path) -> None:
     csv_path = tmp_path / "transactions.csv"
     ledger = TransactionLedger(csv_path)
     ledger.record(
-        TransactionRecord(
-            timestamp=datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc),
-            side="BUY",
-            underlying_symbol="SPY",
-            instrument_symbol="SPY240117C00480000",
-            asset_type="OPTION",
-            quantity=2,
-            instrument_price=5.0,
-            underlying_price=480.25,
-            entry_instrument_price=5.0,
-            entry_underlying_price=480.25,
-            trade_amount=1000.0,
-            strategy_name="supertrend",
+        _record(
+            trade_amount=1200.0,
+            trade_pnl=200.0,
             indicators={
                 "gaussian_ma_fast": 480.1,
                 "gaussian_ma_slow": 480.0,
@@ -40,11 +54,15 @@ def test_transaction_ledger_writes_header_and_entry_row(tmp_path: Path) -> None:
         rows = list(csv.DictReader(handle))
 
     assert len(rows) == 1
-    assert rows[0]["side"] == "BUY"
-    assert rows[0]["instrument_price"] == "5.0000"
-    assert rows[0]["underlying_price"] == "480.2500"
+    assert rows[0]["timeframe"] == "50t"
+    assert rows[0]["entry_timestamp"] == "2024-01-15T15:00:00+00:00"
+    assert rows[0]["exit_timestamp"] == "2024-01-15T18:00:00+00:00"
     assert rows[0]["entry_instrument_price"] == "5.0000"
-    assert rows[0]["trade_amount"] == "1000.00"
+    assert rows[0]["exit_instrument_price"] == "6.0000"
+    assert rows[0]["entry_underlying_price"] == "480.2500"
+    assert rows[0]["exit_underlying_price"] == "481.1000"
+    assert rows[0]["trade_amount"] == "1200.00"
+    assert rows[0]["trade_pnl"] == "200.00"
     assert rows[0]["strike"] == "480.0000"
     assert rows[0]["option_type"] == "CALL"
     assert rows[0]["expiration_date"] == "2024-01-17"
@@ -54,60 +72,19 @@ def test_transaction_ledger_writes_header_and_entry_row(tmp_path: Path) -> None:
         "gaussian_ma_fast": 480.1,
         "gaussian_ma_slow": 480.0,
     }
-
-
-def test_transaction_ledger_appends_exit_with_entry_prices(tmp_path: Path) -> None:
-    csv_path = tmp_path / "transactions.csv"
-    ledger = TransactionLedger(csv_path)
-    ledger.record(
-        TransactionRecord(
-            timestamp=datetime(2024, 1, 15, 18, 0, tzinfo=timezone.utc),
-            side="SELL",
-            underlying_symbol="SPY",
-            instrument_symbol="SPY240117C00480000",
-            asset_type="OPTION",
-            quantity=2,
-            instrument_price=6.0,
-            underlying_price=481.10,
-            entry_instrument_price=5.0,
-            entry_underlying_price=480.25,
-            trade_amount=1200.0,
-            trade_pnl=200.0,
-            strategy_name="supertrend",
-        )
-    )
-
-    with csv_path.open(encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-
-    assert rows[0]["side"] == "SELL"
-    assert rows[0]["entry_instrument_price"] == "5.0000"
-    assert rows[0]["entry_underlying_price"] == "480.2500"
-    assert rows[0]["instrument_price"] == "6.0000"
-    assert rows[0]["trade_pnl"] == "200.00"
-    assert rows[0]["option_type"] == "CALL"
+    assert "side" not in rows[0]
 
 
 def test_transaction_ledger_records_max_unrealized_pnl(tmp_path: Path) -> None:
     csv_path = tmp_path / "transactions.csv"
     ledger = TransactionLedger(csv_path)
     ledger.record(
-        TransactionRecord(
-            timestamp=datetime(2024, 1, 15, 18, 0, tzinfo=timezone.utc),
-            side="SELL",
-            underlying_symbol="SPY",
-            instrument_symbol="SPY240117C00480000",
-            asset_type="OPTION",
-            quantity=2,
-            instrument_price=6.0,
-            underlying_price=481.10,
-            entry_instrument_price=5.0,
+        _record(
             trade_pnl=198.7,
             max_unrealized_profit=320.5,
             max_unrealized_loss=-145.25,
             max_unrealized_profit_pct=0.3205,
             max_unrealized_loss_pct=-0.1452,
-            strategy_name="supertrend",
         )
     )
 
@@ -124,15 +101,7 @@ def test_transaction_ledger_writes_bid_ask_and_greeks(tmp_path: Path) -> None:
     csv_path = tmp_path / "transactions.csv"
     ledger = TransactionLedger(csv_path)
     ledger.record(
-        TransactionRecord(
-            timestamp=datetime(2024, 1, 15, 18, 0, tzinfo=timezone.utc),
-            side="SELL",
-            underlying_symbol="SPY",
-            instrument_symbol="SPY240117C00480000",
-            asset_type="OPTION",
-            quantity=2,
-            instrument_price=6.0,
-            underlying_price=481.10,
+        _record(
             quote=OptionQuoteSnapshot(
                 bid=5.95,
                 ask=6.05,
@@ -148,7 +117,6 @@ def test_transaction_ledger_writes_bid_ask_and_greeks(tmp_path: Path) -> None:
                 mark=5.0,
                 delta=0.48,
             ),
-            strategy_name="supertrend",
         )
     )
 
@@ -167,15 +135,15 @@ def test_transaction_ledger_parses_put_contract(tmp_path: Path) -> None:
     csv_path = tmp_path / "transactions.csv"
     ledger = TransactionLedger(csv_path)
     ledger.record(
-        TransactionRecord(
-            timestamp=datetime(2026, 8, 12, 17, 0, tzinfo=timezone.utc),
-            side="BUY",
-            underlying_symbol="SPY",
+        _record(
+            entry_timestamp=datetime(2026, 8, 12, 14, 0, tzinfo=timezone.utc),
+            exit_timestamp=datetime(2026, 8, 12, 17, 0, tzinfo=timezone.utc),
             instrument_symbol="SPY   260814P00771000",
-            asset_type="OPTION",
             quantity=5,
-            instrument_price=1.77,
-            underlying_price=771.0,
+            entry_instrument_price=1.77,
+            exit_instrument_price=1.55,
+            entry_underlying_price=771.0,
+            exit_underlying_price=769.5,
             strategy_name="gaussian_ma_crossover",
         )
     )
@@ -186,20 +154,48 @@ def test_transaction_ledger_parses_put_contract(tmp_path: Path) -> None:
     assert row["expiration_date"] == "2026-08-14"
 
 
+def test_transaction_ledger_migrates_legacy_buy_sell_legs(tmp_path: Path) -> None:
+    csv_path = tmp_path / "transactions.csv"
+    csv_path.write_text(
+        "timestamp,side,underlying_symbol,instrument_symbol,asset_type,"
+        "quantity,instrument_price,underlying_price,entry_instrument_price,"
+        "entry_underlying_price,strategy_name,execution_mode\n"
+        "2024-01-15T15:00:00+00:00,BUY,SPY,SPY240117C00480000,OPTION,2,"
+        "5.0000,480.2500,5.0000,480.2500,supertrend,forward_test\n"
+        "2024-01-15T18:00:00+00:00,SELL,SPY,SPY240117C00480000,OPTION,2,"
+        "6.0000,481.1000,5.0000,480.2500,supertrend,forward_test\n",
+        encoding="utf-8",
+    )
+
+    ledger = TransactionLedger(csv_path)
+    with csv_path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert len(rows) == 1
+    assert rows[0]["exit_timestamp"] == "2024-01-15T18:00:00+00:00"
+    assert rows[0]["entry_instrument_price"] == "5.0000"
+    assert rows[0]["exit_instrument_price"] == "6.0000"
+    assert rows[0]["entry_underlying_price"] == "480.2500"
+    assert rows[0]["exit_underlying_price"] == "481.1000"
+    assert ledger.path == csv_path
+
+
 def test_transaction_ledger_upload_to_gcs_merges_existing(tmp_path: Path) -> None:
     remote_path = tmp_path / "remote.csv"
     remote_ledger = TransactionLedger(remote_path)
     remote_ledger.record(
-        TransactionRecord(
-            timestamp=datetime(2024, 1, 14, 15, 0, tzinfo=timezone.utc),
-            side="SELL",
-            underlying_symbol="SPY",
+        _record(
+            entry_timestamp=datetime(2024, 1, 14, 14, 0, tzinfo=timezone.utc),
+            exit_timestamp=datetime(2024, 1, 14, 15, 0, tzinfo=timezone.utc),
             instrument_symbol="SPY",
             asset_type="EQUITY",
             quantity=1,
-            instrument_price=479.0,
-            underlying_price=479.0,
+            entry_instrument_price=478.0,
+            exit_instrument_price=479.0,
+            entry_underlying_price=478.0,
+            exit_underlying_price=479.0,
             strategy_name="prior",
+            timeframe="5m",
         )
     )
     remote_csv = remote_path.read_text(encoding="utf-8")
@@ -207,16 +203,16 @@ def test_transaction_ledger_upload_to_gcs_merges_existing(tmp_path: Path) -> Non
     csv_path = tmp_path / "transactions.csv"
     ledger = TransactionLedger(csv_path)
     ledger.record(
-        TransactionRecord(
-            timestamp=datetime(2024, 1, 15, 15, 0, tzinfo=timezone.utc),
-            side="BUY",
-            underlying_symbol="SPY",
+        _record(
             instrument_symbol="SPY",
             asset_type="EQUITY",
             quantity=1,
-            instrument_price=480.0,
-            underlying_price=480.0,
+            entry_instrument_price=480.0,
+            exit_instrument_price=481.0,
+            entry_underlying_price=480.0,
+            exit_underlying_price=481.0,
             strategy_name="live",
+            timeframe="5m",
         )
     )
 
@@ -241,9 +237,45 @@ def test_transaction_ledger_upload_to_gcs_merges_existing(tmp_path: Path) -> Non
     bucket.blob.assert_called_once_with("transactions/transactions.csv")
     uploaded = blob.upload_from_string.call_args.args[0]
     assert "2024-01-14T15:00:00+00:00" in uploaded
-    assert "2024-01-15T15:00:00+00:00" in uploaded
+    assert "2024-01-15T18:00:00+00:00" in uploaded
     with csv_path.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert len(rows) == 2
     assert rows[0]["strategy_name"] == "prior"
     assert rows[1]["strategy_name"] == "live"
+
+
+def test_transaction_ledger_upload_daily_uses_exit_date(tmp_path: Path) -> None:
+    csv_path = tmp_path / "transactions.csv"
+    ledger = TransactionLedger(csv_path)
+    ledger.record(
+        _record(
+            entry_timestamp=datetime(2024, 1, 15, 20, 0, tzinfo=timezone.utc),
+            exit_timestamp=datetime(2024, 1, 16, 14, 30, tzinfo=timezone.utc),
+            timeframe="50t",
+        )
+    )
+
+    blob = MagicMock()
+    blob.download_as_text.side_effect = NotFound("missing")
+    bucket = MagicMock()
+    bucket.blob.return_value = blob
+    client = MagicMock()
+    client.bucket.return_value = bucket
+
+    with patch(
+        "transaction_ledger.gcs_bucket_exists",
+        return_value=True,
+    ):
+        uris = ledger.upload_daily_to_gcs(
+            bucket_name="live-trading-bot",
+            prefix="transactions",
+            client=client,
+        )
+
+    assert uris == ["gs://live-trading-bot/transactions/2024-01-16.csv"]
+    bucket.blob.assert_called_once_with("transactions/2024-01-16.csv")
+    uploaded = blob.upload_from_string.call_args.args[0]
+    assert "50t" in uploaded
+    assert "2024-01-15T20:00:00+00:00" in uploaded
+    assert "2024-01-16T14:30:00+00:00" in uploaded

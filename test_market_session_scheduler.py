@@ -114,6 +114,24 @@ def test_equity_streaming_session_covers_pre_rth_and_post() -> None:
     assert is_equity_streaming_session(before_open) is False
 
 
+def test_should_shutdown_at_1601_et_after_1600_flatten() -> None:
+    schedule = EodSchedule(
+        flatten_time_local=time(16, 0),
+        shutdown_time_local=time(16, 1),
+        shutdown_enabled=True,
+        market_timezone="America/New_York",
+    )
+    # 16:00 ET on 2026-06-16 == 20:00 UTC (EDT)
+    at_flatten = datetime(2026, 6, 16, 20, 0, tzinfo=timezone.utc)
+    before_shutdown = datetime(2026, 6, 16, 20, 0, 59, tzinfo=timezone.utc)
+    at_shutdown = datetime(2026, 6, 16, 20, 1, tzinfo=timezone.utc)
+
+    assert should_flatten_positions(at_flatten, schedule=schedule, flattened_on=None) is True
+    assert should_shutdown(at_flatten, schedule=schedule, shutdown_on=None) is False
+    assert should_shutdown(before_shutdown, schedule=schedule, shutdown_on=None) is False
+    assert should_shutdown(at_shutdown, schedule=schedule, shutdown_on=None) is True
+
+
 def test_eod_local_times_use_market_timezone() -> None:
     schedule = EodSchedule(
         flatten_time_local=time(16, 0),

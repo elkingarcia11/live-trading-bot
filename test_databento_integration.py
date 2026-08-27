@@ -230,7 +230,9 @@ def test_repo_config_json_is_databento_400t_schwab_broker() -> None:
     assert config.gex.days_to_expiration == 2
     assert config.workflow.warmup_from_storage is False
     assert config.workflow.min_warmup_bars == 1
-    assert config.workflow.eod_shutdown_enabled is False
+    assert config.workflow.eod_shutdown_enabled is True
+    assert config.workflow.eod_flatten_time_local == "16:00"
+    assert config.workflow.eod_shutdown_time_local == "16:01"
     assert config.gcs.transactions_prefix == "transactions"
     assert config.historical.extended_session_start_local == "04:00"
     assert config.historical.extended_session_end_local == "20:00"

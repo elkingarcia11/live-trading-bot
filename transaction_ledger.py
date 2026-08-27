@@ -1,10 +1,8 @@
-"""Append-only account transaction CSV for entries and exits.
+"""Append-only account transaction CSV for completed round-trips.
 
-Records instrument and underlying prices at the time of each buy and sell for
-equity and options, plus strike/option-type and indicator snapshots for analysis.
-Local appends stay cheap; ``upload_to_gcs`` is available to merge into a central
-GCS ledger but the live workflow keeps everything in memory and writes only a
-local CSV.
+Each row is one closed trade: timeframe, entry/exit timestamps, and entry/exit
+prices for both the contract and the underlying. Local appends stay cheap;
+``upload_daily_to_gcs`` merges into ``transactions/YYYY-MM-DD.csv``.
 """
 
 from __future__ import annotations
@@ -30,18 +28,21 @@ from option_selector import parse_occ_symbol
 logger = logging.getLogger(__name__)
 
 _TRANSACTION_DEDUPE_KEYS = (
-    "timestamp",
-    "side",
+    "entry_timestamp",
+    "exit_timestamp",
     "instrument_symbol",
     "quantity",
-    "instrument_price",
+    "entry_instrument_price",
+    "exit_instrument_price",
     "strategy_name",
     "execution_mode",
+    "timeframe",
 )
 
 _BASE_TRANSACTION_COLUMNS = (
-    "timestamp",
-    "side",
+    "timeframe",
+    "entry_timestamp",
+    "exit_timestamp",
     "underlying_symbol",
     "instrument_symbol",
     "asset_type",
@@ -49,10 +50,10 @@ _BASE_TRANSACTION_COLUMNS = (
     "option_type",
     "expiration_date",
     "quantity",
-    "instrument_price",
-    "underlying_price",
     "entry_instrument_price",
+    "exit_instrument_price",
     "entry_underlying_price",
+    "exit_underlying_price",
     "trade_amount",
     "trade_pnl",
     "max_unrealized_profit",
@@ -83,18 +84,19 @@ TRANSACTION_CSV_COLUMNS = _BASE_TRANSACTION_COLUMNS + tuple(
 
 @dataclass(frozen=True)
 class TransactionRecord:
-    """One buy or sell leg written to the account transactions CSV."""
+    """One completed round-trip written to the account transactions CSV."""
 
-    timestamp: datetime
-    side: str
+    entry_timestamp: datetime
+    exit_timestamp: datetime
+    timeframe: str
     underlying_symbol: str
     instrument_symbol: str
     asset_type: str
     quantity: float
-    instrument_price: float
-    underlying_price: float
-    entry_instrument_price: Optional[float] = None
+    entry_instrument_price: float
+    exit_instrument_price: float
     entry_underlying_price: Optional[float] = None
+    exit_underlying_price: Optional[float] = None
     trade_amount: Optional[float] = None
     trade_pnl: Optional[float] = None
     max_unrealized_profit: Optional[float] = None
@@ -130,13 +132,14 @@ class TransactionLedger:
         return self._csv_path
 
     def record(self, transaction: TransactionRecord) -> None:
-        """Append one transaction row."""
+        """Append one completed round-trip row."""
         strike, option_type, expiration_date = _resolve_contract_fields(
             transaction)
         indicators = dict(transaction.indicators or {})
         row = {
-            "timestamp": _to_utc(transaction.timestamp).isoformat(),
-            "side": transaction.side.upper(),
+            "timeframe": (transaction.timeframe or "").strip(),
+            "entry_timestamp": _to_utc(transaction.entry_timestamp).isoformat(),
+            "exit_timestamp": _to_utc(transaction.exit_timestamp).isoformat(),
             "underlying_symbol": transaction.underlying_symbol.upper(),
             "instrument_symbol": transaction.instrument_symbol.upper(),
             "asset_type": transaction.asset_type.upper(),
@@ -144,13 +147,13 @@ class TransactionLedger:
             "option_type": option_type,
             "expiration_date": expiration_date,
             "quantity": f"{transaction.quantity:g}",
-            "instrument_price": f"{transaction.instrument_price:.4f}",
-            "underlying_price": f"{transaction.underlying_price:.4f}",
-            "entry_instrument_price": _format_optional_price(
-                transaction.entry_instrument_price
-            ),
+            "entry_instrument_price": f"{transaction.entry_instrument_price:.4f}",
+            "exit_instrument_price": f"{transaction.exit_instrument_price:.4f}",
             "entry_underlying_price": _format_optional_price(
                 transaction.entry_underlying_price
+            ),
+            "exit_underlying_price": _format_optional_price(
+                transaction.exit_underlying_price
             ),
             "trade_amount": _format_optional_money(transaction.trade_amount),
             "trade_pnl": _format_optional_money(transaction.trade_pnl),
@@ -263,9 +266,9 @@ class TransactionLedger:
         """Append all local rows to daily partitioned GCS CSVs.
 
         Each row is written to ``transactions/YYYY-MM-DD.csv`` keyed by the row's
-        transaction timestamp. If a day's file already exists in GCS its rows are
+        exit timestamp. If a day's file already exists in GCS its rows are
         preserved and only genuinely new rows are appended (deduped so repeated
-        shutdown exports never duplicate a leg). Returns the list of ``gs://``
+        shutdown exports never duplicate a trade). Returns the list of ``gs://``
         URIs written.
         """
         with self._lock:
@@ -290,7 +293,7 @@ class TransactionLedger:
         bucket = storage_client.bucket(bucket_name)
         by_date: dict[str, list[dict[str, str]]] = {}
         for row in local_rows:
-            day = _row_transaction_date(row.get("timestamp", ""))
+            day = _row_transaction_date(row)
             if day is None:
                 continue
             by_date.setdefault(day, []).append(row)
@@ -356,31 +359,9 @@ class TransactionLedger:
             writer = csv.DictWriter(handle, fieldnames=TRANSACTION_CSV_COLUMNS)
             writer.writeheader()
             for old_row in rows:
-                migrated = {
-                    column: old_row.get(column, "") for column in TRANSACTION_CSV_COLUMNS
-                }
-                if not migrated.get("indicators_json") and (
-                    old_row.get("gaussian_ma_fast") or old_row.get(
-                        "gaussian_ma_slow")
-                ):
-                    migrated["indicators_json"] = _serialize_indicators(
-                        {
-                            key: old_row.get(key)
-                            for key in ("gaussian_ma_fast", "gaussian_ma_slow")
-                            if old_row.get(key)
-                        }
-                    )
-                if not migrated.get("strike") or not migrated.get("option_type"):
-                    strike, option_type, expiration = _contract_fields_from_symbol(
-                        old_row.get("instrument_symbol", ""),
-                        old_row.get("asset_type", ""),
-                    )
-                    if not migrated.get("strike") and strike is not None:
-                        migrated["strike"] = _format_optional_price(strike)
-                    if not migrated.get("option_type"):
-                        migrated["option_type"] = option_type
-                    if not migrated.get("expiration_date"):
-                        migrated["expiration_date"] = expiration
+                migrated = _normalize_transaction_row(old_row)
+                if migrated is None:
+                    continue
                 writer.writerow(migrated)
 
     def _write_header(self) -> None:
@@ -504,10 +485,7 @@ def _read_transaction_rows(path: Path) -> list[dict[str, str]]:
     if not path.exists() or path.stat().st_size == 0:
         return []
     with path.open(encoding="utf-8", newline="") as handle:
-        return [
-            {column: row.get(column, "") for column in TRANSACTION_CSV_COLUMNS}
-            for row in csv.DictReader(handle)
-        ]
+        return _normalize_transaction_rows(csv.DictReader(handle))
 
 
 def _download_transaction_rows(blob: Any) -> list[dict[str, str]]:
@@ -521,11 +499,64 @@ def _download_transaction_rows(blob: Any) -> list[dict[str, str]]:
         return []
     if not raw.strip():
         return []
-    reader = csv.DictReader(io.StringIO(raw))
-    return [
-        {column: row.get(column, "") for column in TRANSACTION_CSV_COLUMNS}
-        for row in reader
-    ]
+    return _normalize_transaction_rows(csv.DictReader(io.StringIO(raw)))
+
+
+def _normalize_transaction_rows(rows: Any) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for row in rows:
+        migrated = _normalize_transaction_row(row)
+        if migrated is not None:
+            normalized.append(migrated)
+    return normalized
+
+
+def _normalize_transaction_row(old_row: Mapping[str, Any]) -> Optional[dict[str, str]]:
+    """Map a CSV dict onto the current schema; drop incomplete legacy BUY legs."""
+    side = str(old_row.get("side") or "").upper()
+    timestamp = str(old_row.get("timestamp") or "")
+    instrument_price = str(old_row.get("instrument_price") or "")
+    underlying_price = str(old_row.get("underlying_price") or "")
+
+    migrated = {
+        column: str(old_row.get(column, "") or "")
+        for column in TRANSACTION_CSV_COLUMNS
+    }
+
+    if side == "BUY" and not migrated.get("exit_timestamp") and not migrated.get(
+        "exit_instrument_price"
+    ):
+        return None
+
+    if not migrated.get("exit_timestamp") and timestamp and side != "BUY":
+        migrated["exit_timestamp"] = timestamp
+    if not migrated.get("exit_instrument_price") and instrument_price and side != "BUY":
+        migrated["exit_instrument_price"] = instrument_price
+    if not migrated.get("exit_underlying_price") and underlying_price and side != "BUY":
+        migrated["exit_underlying_price"] = underlying_price
+
+    if not migrated.get("indicators_json") and (
+        old_row.get("gaussian_ma_fast") or old_row.get("gaussian_ma_slow")
+    ):
+        migrated["indicators_json"] = _serialize_indicators(
+            {
+                key: old_row.get(key)
+                for key in ("gaussian_ma_fast", "gaussian_ma_slow")
+                if old_row.get(key)
+            }
+        )
+    if not migrated.get("strike") or not migrated.get("option_type"):
+        strike, option_type, expiration = _contract_fields_from_symbol(
+            str(old_row.get("instrument_symbol", "")),
+            str(old_row.get("asset_type", "")),
+        )
+        if not migrated.get("strike") and strike is not None:
+            migrated["strike"] = _format_optional_price(strike)
+        if not migrated.get("option_type"):
+            migrated["option_type"] = option_type
+        if not migrated.get("expiration_date"):
+            migrated["expiration_date"] = expiration
+    return migrated
 
 
 def _merge_transaction_rows(
@@ -538,7 +569,10 @@ def _merge_transaction_rows(
         merged[key] = row
     return sorted(
         merged.values(),
-        key=lambda row: row.get("timestamp", ""),
+        key=lambda row: (
+            row.get("exit_timestamp", ""),
+            row.get("entry_timestamp", ""),
+        ),
     )
 
 
@@ -567,11 +601,13 @@ def _serialize_transaction_rows(rows: list[dict[str, str]]) -> str:
     return buffer.getvalue()
 
 
-def _row_transaction_date(timestamp: str) -> Optional[str]:
-    """Return the ``YYYY-MM-DD`` partition date for a transaction timestamp."""
-    if not timestamp:
-        return None
-    day = timestamp[:10]
-    if len(day) == 10 and "-" in day:
-        return day
+def _row_transaction_date(row: Mapping[str, str]) -> Optional[str]:
+    """Return the ``YYYY-MM-DD`` partition date for a completed trade."""
+    for key in ("exit_timestamp", "entry_timestamp"):
+        timestamp = row.get(key, "")
+        if not timestamp:
+            continue
+        day = timestamp[:10]
+        if len(day) == 10 and "-" in day:
+            return day
     return None

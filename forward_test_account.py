@@ -1,7 +1,8 @@
-"""Forward-test paper account with optional GCS persistence.
+"""Forward-test paper account kept in process memory.
 
 Tracks cash balance, realized P&L, and open positions for email forward-test
-mode. Does not submit broker orders.
+mode. Each run starts at ``forward_test.initial_balance`` and does not load or
+save GCS ``account.json``. Does not submit broker orders.
 """
 
 from __future__ import annotations
@@ -124,7 +125,7 @@ class ForwardTestAccount:
         *,
         initial_balance: float,
         store: Optional[ForwardTestAccountStore] = None,
-        persist_state: bool = True,
+        persist_state: bool = False,
         option_commission_per_contract: float = 0.0,
     ) -> None:
         if initial_balance <= 0:
@@ -144,33 +145,23 @@ class ForwardTestAccount:
 
     @classmethod
     def from_app_config(cls, app: "AppConfig") -> "ForwardTestAccount":
-        """Load or create a forward-test account from application config."""
-        import os
+        """Create a fresh in-memory paper account from application config.
 
+        GCS ``account.json`` is not read or written. Cash starts at
+        ``forward_test.initial_balance`` on every process start until live
+        Schwab balances are wired in.
+        """
         settings = app.forward_test
-        gcs = app.gcs
-        if gcs.credentials_path:
-            os.environ.setdefault(
-                "GOOGLE_APPLICATION_CREDENTIALS",
-                gcs.credentials_path,
-            )
-        if gcs.project_id:
-            os.environ.setdefault("GOOGLE_CLOUD_PROJECT", gcs.project_id)
-
-        store = None
-        if settings.persist_state:
-            store = ForwardTestAccountStore(
-                app.gcs.bucket_name,
-                prefix=settings.state_prefix,
-            )
         account = cls(
             initial_balance=settings.initial_balance,
-            store=store,
-            persist_state=settings.persist_state,
+            store=None,
+            persist_state=False,
             option_commission_per_contract=app.options.commission_per_contract,
         )
-        if store is not None:
-            account._load_from_store()
+        logger.info(
+            "Forward-test account is in-memory only; starting cash=$%.2f",
+            settings.initial_balance,
+        )
         return account
 
     @property

@@ -179,6 +179,7 @@ class TradeEmailer:
             quote=quote,
             entry_quote=entry_quote,
             time_bought=time_bought,
+            timeframe=signal.timeframe,
         )
 
     def send_buy_notification(
@@ -244,6 +245,7 @@ class TradeEmailer:
         max_unrealized_loss: Optional[float] = None,
         max_unrealized_profit_pct: Optional[float] = None,
         max_unrealized_loss_pct: Optional[float] = None,
+        timeframe: Optional[str] = None,
     ) -> None:
         """Send a sell forward-test notification email."""
         right = _option_right_suffix(instrument_line)
@@ -253,6 +255,7 @@ class TradeEmailer:
             exit_instrument_price=exit_instrument_price,
             entry_instrument_price=entry_instrument_price,
             profit=profit,
+            timeframe=timeframe,
         )
         profit_line = "Trade P&L: n/a (no prior buy recorded)"
         if profit is not None:
@@ -263,6 +266,7 @@ class TradeEmailer:
             "",
             f"Underlying: {symbol}",
             f"Instrument: {instrument_line or symbol}",
+            f"Timeframe: {timeframe or 'n/a'}",
             f"Strategy: {strategy_name}",
             f"Conditions: {conditions_met}",
             f"Time triggered: {self._format_time(time_triggered)}",
@@ -349,6 +353,7 @@ def _sell_subject(
     exit_instrument_price: float,
     entry_instrument_price: Optional[float],
     profit: Optional[float],
+    timeframe: Optional[str] = None,
 ) -> str:
     """Build a sell subject with profit/loss dot and optional return percent."""
     return_pct = _instrument_return_pct(
@@ -369,7 +374,8 @@ def _sell_subject(
     else:
         prefix = ""
 
-    subject = f"{prefix}SELL {symbol}{right} @ {exit_instrument_price:.2f}"
+    tf = f" {timeframe.strip()}" if timeframe and timeframe.strip() else ""
+    subject = f"{prefix}SELL {symbol}{right}{tf} @ {exit_instrument_price:.2f}"
     if return_pct is not None:
         subject = f"{subject}{_pct_suffix(return_pct)}"
     return subject

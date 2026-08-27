@@ -618,8 +618,6 @@ class TradingWorkflow:
                 self._forward_test_account = ForwardTestAccount.from_app_config(
                     config.app
                 )
-                self._forward_test_account.restore_positions(
-                    self.position_tracker)
             except Exception:
                 logger.exception(
                     "Forward-test account unavailable; using static balance")
@@ -897,23 +895,17 @@ class TradingWorkflow:
         )
 
     def _checkpoint_account_and_transactions(self, *, reason: str) -> None:
-        """Checkpoint the in-memory account for graceful shutdown.
+        """Log the in-memory paper account and flush the local transactions CSV.
 
-        With forward_test.persist_state disabled the account stays in memory;
-        the transactions ledger is an append-only local CSV touched on every fill.
+        Paper cash is not written to GCS ``account.json``. The transactions
+        ledger is an append-only local CSV touched on every fill.
         """
         if self._forward_test_account is not None:
-            try:
-                self._forward_test_account.save()
-                logger.info(
-                    "Account checkpoint (%s): forward-test account checkpointed",
-                    reason,
-                )
-            except Exception:
-                logger.exception(
-                    "Account checkpoint (%s): forward-test account check failed",
-                    reason,
-                )
+            logger.info(
+                "Account checkpoint (%s): in-memory forward-test account %s",
+                reason,
+                self._forward_test_account.summary_line(),
+            )
 
         if self._transaction_ledger is not None:
             logger.info(
@@ -934,7 +926,7 @@ class TradingWorkflow:
         KeyboardInterrupt, SIGTERM, and interpreter exit all funnel through here
         via :meth:`_checkpoint_account_and_transactions` / the atexit hook.
         Writes each transaction to ``transactions/YYYY-MM-DD.csv`` keyed by its
-        timestamp.
+        exit timestamp.
         """
         ledger = self._transaction_ledger
         if ledger is None:
@@ -2060,7 +2052,7 @@ class TradingWorkflow:
         bar: CleanBarEvent | None = None,
         market_day: date,
     ) -> None:
-        """Flatten open positions at RTH close; checkpoint history when streaming 24/7."""
+        """Flatten open positions at RTH close; GCS flush happens on shutdown."""
         try:
             self._flatten_all_positions_eod(closed_at, bar=bar)
         except Exception:
@@ -2617,19 +2609,6 @@ class TradingWorkflow:
                     underlying_entry_price=signal.close,
                     entry_quote=resolved.option_quote,
                 )
-            self._record_transaction(
-                side="BUY",
-                signal=signal,
-                resolved=resolved,
-                quantity=quantity,
-                instrument_price=entry_price,
-                underlying_price=signal.close,
-                entry_instrument_price=entry_price,
-                entry_underlying_price=signal.close,
-                trade_amount=fill_result.amount if fill_result is not None else None,
-                timestamp=signal.timestamp,
-                quote=resolved.option_quote,
-            )
             logger.info(
                 "Forward-test paper BUY %s qty=%.0f @ %.2f",
                 resolved.symbol,
@@ -2652,17 +2631,17 @@ class TradingWorkflow:
                         closed_at=signal.timestamp,
                     )
                 self._record_transaction(
-                    side="SELL",
                     signal=signal,
                     resolved=resolved,
                     quantity=quantity,
-                    instrument_price=exit_price,
-                    underlying_price=signal.close,
+                    entry_timestamp=closed.opened_at,
+                    exit_timestamp=signal.timestamp,
                     entry_instrument_price=closed.average_entry_price,
+                    exit_instrument_price=exit_price,
                     entry_underlying_price=closed.underlying_entry_price,
+                    exit_underlying_price=signal.close,
                     trade_amount=fill_result.amount if fill_result is not None else None,
                     trade_pnl=fill_result.trade_pnl if fill_result is not None else None,
-                    timestamp=signal.timestamp,
                     quote=resolved.option_quote,
                     entry_quote=closed.entry_quote,
                 )
@@ -2679,18 +2658,18 @@ class TradingWorkflow:
     def _record_transaction(
         self,
         *,
-        side: str,
         signal: StrategySignal,
         resolved: ResolvedTrade,
         quantity: float,
-        instrument_price: float,
-        underlying_price: float,
-        entry_instrument_price: Optional[float] = None,
+        entry_timestamp: datetime,
+        exit_timestamp: datetime,
+        entry_instrument_price: float,
+        exit_instrument_price: float,
         entry_underlying_price: Optional[float] = None,
+        exit_underlying_price: Optional[float] = None,
         trade_amount: Optional[float] = None,
         trade_pnl: Optional[float] = None,
         execution_mode: str = "forward_test",
-        timestamp: Optional[datetime] = None,
         quote: Optional[OptionQuoteSnapshot] = None,
         entry_quote: Optional[OptionQuoteSnapshot] = None,
         max_unrealized_profit: Optional[float] = None,
@@ -2698,16 +2677,18 @@ class TradingWorkflow:
         max_unrealized_profit_pct: Optional[float] = None,
         max_unrealized_loss_pct: Optional[float] = None,
     ) -> None:
-        """Append one buy/sell leg to the account transactions CSV."""
+        """Append one completed round-trip to the account transactions CSV."""
         if self._transaction_ledger is None:
             return
 
         indicators = dict(signal.indicators or {})
-        indicators = dict(signal.indicators or {})
+        timeframe = (
+            signal.timeframe or self._config.market_config.strategy_timeframe
+        )
         if not indicators:
             snapshot = self.indicator_coordinator.get_latest(
                 signal.symbol,
-                signal.timeframe or self._config.market_config.strategy_timeframe,
+                timeframe,
             )
             if snapshot is not None and snapshot.values:
                 indicators = dict(snapshot.values)
@@ -2723,16 +2704,17 @@ class TradingWorkflow:
         try:
             self._transaction_ledger.record(
                 TransactionRecord(
-                    timestamp=timestamp or datetime.now(timezone.utc),
-                    side=side,
+                    entry_timestamp=entry_timestamp,
+                    exit_timestamp=exit_timestamp,
+                    timeframe=timeframe,
                     underlying_symbol=resolved.underlying_symbol,
                     instrument_symbol=resolved.symbol,
                     asset_type=resolved.asset_type,
                     quantity=quantity,
-                    instrument_price=instrument_price,
-                    underlying_price=underlying_price,
                     entry_instrument_price=entry_instrument_price,
+                    exit_instrument_price=exit_instrument_price,
                     entry_underlying_price=entry_underlying_price,
+                    exit_underlying_price=exit_underlying_price,
                     trade_amount=trade_amount,
                     trade_pnl=trade_pnl,
                     strategy_name=signal.strategy_name,
@@ -2752,8 +2734,7 @@ class TradingWorkflow:
             )
         except Exception:
             logger.exception(
-                "Failed to record transaction for %s %s",
-                side,
+                "Failed to record transaction for %s",
                 resolved.symbol,
             )
 
@@ -2762,27 +2743,27 @@ class TradingWorkflow:
         fill: FillEvent,
         position_before: Optional[Position],
     ) -> None:
-        """Append a live broker fill to the transactions CSV."""
+        """Append a completed live broker round-trip to the transactions CSV."""
         if self._transaction_ledger is None:
             return
 
         side = "BUY" if fill.side == OrderSide.BUY else "SELL"
+        if side == "BUY":
+            return
+
         asset_type = fill.asset_type.upper()
         underlying = (fill.underlying_symbol or fill.symbol).upper()
         underlying_price = fill.price if asset_type == "EQUITY" else 0.0
 
-        if side == "SELL" and position_before is None:
+        if position_before is None:
             logger.warning(
                 "Skipping live SELL transaction for %s: no open position",
                 fill.symbol,
             )
             return
 
-        entry_instrument = fill.price if side == "BUY" else position_before.average_entry_price
         entry_underlying = (
-            underlying_price
-            if side == "BUY"
-            else (position_before.underlying_entry_price or underlying_price)
+            position_before.underlying_entry_price or underlying_price
         )
 
         resolved = ResolvedTrade(
@@ -2796,22 +2777,22 @@ class TradingWorkflow:
             symbol=underlying,
             timeframe=self._config.market_config.strategy_timeframe,
             timestamp=fill.timestamp,
-            action=SignalAction.BUY if side == "BUY" else SignalAction.SELL,
+            action=SignalAction.SELL,
             strategy_name="live",
             close=underlying_price,
             indicators={},
         )
         self._record_transaction(
-            side=side,
             signal=signal,
             resolved=resolved,
             quantity=fill.quantity,
-            instrument_price=fill.price,
-            underlying_price=underlying_price,
-            entry_instrument_price=entry_instrument,
+            entry_timestamp=position_before.opened_at,
+            exit_timestamp=fill.timestamp,
+            entry_instrument_price=position_before.average_entry_price,
+            exit_instrument_price=fill.price,
             entry_underlying_price=entry_underlying,
+            exit_underlying_price=underlying_price,
             execution_mode="live",
-            timestamp=fill.timestamp,
         )
 
     def _resolve_trade(
@@ -3233,21 +3214,21 @@ class TradingWorkflow:
             option_quote=exit_quote,
         )
         self._record_transaction(
-            side="SELL",
             signal=signal,
             resolved=resolved_exit,
             quantity=quantity,
-            instrument_price=exit_mark,
-            underlying_price=exit_underlying,
+            entry_timestamp=position.opened_at,
+            exit_timestamp=closed_at,
             entry_instrument_price=position.average_entry_price,
+            exit_instrument_price=exit_mark,
             entry_underlying_price=position.underlying_entry_price,
+            exit_underlying_price=exit_underlying,
             trade_amount=fill_result.amount if fill_result is not None else None,
             trade_pnl=(
                 fill_result.trade_pnl
                 if fill_result is not None
                 else self._option_pnl_net_of_fees(position, exit_mark)
             ),
-            timestamp=closed_at,
             quote=exit_quote,
             entry_quote=position.entry_quote,
             max_unrealized_profit=max_unrealized_profit,
@@ -3298,6 +3279,7 @@ class TradingWorkflow:
                 max_unrealized_loss=max_unrealized_loss,
                 max_unrealized_profit_pct=max_unrealized_profit_pct,
                 max_unrealized_loss_pct=max_unrealized_loss_pct,
+                timeframe=self._config.market_config.strategy_timeframe,
             )
         except Exception:
             logger.exception(
@@ -3871,8 +3853,7 @@ class TradingWorkflow:
                     shutdown_on=self._eod_shutdown_on,
                 ):
                     logger.info(
-                        "EOD: equity streaming day ended; checkpointing account "
-                        "and transactions, then shutting down"
+                        "EOD: session ended; flushing transactions to GCS, then shutting down"
                     )
                     self._eod_shutdown_on = market_day
                     try:
@@ -3990,17 +3971,17 @@ class TradingWorkflow:
             mark_price=exit_price,
         )
         self._record_transaction(
-            side="SELL",
             signal=signal,
             resolved=resolved_exit,
             quantity=quantity,
-            instrument_price=exit_price,
-            underlying_price=exit_price,
+            entry_timestamp=position.opened_at,
+            exit_timestamp=closed_at,
             entry_instrument_price=position.average_entry_price,
+            exit_instrument_price=exit_price,
             entry_underlying_price=position.underlying_entry_price,
+            exit_underlying_price=exit_price,
             trade_amount=fill_result.amount if fill_result is not None else None,
             trade_pnl=fill_result.trade_pnl if fill_result is not None else None,
-            timestamp=closed_at,
         )
         self.position_tracker.close_position(position.symbol)
         logger.info("EOD closed equity %s at %.2f",
@@ -4030,6 +4011,7 @@ class TradingWorkflow:
                 ),
                 trade_amount=fill_result.amount if fill_result is not None else None,
                 time_bought=position.opened_at,
+                timeframe=self._config.market_config.strategy_timeframe,
             )
         except Exception:
             logger.exception(

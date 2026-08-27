@@ -263,9 +263,9 @@ class WorkflowSettings:
     eod_flatten_time_utc: str = "19:59"
     eod_shutdown_time_utc: str = "20:00"
     # Preferred DST-safe clocks (America/New_York). Empty => use UTC fields above.
-    # Flatten at RTH close (16:00 ET); shutdown can stay at post-market end (20:00 ET).
+    # Flatten at RTH close (16:00 ET); stop the process at 16:01 ET after GCS flush.
     eod_flatten_time_local: str = "16:00"
-    eod_shutdown_time_local: str = "20:00"
+    eod_shutdown_time_local: str = "16:01"
     # When false the workflow keeps streaming after RTH (e.g. 24/7 ES); flatten still runs.
     eod_shutdown_enabled: bool = True
     # New entries only inside [entry_start_local, entry_end_local) market-local time.
@@ -410,8 +410,8 @@ class EmailSettings:
 
 @dataclass(frozen=True)
 class ForwardTestSettings:
-    initial_balance: float = 3_000.0
-    persist_state: bool = True
+    initial_balance: float = 10_000.0
+    persist_state: bool = False
     state_prefix: str = "forward_test"
     transactions_csv_path: str = "data/transactions.csv"
 
@@ -1004,7 +1004,7 @@ def _parse_workflow_settings(
         eod_flatten_time_utc=str(payload.get("eod_flatten_time_utc", "19:59")),
         eod_shutdown_time_utc=str(payload.get("eod_shutdown_time_utc", "20:00")),
         eod_flatten_time_local=str(payload.get("eod_flatten_time_local", "16:00")),
-        eod_shutdown_time_local=str(payload.get("eod_shutdown_time_local", "20:00")),
+        eod_shutdown_time_local=str(payload.get("eod_shutdown_time_local", "16:01")),
         eod_shutdown_enabled=bool(payload.get("eod_shutdown_enabled", True)),
         entry_start_local=str(payload.get("entry_start_local", "09:30")),
         entry_end_local=str(payload.get("entry_end_local", "16:00")),
@@ -1180,8 +1180,8 @@ def _parse_email_settings(payload: dict[str, Any]) -> EmailSettings:
 
 def _parse_forward_test_settings(payload: dict[str, Any]) -> ForwardTestSettings:
     return ForwardTestSettings(
-        initial_balance=float(payload.get("initial_balance", 3_000)),
-        persist_state=bool(payload.get("persist_state", True)),
+        initial_balance=float(payload.get("initial_balance", 10_000)),
+        persist_state=bool(payload.get("persist_state", False)),
         state_prefix=str(payload.get("state_prefix", "forward_test")),
         transactions_csv_path=str(
             payload.get("transactions_csv_path", "data/transactions.csv")

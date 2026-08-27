@@ -42,3 +42,27 @@ def test_sell_subject_without_entry_omits_pct_and_dot() -> None:
         profit=None,
     )
     assert subject == "SELL SPY C @ 1.55"
+
+
+def test_sell_subject_includes_timeframe() -> None:
+    subject = _sell_subject(
+        symbol="SPY",
+        right=" C",
+        exit_instrument_price=1.55,
+        entry_instrument_price=1.47,
+        profit=40.0,
+        timeframe="50t",
+    )
+    assert subject == "🟢 SELL SPY C 50t @ 1.55 (+5.44%)"
+
+
+def test_sell_subject_blank_timeframe_omits_token() -> None:
+    subject = _sell_subject(
+        symbol="SPY",
+        right=" C",
+        exit_instrument_price=1.55,
+        entry_instrument_price=None,
+        profit=None,
+        timeframe="  ",
+    )
+    assert subject == "SELL SPY C @ 1.55"
