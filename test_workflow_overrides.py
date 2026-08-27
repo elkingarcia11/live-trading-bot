@@ -10,6 +10,7 @@ from config import (
     WorkflowConfigOverrides,
     apply_config_overrides,
     get_config,
+    resolve_transactions_csv_path,
     set_config_overrides,
 )
 from workflow import build_workflow_arg_parser, overrides_from_args
@@ -202,6 +203,22 @@ def test_time_frame_alias_maps_to_timeframe() -> None:
     )
     assert result.market.stream_timeframe == "400t"
     assert result.market.strategy_timeframe == "400t"
+    assert result.forward_test.transactions_csv_path == "data/transactions_400t.csv"
+
+
+def test_resolve_transactions_csv_path_uses_strategy_timeframe() -> None:
+    app = _base_app()
+    assert resolve_transactions_csv_path(app) == "data/transactions_400t.csv"
+
+
+def test_resolve_transactions_csv_path_keeps_custom_path() -> None:
+    app = AppConfig.from_dict(
+        {
+            "market": {"strategy_timeframe": "400t"},
+            "forward_test": {"transactions_csv_path": "logs/custom.csv"},
+        }
+    )
+    assert resolve_transactions_csv_path(app) == "logs/custom.csv"
 
 
 def test_partial_flags_produce_partial_overrides() -> None:

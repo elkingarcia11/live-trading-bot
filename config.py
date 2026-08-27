@@ -640,6 +640,8 @@ class WorkflowConfigOverrides:
       (``risk.position_size_max_dollars`` with ``position_size_pct=1.0``).
       Sizing buys the most whole contracts/shares such that
       ``quantity * unit_cost <= position_size`` (options: premium × 100).
+    * ``timeframe`` also selects ``forward_test.transactions_csv_path`` as
+      ``data/transactions_{timeframe}.csv`` for parallel workflow instances.
     """
 
     timeframe: Optional[str] = None
@@ -671,6 +673,28 @@ def _validate_timeframe(timeframe: str) -> str:
     return tf
 
 
+def resolve_transactions_csv_path(
+    app: "AppConfig",
+    *,
+    strategy_timeframe: Optional[str] = None,
+) -> str:
+    """Return the local transaction ledger path for a strategy timeframe.
+
+    Default ``data/transactions.csv`` becomes ``data/transactions_{timeframe}.csv``
+    so parallel workflow instances do not share one buffer file. Custom paths
+    (anything other than ``transactions.csv`` or ``transactions_{tf}.csv``) are
+    left unchanged.
+    """
+    configured = app.forward_test.transactions_csv_path.strip() or "data/transactions.csv"
+    path = Path(configured)
+    timeframe = (strategy_timeframe or app.market.strategy_timeframe).strip()
+    if not timeframe:
+        return configured
+    if path.name not in {"transactions.csv", f"transactions_{timeframe}.csv"}:
+        return configured
+    return str(path.parent / f"transactions_{timeframe}.csv")
+
+
 def apply_config_overrides(
     app: "AppConfig",
     overrides: Optional["WorkflowConfigOverrides"],
@@ -691,6 +715,16 @@ def apply_config_overrides(
             market,
             stream_timeframe=timeframe,
             strategy_timeframe=timeframe,
+        )
+
+    forward_test = app.forward_test
+    if overrides.timeframe is not None:
+        forward_test = replace(
+            forward_test,
+            transactions_csv_path=resolve_transactions_csv_path(
+                app,
+                strategy_timeframe=market.strategy_timeframe,
+            ),
         )
 
     # Gaussian MA legs (only when the indicator is enabled in config.json).
@@ -739,10 +773,16 @@ def apply_config_overrides(
             max_position_quantity=max(risk.max_position_quantity, budget),
         )
 
-    if market is app.market and indicators is app.indicators and risk is app.risk:
+    if market is app.market and indicators is app.indicators and risk is app.risk and forward_test is app.forward_test:
         return app
 
-    return replace(app, market=market, indicators=indicators, risk=risk)
+    return replace(
+        app,
+        market=market,
+        indicators=indicators,
+        risk=risk,
+        forward_test=forward_test,
+    )
 
 
 def _overrides_summary(

@@ -2,7 +2,7 @@
 
 Each row is one closed trade: timeframe, entry/exit timestamps, and entry/exit
 prices for both the contract and the underlying. Local appends stay cheap;
-``upload_daily_to_gcs`` merges into ``transactions/YYYY-MM-DD.csv``.
+``upload_daily_to_gcs`` merges into ``transactions/YYYY_MM_DD_{timeframe}.csv``.
 """
 
 from __future__ import annotations
@@ -265,11 +265,11 @@ class TransactionLedger:
     ) -> list[str]:
         """Append all local rows to daily partitioned GCS CSVs.
 
-        Each row is written to ``transactions/YYYY-MM-DD.csv`` keyed by the row's
-        exit timestamp. If a day's file already exists in GCS its rows are
-        preserved and only genuinely new rows are appended (deduped so repeated
-        shutdown exports never duplicate a trade). Returns the list of ``gs://``
-        URIs written.
+        Each row is written to ``transactions/YYYY_MM_DD_{timeframe}.csv``
+        keyed by the row's exit date and timeframe. If a file already exists in
+        GCS its rows are preserved and only genuinely new rows are appended
+        (deduped so repeated shutdown exports never duplicate a trade). Returns
+        the list of ``gs://`` URIs written.
         """
         with self._lock:
             local_rows = _read_transaction_rows(self._csv_path)
@@ -291,16 +291,18 @@ class TransactionLedger:
 
         base_prefix = prefix.strip().strip("/")
         bucket = storage_client.bucket(bucket_name)
-        by_date: dict[str, list[dict[str, str]]] = {}
+        by_partition: dict[tuple[str, str], list[dict[str, str]]] = {}
         for row in local_rows:
-            day = _row_transaction_date(row)
-            if day is None:
+            partition = _row_transaction_partition(row)
+            if partition is None:
                 continue
-            by_date.setdefault(day, []).append(row)
+            by_partition.setdefault(partition, []).append(row)
 
         uris: list[str] = []
-        for day in sorted(by_date):
-            blob_path = f"{base_prefix}/{day}.csv"
+        for partition in sorted(by_partition):
+            day, timeframe = partition
+            blob_name = _daily_transaction_blob_name(day, timeframe)
+            blob_path = f"{base_prefix}/{blob_name}"
             blob = bucket.blob(blob_path)
             try:
                 remote_rows = _download_transaction_rows(blob)
@@ -310,7 +312,7 @@ class TransactionLedger:
                     blob_path,
                 )
                 remote_rows = []
-            merged = _merge_transaction_rows(remote_rows, by_date[day])
+            merged = _merge_transaction_rows(remote_rows, by_partition[partition])
             if not merged:
                 logger.info(
                     "Daily transaction export skipped; no rows for %s",
@@ -332,7 +334,7 @@ class TransactionLedger:
                 "Appended transactions to %s (existing=%d new=%d total=%d)",
                 f"gs://{bucket_name}/{blob_path}",
                 len(remote_rows),
-                len(by_date[day]),
+                len(by_partition[partition]),
                 len(merged),
             )
         return uris
@@ -611,3 +613,23 @@ def _row_transaction_date(row: Mapping[str, str]) -> Optional[str]:
         if len(day) == 10 and "-" in day:
             return day
     return None
+
+
+def _row_timeframe_label(row: Mapping[str, str]) -> str:
+    timeframe = str(row.get("timeframe") or "").strip()
+    return timeframe or "unknown"
+
+
+def _row_transaction_partition(
+    row: Mapping[str, str],
+) -> Optional[tuple[str, str]]:
+    """Return ``(YYYY-MM-DD, timeframe)`` for daily GCS partitioning."""
+    day = _row_transaction_date(row)
+    if day is None:
+        return None
+    return day, _row_timeframe_label(row)
+
+
+def _daily_transaction_blob_name(day: str, timeframe: str) -> str:
+    """Return ``YYYY_MM_DD_{timeframe}.csv`` for one daily export file."""
+    return f"{day.replace('-', '_')}_{timeframe}.csv"

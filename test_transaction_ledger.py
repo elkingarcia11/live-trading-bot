@@ -273,9 +273,60 @@ def test_transaction_ledger_upload_daily_uses_exit_date(tmp_path: Path) -> None:
             client=client,
         )
 
-    assert uris == ["gs://live-trading-bot/transactions/2024-01-16.csv"]
-    bucket.blob.assert_called_once_with("transactions/2024-01-16.csv")
+    assert uris == ["gs://live-trading-bot/transactions/2024_01_16_50t.csv"]
+    bucket.blob.assert_called_once_with("transactions/2024_01_16_50t.csv")
     uploaded = blob.upload_from_string.call_args.args[0]
     assert "50t" in uploaded
     assert "2024-01-15T20:00:00+00:00" in uploaded
     assert "2024-01-16T14:30:00+00:00" in uploaded
+
+
+def test_transaction_ledger_upload_daily_partitions_by_timeframe(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "transactions.csv"
+    ledger = TransactionLedger(csv_path)
+    ledger.record(
+        _record(
+            exit_timestamp=datetime(2024, 1, 16, 14, 30, tzinfo=timezone.utc),
+            timeframe="100t",
+        )
+    )
+    ledger.record(
+        _record(
+            exit_timestamp=datetime(2024, 1, 16, 15, 30, tzinfo=timezone.utc),
+            timeframe="400t",
+        )
+    )
+
+    blobs: dict[str, MagicMock] = {}
+
+    def _blob(name: str) -> MagicMock:
+        blob = MagicMock()
+        blob.download_as_text.side_effect = NotFound("missing")
+        blobs[name] = blob
+        return blob
+
+    bucket = MagicMock()
+    bucket.blob.side_effect = _blob
+    client = MagicMock()
+    client.bucket.return_value = bucket
+
+    with patch(
+        "transaction_ledger.gcs_bucket_exists",
+        return_value=True,
+    ):
+        uris = ledger.upload_daily_to_gcs(
+            bucket_name="live-trading-bot",
+            prefix="transactions",
+            client=client,
+        )
+
+    assert sorted(uris) == [
+        "gs://live-trading-bot/transactions/2024_01_16_100t.csv",
+        "gs://live-trading-bot/transactions/2024_01_16_400t.csv",
+    ]
+    assert set(blobs) == {
+        "transactions/2024_01_16_100t.csv",
+        "transactions/2024_01_16_400t.csv",
+    }

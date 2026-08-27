@@ -29,6 +29,7 @@ from config import (
     AppConfig,
     WorkflowConfigOverrides,
     load_config,
+    resolve_transactions_csv_path,
     set_config_overrides,
 )
 from health_monitor import HealthMonitor, HealthThresholds
@@ -608,7 +609,7 @@ class TradingWorkflow:
         self._trade_emailer: Optional[TradeEmailer] = None
         self._forward_test_account: Optional[ForwardTestAccount] = None
         self._transaction_ledger: Optional[TransactionLedger] = None
-        transactions_path = config.app.forward_test.transactions_csv_path.strip()
+        transactions_path = resolve_transactions_csv_path(config.app).strip()
         if transactions_path:
             self._transaction_ledger = TransactionLedger(transactions_path)
         if config.email_forward_test:
@@ -915,7 +916,7 @@ class TradingWorkflow:
             )
 
         # Append all locally-buffered transactions to the daily GCS ledger
-        # (transactions/YYYY-MM-DD.csv). This runs at every shutdown so no
+        # (transactions/YYYY_MM_DD_{timeframe}.csv). This runs at every shutdown so no
         # transaction is lost on cancel / unexpected shutdown / exit / timeout.
         self.flush_transactions_to_gcs(reason=reason)
 
@@ -925,8 +926,8 @@ class TradingWorkflow:
         Exported only on shutdown (never a periodic flush): graceful EOD stop,
         KeyboardInterrupt, SIGTERM, and interpreter exit all funnel through here
         via :meth:`_checkpoint_account_and_transactions` / the atexit hook.
-        Writes each transaction to ``transactions/YYYY-MM-DD.csv`` keyed by its
-        exit timestamp.
+        Writes each transaction to ``transactions/YYYY_MM_DD_{timeframe}.csv``
+        keyed by its exit date and timeframe.
         """
         ledger = self._transaction_ledger
         if ledger is None:
