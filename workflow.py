@@ -473,6 +473,7 @@ class TradingWorkflow:
 
         self._lane_configs = parse_trading_lanes(config.app.lanes)
         self._multi_lane = bool(self._lane_configs)
+        self._lane_bound = False
         self._lanes: dict[str, TradingLaneRuntime] = {}
         if self._multi_lane:
             if config.stream_provider != "databento":
@@ -747,9 +748,12 @@ class TradingWorkflow:
         self.indicator_coordinator = lane.indicator_coordinator
         self.risk_guard = lane.risk_guard
         self._strategy_state = lane.strategy_state
+        prev_bound = self._lane_bound
+        self._lane_bound = True
         try:
             yield
         finally:
+            self._lane_bound = prev_bound
             lane.strategy_state = self._strategy_state
             for key, value in saved.items():
                 setattr(self, key, value)
@@ -986,7 +990,7 @@ class TradingWorkflow:
         Paper cash is not written to GCS ``account.json``. The transactions
         ledger is an append-only local CSV touched on every fill.
         """
-        if self._multi_lane:
+        if self._multi_lane and not self._lane_bound:
             for lane in self._lanes.values():
                 with self._bind_lane(lane):
                     self._checkpoint_account_and_transactions(reason=reason)
@@ -1692,7 +1696,7 @@ class TradingWorkflow:
         """Stream marks and arm trailing/stop exits for already-open option positions."""
         if not self._config.app.options.enabled:
             return
-        if self._multi_lane:
+        if self._multi_lane and not self._lane_bound:
             for lane in self._lanes.values():
                 with self._bind_lane(lane):
                     self._subscribe_open_option_contracts()
@@ -3142,7 +3146,7 @@ class TradingWorkflow:
 
     def _reconcile_expired_restored_positions(self) -> None:
         """Drop restored options whose OCC expiration date has already passed."""
-        if self._multi_lane:
+        if self._multi_lane and not self._lane_bound:
             for lane in self._lanes.values():
                 with self._bind_lane(lane):
                     self._reconcile_expired_restored_positions()
@@ -3198,7 +3202,7 @@ class TradingWorkflow:
 
     def _reconcile_restored_positions_with_trend(self) -> None:
         """Close restored options that no longer match the Gaussian MA regime."""
-        if self._multi_lane:
+        if self._multi_lane and not self._lane_bound:
             for lane in self._lanes.values():
                 with self._bind_lane(lane):
                     self._reconcile_restored_positions_with_trend()
@@ -4037,7 +4041,7 @@ class TradingWorkflow:
         bar: CleanBarEvent | None = None,
     ) -> None:
         """Sell every open position at the end of the regular session."""
-        if self._multi_lane:
+        if self._multi_lane and not self._lane_bound:
             for lane in self._lanes.values():
                 with self._bind_lane(lane):
                     self._flatten_all_positions_eod(closed_at, bar=bar)
