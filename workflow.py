@@ -568,6 +568,8 @@ class TradingWorkflow:
                 on_close=self._on_stream_closed,
                 on_error=self._on_stream_error,
             )
+        # Schwab LEVELONE_OPTIONS alongside Databento/IBKR/generic bar feeds.
+        self._schwab_option_stream = self._build_schwab_option_stream(config)
         self.aggregator = DataAggregator(
             target_timeframes=config.market_config.aggregation_timeframes,
         )
@@ -722,6 +724,12 @@ class TradingWorkflow:
             logger.info("Connecting market data stream at %s",
                         self._config.websocket_url)
             self.stream_manager.connect()
+        if self._schwab_option_stream is not None:
+            logger.info(
+                "Connecting Schwab LEVELONE_OPTIONS stream for held option marks"
+            )
+            self._schwab_option_stream.refresh_streamer_info()
+            self._schwab_option_stream.connect()
         if self._config.sync_broker_positions_on_start:
             self._sync_broker_positions()
         self._start_health_checks()
@@ -776,7 +784,9 @@ class TradingWorkflow:
         try:
             if self._schwab_stream is not None:
                 self._schwab_stream.disconnect()
-            elif self._ibkr_stream is not None:
+            if self._schwab_option_stream is not None:
+                self._schwab_option_stream.disconnect()
+            if self._ibkr_stream is not None:
                 self._ibkr_stream.disconnect()
                 if self._ibkr_tws_runtime is not None:
                     self._ibkr_tws_runtime.disconnect_session()
@@ -1244,6 +1254,33 @@ class TradingWorkflow:
         finally:
             self._trading_lock.release()
 
+    def _schwab_option_stream_session(self) -> Optional[SchwabStreamSession]:
+        """Return the Schwab websocket session used for LEVELONE_OPTIONS marks."""
+        if self._schwab_stream is not None:
+            return self._schwab_stream
+        return self._schwab_option_stream
+
+    def _build_schwab_option_stream(
+        self,
+        config: WorkflowConfig,
+    ) -> Optional[SchwabStreamSession]:
+        """Attach Schwab option marks when the primary bar feed is not Schwab."""
+        if config.stream_provider == "schwab":
+            return None
+        options = config.app.options
+        if not options.enabled or not options.stream_contract_marks:
+            return None
+        # Chart subscription is disabled; processor is only required by the session.
+        symbols = config.symbols or ("SPY",)
+        noop_processor = StreamDataProcessor(symbols=symbols, consumers=[])
+        return SchwabStreamSession.from_env(
+            symbols=symbols,
+            processor=noop_processor,
+            subscribe_on_connect=False,
+            on_error_external=self._on_stream_error,
+            on_option_quote=self._on_option_quote,
+        )
+
     def _ingest_clean_bar(self, bar: CleanBarEvent) -> None:
         """Record a live bar without running strategy or order code."""
         if not self._logged_first_live_bar:
@@ -1406,7 +1443,7 @@ class TradingWorkflow:
     def _option_stream_active(self) -> bool:
         """Return True when option marks are streamed via LEVELONE_OPTIONS."""
         return (
-            self._schwab_stream is not None
+            self._schwab_option_stream_session() is not None
             and self._config.app.options.stream_contract_marks
         )
 
@@ -1577,22 +1614,24 @@ class TradingWorkflow:
 
     def _subscribe_option_contract(self, occ_symbol: str) -> None:
         """Subscribe a held option contract to the live mark stream."""
-        if self._schwab_stream is None:
+        session = self._schwab_option_stream_session()
+        if session is None:
             return
         if not self._config.app.options.stream_contract_marks:
             return
         try:
-            self._schwab_stream.subscribe_option(occ_symbol)
+            session.subscribe_option(occ_symbol)
         except Exception:
             logger.exception(
                 "Failed to subscribe option stream for %s", occ_symbol)
 
     def _unsubscribe_option_contract(self, occ_symbol: str) -> None:
         """Stop streaming marks for a closed option contract."""
-        if self._schwab_stream is None:
+        session = self._schwab_option_stream_session()
+        if session is None:
             return
         try:
-            self._schwab_stream.unsubscribe_option(occ_symbol)
+            session.unsubscribe_option(occ_symbol)
         except Exception:
             logger.debug(
                 "Failed to unsubscribe option stream for %s",
