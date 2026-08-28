@@ -71,6 +71,7 @@ class StreamDataProcessor:
         timeframe_key: str = "timeframe",
         require_minute_alignment: bool = True,
         dedup_window: int = 500,
+        accepted_timeframes: Optional[Sequence[str]] = None,
     ) -> None:
         """Initialize the processor for one or more symbol streams.
 
@@ -95,6 +96,12 @@ class StreamDataProcessor:
             next(iter(self._symbols)) if len(self._symbols) == 1 else None
         )
         self._timeframe = timeframe
+        if accepted_timeframes:
+            self._accepted_timeframes = frozenset(
+                str(item).strip() for item in accepted_timeframes if str(item).strip()
+            )
+        else:
+            self._accepted_timeframes = frozenset({timeframe})
         self._consumers = list(consumers or [])
         self._transformer = transformer or MarketDataTransformer()
         self._field_map = field_map or SHORT_BAR_FIELDS
@@ -188,12 +195,12 @@ class StreamDataProcessor:
             logger.debug("Dropping bar for unsubscribed symbol %s.", symbol)
             return self._note_dropped()
 
-        if timeframe != self._timeframe:
-            logger.warning(
-                "Dropping %s bar for %s with unexpected timeframe %s.",
-                self._timeframe,
+        if timeframe not in self._accepted_timeframes:
+            logger.debug(
+                "Dropping bar for %s with unaccepted timeframe %s (want %s).",
                 symbol,
                 timeframe,
+                ", ".join(sorted(self._accepted_timeframes)),
             )
             return self._note_dropped()
 

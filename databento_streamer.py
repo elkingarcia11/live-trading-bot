@@ -52,6 +52,7 @@ class DatabentoStreamSession:
         on_databento_trade: Optional[
             Callable[[Any, str, str], None]
         ] = None,
+        tick_timeframes: Optional[Sequence[str]] = None,
     ) -> None:
         if not api_key.strip():
             raise ValueError("Databento API key is required (set DATABENTO_API_KEY)")
@@ -67,7 +68,26 @@ class DatabentoStreamSession:
         self._stream_end_local = stream_end_local
         self._trading_days_only = trading_days_only
         self._apply_equity_session_filter = apply_equity_session_filter
-        self._bar_builder = TickBarBuilder(ticks_per_bar=ticks_per_bar)
+        if tick_timeframes:
+            normalized = tuple(
+                str(tf).strip()
+                for tf in tick_timeframes
+                if str(tf).strip()
+            )
+            self._tick_timeframes = normalized
+            self._bar_builders = {
+                tf: TickBarBuilder(ticks_per_bar=parse_tick_timeframe(tf))
+                for tf in normalized
+            }
+            self._ticks_per_bar = max(
+                parse_tick_timeframe(tf) for tf in normalized
+            )
+            self._bar_builder = None
+        else:
+            self._tick_timeframes = ()
+            self._bar_builders = {}
+            self._ticks_per_bar = ticks_per_bar
+            self._bar_builder = TickBarBuilder(ticks_per_bar=ticks_per_bar)
         self._on_open_external = on_open_external
         self._on_close_external = on_close_external
         self._on_error_external = on_error_external
@@ -154,12 +174,16 @@ class DatabentoStreamSession:
             self._connected = True
 
         logger.info(
-            "Subscribed to Databento %s/%s for %s (%dt bars); "
+            "Subscribed to Databento %s/%s for %s (%s); "
             "accepting prints %s",
             self._dataset,
             self._schema,
             ", ".join(self._symbols),
-            self._ticks_per_bar,
+            (
+                ", ".join(self._tick_timeframes)
+                if self._tick_timeframes
+                else f"{self._ticks_per_bar}t"
+            ),
             (
                 f"{self._stream_start_local.strftime('%H:%M')}-"
                 f"{self._stream_end_local.strftime('%H:%M')} {self._market_timezone}"
@@ -172,13 +196,29 @@ class DatabentoStreamSession:
 
     def flush_partial_bars(self) -> list[dict[str, Any]]:
         """Return and clear in-progress tick bars for shutdown persistence."""
-        return self._bar_builder.flush()
+        if self._bar_builder is not None:
+            return self._bar_builder.flush()
+        payloads: list[dict[str, Any]] = []
+        for builder in self._bar_builders.values():
+            payloads.extend(builder.flush())
+        return payloads
 
     def _maybe_log_forming_progress(self, symbol: str, session_trades: int) -> None:
         """Log occasional forming-bar progress so thin sessions are visible."""
         import time as time_module
 
-        forming = self._bar_builder.forming_ticks(symbol)
+        if self._bar_builder is not None:
+            forming = self._bar_builder.forming_ticks(symbol)
+            ticks_per_bar = self._ticks_per_bar
+        else:
+            # Log the lane with the most progress.
+            forming = None
+            ticks_per_bar = self._ticks_per_bar
+            for builder in self._bar_builders.values():
+                count = builder.forming_ticks(symbol)
+                if count is not None and (forming is None or count > forming):
+                    forming = count
+                    ticks_per_bar = builder.ticks_per_bar
         if forming is None:
             return
         now = time_module.monotonic()
@@ -191,7 +231,7 @@ class DatabentoStreamSession:
             "Databento %s forming %d/%dt (trades_since_bar=%d)",
             symbol,
             forming,
-            self._ticks_per_bar,
+            ticks_per_bar,
             session_trades,
         )
 
@@ -203,7 +243,11 @@ class DatabentoStreamSession:
             self._connected = False
             self._symbol_by_instrument_id.clear()
             self._raw_symbol_by_instrument_id.clear()
-            self._bar_builder.reset()
+            if self._bar_builder is not None:
+                self._bar_builder.reset()
+            else:
+                for builder in self._bar_builders.values():
+                    builder.reset()
 
         if client is not None:
             try:
@@ -297,7 +341,7 @@ class DatabentoStreamSession:
             except Exception:
                 logger.exception("Databento on_trade callback failed for %s", symbol)
 
-        payload = self._bar_builder.update(
+        payloads = self._update_tick_bars(
             symbol=symbol,
             price=price,
             size=size,
@@ -306,20 +350,54 @@ class DatabentoStreamSession:
         with self._lock:
             self._trade_counts[symbol] = self._trade_counts.get(symbol, 0) + 1
             trade_count = self._trade_counts[symbol]
-        if payload is None:
+        if not payloads:
             self._maybe_log_forming_progress(symbol, trade_count)
             return
         with self._lock:
             self._trade_counts[symbol] = 0
             self._last_progress_log_at.pop(symbol, None)
+        for payload in payloads:
+            self._emit_completed_bar(payload, price=price)
+
+    def _update_tick_bars(
+        self,
+        *,
+        symbol: str,
+        price: float,
+        size: float,
+        timestamp: datetime,
+    ) -> list[dict[str, Any]]:
+        if self._bar_builder is not None:
+            one = self._bar_builder.update(
+                symbol=symbol,
+                price=price,
+                size=size,
+                timestamp=timestamp,
+            )
+            return [one] if one is not None else []
+        completed: list[dict[str, Any]] = []
+        for builder in self._bar_builders.values():
+            payload = builder.update(
+                symbol=symbol,
+                price=price,
+                size=size,
+                timestamp=timestamp,
+            )
+            if payload is not None:
+                completed.append(payload)
+        return completed
+
+    def _emit_completed_bar(self, payload: dict[str, Any], *, price: float) -> None:
         bar = payload.get("bar") or {}
+        symbol = str(payload.get("symbol", ""))
+        ticks_per_bar = parse_tick_timeframe(str(payload.get("timeframe", "0t")))
         start_raw = bar.get("datetime")
-        end_raw = bar.get("end") or timestamp.isoformat()
+        end_raw = bar.get("end") or start_raw
         duration_s = _bar_duration_seconds(start_raw, end_raw)
         logger.info(
             "Bar %s %dt @ %s duration=%.3fs O=%.2f H=%.2f L=%.2f C=%.2f V=%.0f",
             symbol,
-            self._ticks_per_bar,
+            ticks_per_bar,
             start_raw,
             duration_s,
             float(bar.get("open") or 0.0),
@@ -360,6 +438,7 @@ def build_databento_stream_processor(
     symbols: Sequence[str],
     consumers: Optional[list[Callable[[CleanBarEvent], None]]] = None,
     timeframe: str = "50t",
+    accepted_timeframes: Optional[Sequence[str]] = None,
     require_minute_alignment: Optional[bool] = None,
     dedup_window: Optional[int] = None,
     stream_settings: Optional["StreamSettings"] = None,
@@ -375,6 +454,7 @@ def build_databento_stream_processor(
             require_minute_alignment = stream.require_minute_alignment
     if dedup_window is None:
         dedup_window = stream.dedup_window
+    timeframes = accepted_timeframes or (timeframe,)
     return StreamDataProcessor(
         symbols=symbols,
         timeframe=timeframe,
@@ -385,6 +465,7 @@ def build_databento_stream_processor(
         timeframe_key="timeframe",
         require_minute_alignment=require_minute_alignment,
         dedup_window=dedup_window,
+        accepted_timeframes=timeframes,
     )
 
 

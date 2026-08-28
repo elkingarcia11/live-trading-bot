@@ -59,6 +59,28 @@
   "strategies": [
     "gaussian_ma_crossover"
   ],
+  "lanes": [
+    {
+      "timeframe": "400t",
+      "fast_gma_length": 2,
+      "fast_gma_sigma": 5,
+      "slow_gma_length": 4,
+      "slow_gma_sigma": 3,
+      "position_size": 3000,
+      "stop_loss_pct": 0.02,
+      "trailing_stop_pct": 0.10
+    },
+    {
+      "timeframe": "100t",
+      "fast_gma_length": 5,
+      "fast_gma_sigma": 1.5,
+      "slow_gma_length": 10,
+      "slow_gma_sigma": 2.5,
+      "position_size": 3000,
+      "stop_loss_pct": 0.02,
+      "trailing_stop_pct": 0.05
+    }
+  ],
   "workflow": {
     "run_schwab_stream": false,
     "stream_provider": "databento",

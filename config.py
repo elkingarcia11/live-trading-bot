@@ -530,6 +530,7 @@ class AppConfig:
     schwab: SchwabSettings = field(default_factory=SchwabSettings)
     ibkr: IbkrSettings = field(default_factory=IbkrSettings)
     databento: DatabentoSettings = field(default_factory=DatabentoSettings)
+    lanes: tuple[dict[str, Any], ...] = ()
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> AppConfig:
@@ -618,7 +619,22 @@ class AppConfig:
             schwab=_parse_schwab_settings(_section(payload, "schwab")),
             ibkr=_parse_ibkr_settings(_section(payload, "ibkr")),
             databento=_parse_databento_settings(_section(payload, "databento")),
+            lanes=_parse_lane_payloads(payload.get("lanes")),
         )
+
+
+def _parse_lane_payloads(raw: Any) -> tuple[dict[str, Any], ...]:
+    """Parse the optional multi-lane strategy array from config.json."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("lanes must be a JSON array")
+    lanes: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"lanes[{index}] must be an object")
+        lanes.append(dict(item))
+    return tuple(lanes)
 
 
 @dataclass(frozen=True)

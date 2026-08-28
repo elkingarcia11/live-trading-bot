@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal, Optional, Sequence
@@ -91,6 +92,12 @@ from strategy_registry import (
     StrategyEvaluationContext,
     StrategyRegistry,
     build_default_registry,
+)
+from trading_lane import (
+    TradingLaneRuntime,
+    build_lane_runtimes,
+    lane_tick_timeframes,
+    parse_trading_lanes,
 )
 from schwab_account_sync import SchwabAccountSync
 from schwab_trader_client import SchwabAccountSnapshot
@@ -464,6 +471,20 @@ class TradingWorkflow:
                 ", ".join(self._trade_symbols),
             )
 
+        self._lane_configs = parse_trading_lanes(config.app.lanes)
+        self._multi_lane = bool(self._lane_configs)
+        self._lanes: dict[str, TradingLaneRuntime] = {}
+        if self._multi_lane:
+            if config.stream_provider != "databento":
+                raise ValueError(
+                    "config.lanes requires workflow.stream_provider=databento"
+                )
+            self._lanes = build_lane_runtimes(config, self._lane_configs)
+            logger.info(
+                "Multi-lane mode: %s (shared Databento + Schwab option stream)",
+                ", ".join(lane.lane_id for lane in self._lane_configs),
+            )
+
         self.bus = bus or EventBus()
         self.trade_logger = TradeLogger(
             self.bus, log_path=config.audit_log_path)
@@ -538,10 +559,20 @@ class TradingWorkflow:
             self._ibkr_tws_runtime = None
             self._ibkr_stream = None
             self._stream_manager = None
+            lane_tfs = (
+                lane_tick_timeframes(self._lane_configs) if self._multi_lane else ()
+            )
+            primary_tf = (
+                lane_tfs[0]
+                if lane_tfs
+                else config.market_config.stream_timeframe
+            )
+            accepted_tfs = lane_tfs or (config.market_config.stream_timeframe,)
             self.stream_processor = build_databento_stream_processor(
                 symbols=self._symbols,
                 consumers=[self._on_clean_bar],
-                timeframe=config.market_config.stream_timeframe,
+                timeframe=primary_tf,
+                accepted_timeframes=accepted_tfs,
                 stream_settings=config.app.stream,
             )
             self._databento_stream = DatabentoStreamSession.from_env(
@@ -551,6 +582,7 @@ class TradingWorkflow:
                 on_close_external=self._on_stream_closed,
                 on_error_external=self._on_stream_error,
                 on_trade=self._on_raw_trade,
+                tick_timeframes=lane_tfs or None,
             )
         else:
             self._schwab_stream = None
@@ -612,26 +644,33 @@ class TradingWorkflow:
         self._forward_test_account: Optional[ForwardTestAccount] = None
         self._transaction_ledger: Optional[TransactionLedger] = None
         transactions_path = resolve_transactions_csv_path(config.app).strip()
-        if transactions_path:
+        if transactions_path and not self._multi_lane:
             self._transaction_ledger = TransactionLedger(transactions_path)
         if config.email_forward_test:
             self._trade_emailer = TradeEmailer(
                 EmailerConfig.from_app_config(config.app))
-            try:
-                self._forward_test_account = ForwardTestAccount.from_app_config(
-                    config.app
-                )
-            except Exception:
-                logger.exception(
-                    "Forward-test account unavailable; using static balance")
-            logger.info(
-                "Forward-test mode enabled: approved signals email %s (no broker orders)",
-                ", ".join(config.app.email.recipients),
-            )
-            if self._forward_test_account is not None:
+            if not self._multi_lane:
+                try:
+                    self._forward_test_account = ForwardTestAccount.from_app_config(
+                        config.app
+                    )
+                except Exception:
+                    logger.exception(
+                        "Forward-test account unavailable; using static balance")
                 logger.info(
-                    "Forward-test account: %s",
-                    self._forward_test_account.summary_line(),
+                    "Forward-test mode enabled: approved signals email %s (no broker orders)",
+                    ", ".join(config.app.email.recipients),
+                )
+                if self._forward_test_account is not None:
+                    logger.info(
+                        "Forward-test account: %s",
+                        self._forward_test_account.summary_line(),
+                    )
+            else:
+                logger.info(
+                    "Forward-test mode enabled for %d lane(s): %s",
+                    len(self._lanes),
+                    ", ".join(config.app.email.recipients),
                 )
 
         self._health_thread: Optional[threading.Thread] = None
@@ -679,10 +718,41 @@ class TradingWorkflow:
         self._gex_waiting_snapshot_logged: set[str] = set()
         if config.app.gex.enabled:
             self._init_gex_monitor()
-        # In-memory only: bars and trades live in the indicator buffer and stream
-        # aggregation (up to the stream timeframe); no OHLCV/raw-tape dump.
-        self._register_indicator_jobs()
+        if not self._multi_lane:
+            # In-memory only: bars and trades live in the indicator buffer and stream
+            # aggregation (up to the stream timeframe); no OHLCV/raw-tape dump.
+            self._register_indicator_jobs()
         self._wire_passive_listeners()
+
+    @contextmanager
+    def _bind_lane(self, lane: TradingLaneRuntime):
+        """Temporarily bind workflow services to one lane's isolated state."""
+        saved = {
+            "_config": self._config,
+            "position_tracker": self.position_tracker,
+            "_forward_test_account": self._forward_test_account,
+            "_transaction_ledger": self._transaction_ledger,
+            "strategy_registry": self.strategy_registry,
+            "signal_evaluator": self.signal_evaluator,
+            "indicator_coordinator": self.indicator_coordinator,
+            "risk_guard": self.risk_guard,
+            "_strategy_state": self._strategy_state,
+        }
+        self._config = WorkflowConfig.from_app_config(lane.app_config)
+        self.position_tracker = lane.position_tracker
+        self._forward_test_account = lane.forward_test_account
+        self._transaction_ledger = lane.transaction_ledger
+        self.strategy_registry = lane.strategy_registry
+        self.signal_evaluator = lane.signal_evaluator
+        self.indicator_coordinator = lane.indicator_coordinator
+        self.risk_guard = lane.risk_guard
+        self._strategy_state = lane.strategy_state
+        try:
+            yield
+        finally:
+            lane.strategy_state = self._strategy_state
+            for key, value in saved.items():
+                setattr(self, key, value)
 
     def start(self) -> None:
         """Start passive listeners, health checks, and the market data stream."""
@@ -714,10 +784,15 @@ class TradingWorkflow:
             )
             self._ibkr_stream.connect()
         elif self._databento_stream is not None:
+            bar_label = (
+                ", ".join(lane_tick_timeframes(self._lane_configs))
+                if self._multi_lane
+                else self._config.market_config.stream_timeframe
+            )
             logger.info(
                 "Connecting Databento trade stream for %s (%s bars)",
                 ", ".join(self._symbols),
-                self._config.market_config.stream_timeframe,
+                bar_label,
             )
             self._databento_stream.connect()
         else:
@@ -911,6 +986,11 @@ class TradingWorkflow:
         Paper cash is not written to GCS ``account.json``. The transactions
         ledger is an append-only local CSV touched on every fill.
         """
+        if self._multi_lane:
+            for lane in self._lanes.values():
+                with self._bind_lane(lane):
+                    self._checkpoint_account_and_transactions(reason=reason)
+            return
         if self._forward_test_account is not None:
             logger.info(
                 "Account checkpoint (%s): in-memory forward-test account %s",
@@ -1304,6 +1384,16 @@ class TradingWorkflow:
 
     def _run_trading_path(self, bar: CleanBarEvent) -> None:
         """Strategy evaluation, managed exits, and order-side follow-up."""
+        if self._multi_lane:
+            lane = self._lanes.get(bar.timeframe)
+            if lane is None:
+                return
+            with self._bind_lane(lane):
+                self._run_process_and_strategy_layers(bar)
+                self._evaluate_gex_strategies(bar)
+                self._check_gex_position_timeouts(bar)
+                self._enforce_eod_session_close(bar)
+            return
         self._run_process_and_strategy_layers(bar)
         self._evaluate_gex_strategies(bar)
         self._check_gex_position_timeouts(bar)
@@ -1469,6 +1559,24 @@ class TradingWorkflow:
         timestamp: Optional[datetime] = None,
     ) -> None:
         """Record an option mark, track max P&L, and fire the trailing stop."""
+        if self._multi_lane:
+            for lane in self._lanes.values():
+                position = lane.position_tracker.get_position(occ_symbol)
+                if position is None or position.asset_type != "OPTION":
+                    continue
+                with self._bind_lane(lane):
+                    self._process_option_mark(occ_symbol, mark, timestamp)
+                return
+            return
+        self._process_option_mark(occ_symbol, mark, timestamp)
+
+    def _process_option_mark(
+        self,
+        occ_symbol: str,
+        mark: float,
+        timestamp: Optional[datetime] = None,
+    ) -> None:
+        """Apply one option mark to the currently bound lane / default tracker."""
         timestamp = timestamp or datetime.now(timezone.utc)
         position = self.position_tracker.get_position(occ_symbol)
         if position is None or position.asset_type != "OPTION":
@@ -1583,6 +1691,11 @@ class TradingWorkflow:
     def _subscribe_open_option_contracts(self) -> None:
         """Stream marks and arm trailing/stop exits for already-open option positions."""
         if not self._config.app.options.enabled:
+            return
+        if self._multi_lane:
+            for lane in self._lanes.values():
+                with self._bind_lane(lane):
+                    self._subscribe_open_option_contracts()
             return
         for position in self.position_tracker.list_positions():
             if position.asset_type != "OPTION":
@@ -3029,6 +3142,11 @@ class TradingWorkflow:
 
     def _reconcile_expired_restored_positions(self) -> None:
         """Drop restored options whose OCC expiration date has already passed."""
+        if self._multi_lane:
+            for lane in self._lanes.values():
+                with self._bind_lane(lane):
+                    self._reconcile_expired_restored_positions()
+            return
         closed_at = datetime.now(timezone.utc)
         as_of = self._market_today()
         for position in list(self.position_tracker.list_positions()):
@@ -3080,6 +3198,11 @@ class TradingWorkflow:
 
     def _reconcile_restored_positions_with_trend(self) -> None:
         """Close restored options that no longer match the Gaussian MA regime."""
+        if self._multi_lane:
+            for lane in self._lanes.values():
+                with self._bind_lane(lane):
+                    self._reconcile_restored_positions_with_trend()
+            return
         if not self._config.app.options.enabled:
             return
 
@@ -3914,6 +4037,11 @@ class TradingWorkflow:
         bar: CleanBarEvent | None = None,
     ) -> None:
         """Sell every open position at the end of the regular session."""
+        if self._multi_lane:
+            for lane in self._lanes.values():
+                with self._bind_lane(lane):
+                    self._flatten_all_positions_eod(closed_at, bar=bar)
+            return
         positions = self.position_tracker.list_positions()
         if not positions:
             logger.info("EOD flatten: no open positions")
