@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import threading
 
 from config import AppConfig
 from databento_streamer import (
@@ -15,7 +16,7 @@ from trading_lane import (
     lane_tick_timeframes,
     parse_trading_lanes,
 )
-from workflow import WorkflowConfig
+from workflow import TradingWorkflow, WorkflowConfig
 
 
 def _base_app(*, lanes: list[dict] | None = None) -> AppConfig:
@@ -234,3 +235,67 @@ def test_databento_multi_tick_builder_emits_both_timeframes() -> None:
     assert "400t" in seen
     assert seen.count("100t") == 4
     assert seen.count("400t") == 1
+
+
+def test_handle_option_mark_updates_every_lane_with_the_contract() -> None:
+    """Each lane holding an OCC symbol must receive marks (not just the first)."""
+    app = _base_app(
+        lanes=[
+            {
+                "timeframe": "400t",
+                "fast_gma_length": 2,
+                "fast_gma_sigma": 5,
+                "slow_gma_length": 4,
+                "slow_gma_sigma": 3,
+            },
+            {
+                "timeframe": "100t",
+                "fast_gma_length": 5,
+                "fast_gma_sigma": 1.5,
+                "slow_gma_length": 10,
+                "slow_gma_sigma": 2.5,
+            },
+        ]
+    )
+    config = WorkflowConfig.from_app_config(app)
+    runtimes = build_lane_runtimes(config, parse_trading_lanes(app.lanes))
+    occ = "SPY   260831P00769000"
+    opened_at = datetime(2026, 8, 28, 14, 12, tzinfo=timezone.utc)
+    for runtime in runtimes.values():
+        runtime.position_tracker.open_position(
+            symbol=occ,
+            quantity=1,
+            entry_price=1.82,
+            opened_at=opened_at,
+            asset_type="OPTION",
+            underlying_symbol="SPY",
+            underlying_entry_price=774.0,
+        )
+
+    workflow = object.__new__(TradingWorkflow)
+    workflow._trading_lock = threading.Lock()
+    workflow._multi_lane = True
+    workflow._lane_bound = False
+    workflow._lanes = runtimes
+    workflow._flattening_contracts = set()
+    primary = runtimes["400t"]
+    workflow._config = config
+    workflow.position_tracker = primary.position_tracker
+    workflow._forward_test_account = None
+    workflow._transaction_ledger = None
+    workflow.strategy_registry = primary.strategy_registry
+    workflow.signal_evaluator = primary.signal_evaluator
+    workflow.indicator_coordinator = primary.indicator_coordinator
+    workflow.risk_guard = primary.risk_guard
+    workflow._strategy_state = {}
+    seen: list[str] = []
+
+    def _capture(occ_symbol: str, mark: float, timestamp: datetime) -> None:
+        seen.append(workflow._config.market_config.strategy_timeframe)
+
+    workflow._process_option_mark = _capture  # type: ignore[method-assign]
+    workflow._bind_lane = TradingWorkflow._bind_lane.__get__(workflow, TradingWorkflow)
+
+    workflow._handle_option_mark(occ, 1.51, opened_at)
+
+    assert seen == ["400t", "100t"]

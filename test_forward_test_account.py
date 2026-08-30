@@ -66,7 +66,7 @@ def test_forward_test_account_buy_and_sell_updates_cash_and_pnl() -> None:
     assert account.realized_pnl == 200.0
 
 
-def test_forward_test_account_applies_option_commission_to_cost_basis() -> None:
+def test_forward_test_account_applies_option_commission_at_exit() -> None:
     account = ForwardTestAccount(
         initial_balance=3000.0,
         store=None,
@@ -83,8 +83,8 @@ def test_forward_test_account_applies_option_commission_to_cost_basis() -> None:
         asset_type="OPTION",
         opened_at=opened_at,
     )
-    assert buy.amount == 1001.3
-    assert account.cash_balance == 1998.7
+    assert buy.amount == 1000.0
+    assert account.cash_balance == 2000.0
 
     sell = account.record_sell(
         symbol="SPY240117C00480000",
@@ -94,8 +94,8 @@ def test_forward_test_account_applies_option_commission_to_cost_basis() -> None:
         asset_type="OPTION",
         closed_at=datetime(2024, 1, 15, 18, 0, tzinfo=timezone.utc),
     )
-    # Round-trip fees: $0.65 * 2 contracts * 2 legs = $2.60
-    assert sell.amount == pytest.approx(1198.7)
+    # Round-trip fees: $0.65 * 2 contracts * 2 legs = $2.60, all at exit
+    assert sell.amount == pytest.approx(1197.4)
     assert sell.trade_pnl == pytest.approx(197.4)
     assert account.cash_balance == pytest.approx(3197.4)
     assert account.realized_pnl == pytest.approx(197.4)
@@ -153,7 +153,7 @@ def test_forward_test_account_expires_open_option_worthless() -> None:
         asset_type="OPTION",
         opened_at=opened_at,
     )
-    assert account.cash_balance == 2499.35
+    assert account.cash_balance == 2500.0
 
     expired = account.expire_open_position(
         symbol="SPY   260702P00746000",
@@ -161,7 +161,7 @@ def test_forward_test_account_expires_open_option_worthless() -> None:
         asset_type="OPTION",
         closed_at=datetime(2026, 7, 3, 20, 0, tzinfo=timezone.utc),
     )
-    assert expired.trade_pnl == -500.65
-    assert account.cash_balance == 2499.35
-    assert account.realized_pnl == -500.65
-    assert account.equity_estimate == 2499.35
+    assert expired.trade_pnl == -501.3
+    assert account.cash_balance == 2500.0
+    assert account.realized_pnl == -501.3
+    assert account.equity_estimate == 2500.0

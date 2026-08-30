@@ -1563,16 +1563,19 @@ class TradingWorkflow:
         timestamp: Optional[datetime] = None,
     ) -> None:
         """Record an option mark, track max P&L, and fire the trailing stop."""
-        if self._multi_lane:
-            for lane in self._lanes.values():
-                position = lane.position_tracker.get_position(occ_symbol)
-                if position is None or position.asset_type != "OPTION":
-                    continue
-                with self._bind_lane(lane):
-                    self._process_option_mark(occ_symbol, mark, timestamp)
+        self._trading_lock.acquire()
+        try:
+            if self._multi_lane:
+                for lane in self._lanes.values():
+                    position = lane.position_tracker.get_position(occ_symbol)
+                    if position is None or position.asset_type != "OPTION":
+                        continue
+                    with self._bind_lane(lane):
+                        self._process_option_mark(occ_symbol, mark, timestamp)
                 return
-            return
-        self._process_option_mark(occ_symbol, mark, timestamp)
+            self._process_option_mark(occ_symbol, mark, timestamp)
+        finally:
+            self._trading_lock.release()
 
     def _process_option_mark(
         self,

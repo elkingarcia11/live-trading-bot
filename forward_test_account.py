@@ -244,8 +244,7 @@ class ForwardTestAccount:
         if quantity <= 0 or price <= 0:
             raise ValueError("buy quantity and price must be positive")
 
-        commission = self._option_commission(quantity, asset_type)
-        amount = _trade_notional(quantity, price, asset_type) + commission
+        amount = _trade_notional(quantity, price, asset_type)
         timestamp = _to_utc(opened_at).isoformat()
 
         with self._lock:
@@ -322,13 +321,12 @@ class ForwardTestAccount:
             sell_qty = min(quantity, position.quantity)
             entry_notional = _trade_notional(sell_qty, position.entry_price, asset_type)
             proceeds = _trade_notional(sell_qty, exit_price, asset_type)
-            # Schwab charges $0.65/contract on both open and close ($1.30 round-trip).
-            entry_commission = self._option_commission(sell_qty, asset_type)
-            exit_commission = self._option_commission(sell_qty, asset_type)
-            trade_pnl = (
-                proceeds - entry_notional - entry_commission - exit_commission
+            # Round-trip commission ($0.65 open + $0.65 close) is realized at exit.
+            round_trip_commission = 2.0 * self._option_commission(
+                sell_qty, asset_type
             )
-            net_credit = proceeds - exit_commission
+            trade_pnl = proceeds - entry_notional - round_trip_commission
+            net_credit = proceeds - round_trip_commission
 
             self._state.cash_balance += net_credit
             self._state.realized_pnl += trade_pnl
@@ -386,9 +384,10 @@ class ForwardTestAccount:
 
             sell_qty = position.quantity
             entry_notional = _trade_notional(sell_qty, position.entry_price, asset_type)
-            # Expiration has no closing trade, so only the entry commission applies.
-            entry_commission = self._option_commission(sell_qty, asset_type)
-            trade_pnl = -entry_notional - entry_commission
+            round_trip_commission = 2.0 * self._option_commission(
+                sell_qty, asset_type
+            )
+            trade_pnl = -entry_notional - round_trip_commission
 
             self._state.realized_pnl += trade_pnl
             self._state.sell_count += 1

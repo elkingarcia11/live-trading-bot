@@ -118,6 +118,7 @@ class TradeEmailer:
         quote: Optional[OptionQuoteSnapshot] = None,
         entry_quote: Optional[OptionQuoteSnapshot] = None,
         time_bought: Optional[datetime] = None,
+        timeframe: Optional[str] = None,
     ) -> None:
         """Send a buy or sell email for an approved strategy signal."""
         if signal.action == SignalAction.HOLD:
@@ -147,6 +148,7 @@ class TradeEmailer:
                 account_summary=account_summary,
                 trade_amount=trade_amount,
                 quote=quote,
+                timeframe=timeframe or signal.timeframe,
             )
             return
 
@@ -197,15 +199,18 @@ class TradeEmailer:
         account_summary: Optional[str] = None,
         trade_amount: Optional[float] = None,
         quote: Optional[OptionQuoteSnapshot] = None,
+        timeframe: Optional[str] = None,
     ) -> None:
         """Send a buy forward-test notification email."""
         right = _option_right_suffix(instrument_line)
-        subject = f"BUY {symbol}{right} @ {entry_instrument_price:.2f}"
+        tf = f" {timeframe.strip()}" if timeframe and timeframe.strip() else ""
+        subject = f"BUY {symbol}{right}{tf} @ {entry_instrument_price:.2f}"
         lines = [
             "Buy conditions met",
             "",
             f"Underlying: {symbol}",
             f"Instrument: {instrument_line or symbol}",
+            f"Timeframe: {timeframe or 'n/a'}",
             f"Strategy: {strategy_name}",
             f"Conditions: {conditions_met}",
             f"Time triggered: {self._format_time(time_triggered)}",
@@ -216,7 +221,8 @@ class TradeEmailer:
         ]
         lines.extend(format_quote_email_lines(quote, label="Entry"))
         if trade_amount is not None:
-            lines.append(f"Cost: ${trade_amount:,.2f}")
+            lines.append(f"Cost (premium): ${trade_amount:,.2f}")
+            lines.append("Fees: round-trip commission charged at exit")
         if account_summary:
             lines.extend(["", f"Account: {account_summary}"])
         self._send_email(subject, "\n".join(lines))
@@ -259,7 +265,9 @@ class TradeEmailer:
         )
         profit_line = "Trade P&L: n/a (no prior buy recorded)"
         if profit is not None:
-            profit_line = f"Trade P&L: {profit:+.2f} ({quantity:g} contracts/shares)"
+            profit_line = (
+                f"Trade P&L (net of fees): {profit:+.2f} ({quantity:g} contracts/shares)"
+            )
 
         lines = [
             "Sell conditions met",
@@ -292,7 +300,7 @@ class TradeEmailer:
         lines.extend(format_quote_email_lines(entry_quote, label="Entry"))
         lines.extend(format_quote_email_lines(quote, label="Exit"))
         if trade_amount is not None:
-            lines.append(f"Proceeds: ${trade_amount:,.2f}")
+            lines.append(f"Proceeds (net of fees): ${trade_amount:,.2f}")
         if account_summary:
             lines.extend(["", f"Account: {account_summary}"])
         self._send_email(subject, "\n".join(lines))
