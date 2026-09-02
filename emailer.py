@@ -460,20 +460,43 @@ def describe_conditions_met(signal: StrategySignal) -> str:
         fast = indicators.get("gaussian_ma_fast")
         slow = indicators.get("gaussian_ma_slow")
         if fast is not None and slow is not None:
+            fast_v = float(fast)
+            slow_v = float(slow)
+            long_ma = fast_v >= slow_v + 0.75
+            long_close = close >= slow_v + 1.5
+            short_ma = slow_v >= fast_v + 0.75
+            short_close = close <= slow_v - 1.5
             if signal.action.value == "buy":
-                return (
-                    f"fast Gaussian MA crossed above slow "
-                    f"({float(fast):.4f} > {float(slow):.4f})"
-                )
+                if long_ma:
+                    return (
+                        f"fast GMA >= slow + 0.75 "
+                        f"({fast_v:.4f} vs {slow_v:.4f})"
+                    )
+                if long_close:
+                    return (
+                        f"close >= slow + 1.5 "
+                        f"({close:.4f} vs {slow_v:.4f})"
+                    )
             if signal.action.value == "sell":
+                if short_ma:
+                    return (
+                        f"slow GMA >= fast + 0.75 "
+                        f"({slow_v:.4f} vs {fast_v:.4f})"
+                    )
+                if short_close:
+                    return (
+                        f"close <= slow - 1.5 "
+                        f"({close:.4f} vs {slow_v:.4f})"
+                    )
+            if signal.action.value == "exit":
                 return (
-                    f"slow Gaussian MA crossed above fast "
-                    f"({float(slow):.4f} > {float(fast):.4f})"
+                    f"entry trigger cleared (fast={fast_v:.4f}, "
+                    f"slow={slow_v:.4f}, close={close:.4f})"
                 )
             return (
-                f"Gaussian MA fast={float(fast):.4f} slow={float(slow):.4f}"
+                f"Gaussian MA fast={fast_v:.4f} slow={slow_v:.4f} close={close:.4f}"
             )
-        return "Gaussian MA crossover"
+        return "Gaussian MA threshold"
 
     indicator_summary = ", ".join(
         f"{name}={value}"

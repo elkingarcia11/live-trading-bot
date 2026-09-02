@@ -62,23 +62,12 @@
   "lanes": [
     {
       "timeframe": "400t",
-      "fast_gma_length": 2,
-      "fast_gma_sigma": 5,
-      "slow_gma_length": 4,
-      "slow_gma_sigma": 3,
-      "position_size": 3000,
-      "stop_loss_pct": 0.02,
-      "trailing_stop_pct": 0.10
-    },
-    {
-      "timeframe": "100t",
-      "fast_gma_length": 5,
-      "fast_gma_sigma": 1.5,
-      "slow_gma_length": 10,
-      "slow_gma_sigma": 2.5,
-      "position_size": 3000,
-      "stop_loss_pct": 0.02,
-      "trailing_stop_pct": 0.05
+      "fast_gma_length": 14,
+      "fast_gma_sigma": 7.5,
+      "slow_gma_length": 2,
+      "slow_gma_sigma": 1.0,
+      "position_size": 500,
+      "stop_loss_pct": 0.05
     }
   ],
   "workflow": {
@@ -187,8 +176,8 @@
     "strike_count": 40,
     "commission_per_contract": 0.65,
     "stream_contract_marks": true,
-    "trailing_stop_pct": 0.05,
-    "stop_loss_pct": 0.02
+    "trailing_stop_pct": null,
+    "stop_loss_pct": null
   },
   "gex": {
     "enabled": false,

@@ -36,14 +36,12 @@ def option_position_aligned_with_gaussian_crossover(
     contract_type: str,
     fast: float,
     slow: float,
+    close: float,
 ) -> bool:
-    """Return True when an open call/put matches the slow/fast Gaussian regime.
-
-    Fast above slow → CALL; slow above fast → PUT.
-    """
+    """Return True when an open call/put still satisfies a long/short entry rule."""
     normalized = contract_type.upper()
-    if fast > slow:
-        return normalized == "CALL"
-    if slow > fast:
-        return normalized == "PUT"
+    if normalized == "CALL":
+        return fast >= slow + 0.75 or close >= slow + 1.5
+    if normalized == "PUT":
+        return slow >= fast + 0.75 or close <= slow - 1.5
     return True

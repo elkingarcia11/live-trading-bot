@@ -1872,6 +1872,13 @@ class TradingWorkflow:
                 (aggregated.symbol.upper(), strategy_name),
                 {},
             )
+            trade_underlying = self._trade_underlying_for(aggregated.symbol)
+            position = self.position_tracker.get_position_for_underlying(
+                trade_underlying
+            )
+            has_open_position = (
+                position is not None and abs(position.quantity) > 0
+            )
             try:
                 signal = self.signal_evaluator.evaluate(
                     symbol=aggregated.symbol,
@@ -1884,6 +1891,7 @@ class TradingWorkflow:
                     volume=aggregated.volume,
                     indicators=snapshot.values,
                     strategy_name=strategy_name,
+                    has_open_position=has_open_position,
                     state=state,
                 )
             except Exception:
@@ -1934,6 +1942,13 @@ class TradingWorkflow:
                 (bar.symbol.upper(), strategy_name),
                 {},
             )
+            trade_underlying = self._trade_underlying_for(bar.symbol)
+            position = self.position_tracker.get_position_for_underlying(
+                trade_underlying
+            )
+            has_open_position = (
+                position is not None and abs(position.quantity) > 0
+            )
             try:
                 signal = self.signal_evaluator.evaluate(
                     symbol=bar.symbol,
@@ -1946,6 +1961,7 @@ class TradingWorkflow:
                     volume=bar.volume,
                     indicators=snapshot.values,
                     strategy_name=strategy_name,
+                    has_open_position=has_open_position,
                     state=state,
                 )
             except Exception:
@@ -3260,7 +3276,10 @@ class TradingWorkflow:
             contract_type = option_contract_type(position.symbol)
             if fast is not None and slow is not None:
                 aligned = option_position_aligned_with_gaussian_crossover(
-                    contract_type, float(fast), float(slow)
+                    contract_type,
+                    float(fast),
+                    float(slow),
+                    float(underlying_spot),
                 )
                 bias_label = "bullish" if float(
                     fast) > float(slow) else "bearish"

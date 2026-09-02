@@ -171,11 +171,17 @@ def macd_crossover(ctx: StrategyEvaluationContext) -> SignalAction:
 
 
 def gaussian_ma_crossover(ctx: StrategyEvaluationContext) -> SignalAction:
-    """Trade options on Gaussian MA slow/fast crossovers (50t-friendly).
+    """Trade options on Gaussian MA threshold entries with trigger-specific exits.
 
-    Rules (edge-triggered so the same regime does not re-enter every bar):
-      - Fast crosses above slow → BUY call (workflow closes any long put)
-      - Slow crosses above fast → SELL/buy put (workflow closes any long call)
+    Long (call) entry when either:
+      - fast GMA >= slow + 0.75, or
+      - close >= slow + 1.5
+    Short (put) entry when either:
+      - slow GMA >= fast + 0.75, or
+      - close <= slow - 1.5
+
+    Exits flatten the open leg when the entry trigger that fired is no longer true.
+    Entries are edge-triggered (condition must newly become true).
     """
     fast = ctx.indicators.get("gaussian_ma_fast")
     slow = ctx.indicators.get("gaussian_ma_slow")
@@ -185,24 +191,85 @@ def gaussian_ma_crossover(ctx: StrategyEvaluationContext) -> SignalAction:
     try:
         fast_v = float(fast)
         slow_v = float(slow)
+        close_v = float(ctx.close)
     except (TypeError, ValueError):
         return SignalAction.HOLD
 
-    if fast_v > slow_v:
-        relation = "fast_above"
-        action = SignalAction.BUY
-    elif slow_v > fast_v:
-        relation = "slow_above"
-        action = SignalAction.SELL
-    else:
+    ma_spread = 0.75
+    close_spread = 1.5
+
+    long_ma = fast_v >= slow_v + ma_spread
+    long_close = close_v >= slow_v + close_spread
+    short_ma = slow_v >= fast_v + ma_spread
+    short_close = close_v <= slow_v - close_spread
+
+    prev = ctx.state.get("gma_threshold_prev")
+    if not isinstance(prev, dict):
+        prev = {}
+
+    def _save_prev() -> None:
+        ctx.state["gma_threshold_prev"] = {
+            "long_ma": long_ma,
+            "long_close": long_close,
+            "short_ma": short_ma,
+            "short_close": short_close,
+        }
+
+    if not ctx.has_open_position:
+        ctx.state.pop("gma_entry_side", None)
+        ctx.state.pop("gma_entry_trigger", None)
+
+        if long_ma and not prev.get("long_ma"):
+            ctx.state["gma_entry_side"] = "call"
+            ctx.state["gma_entry_trigger"] = "ma_spread"
+            _save_prev()
+            return SignalAction.BUY
+        if long_close and not prev.get("long_close"):
+            ctx.state["gma_entry_side"] = "call"
+            ctx.state["gma_entry_trigger"] = "close_vs_slow"
+            _save_prev()
+            return SignalAction.BUY
+        if short_ma and not prev.get("short_ma"):
+            ctx.state["gma_entry_side"] = "put"
+            ctx.state["gma_entry_trigger"] = "ma_spread"
+            _save_prev()
+            return SignalAction.SELL
+        if short_close and not prev.get("short_close"):
+            ctx.state["gma_entry_side"] = "put"
+            ctx.state["gma_entry_trigger"] = "close_vs_slow"
+            _save_prev()
+            return SignalAction.SELL
+
+        _save_prev()
         return SignalAction.HOLD
 
-    prev = ctx.state.get("gaussian_ma_relation")
-    ctx.state["gaussian_ma_relation"] = relation
-    # Seed relationship on first ready bar; trade only on subsequent flips.
-    if prev is None or prev == relation:
-        return SignalAction.HOLD
-    return action
+    entry_side = ctx.state.get("gma_entry_side")
+    entry_trigger = ctx.state.get("gma_entry_trigger")
+    if entry_side == "call":
+        if entry_trigger == "ma_spread" and not long_ma:
+            ctx.state.pop("gma_entry_side", None)
+            ctx.state.pop("gma_entry_trigger", None)
+            _save_prev()
+            return SignalAction.EXIT
+        if entry_trigger == "close_vs_slow" and not long_close:
+            ctx.state.pop("gma_entry_side", None)
+            ctx.state.pop("gma_entry_trigger", None)
+            _save_prev()
+            return SignalAction.EXIT
+    elif entry_side == "put":
+        if entry_trigger == "ma_spread" and not short_ma:
+            ctx.state.pop("gma_entry_side", None)
+            ctx.state.pop("gma_entry_trigger", None)
+            _save_prev()
+            return SignalAction.EXIT
+        if entry_trigger == "close_vs_slow" and not short_close:
+            ctx.state.pop("gma_entry_side", None)
+            ctx.state.pop("gma_entry_trigger", None)
+            _save_prev()
+            return SignalAction.EXIT
+
+    _save_prev()
+    return SignalAction.HOLD
 
 
 def gex_scalp(ctx: StrategyEvaluationContext) -> SignalAction:
