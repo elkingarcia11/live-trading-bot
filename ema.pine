@@ -1,0 +1,86 @@
+//@version=5
+// ➡️ 1. Changed indicator() to strategy() and added default backtest parameters
+strategy("EMA Cross (Fast/Slow) + Volume + ADX Filter Strategy", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// ─── EMA Inputs ───
+fastLength = input.int(3, title="Fast EMA Length", minval=1, group="EMA Settings")
+slowLength = input.int(8, title="Slow EMA Length", minval=1, group="EMA Settings")
+
+// ─── Volume Filter Inputs ───
+useVolFilter = input.bool(true, title="Require Volume Confirmation", group="Volume Filter")
+volMALength  = input.int(7, title="Volume MA Length", minval=1, group="Volume Filter")
+volMultiplier = input.float(0.75, title="Volume Spike Multiplier", minval=0.1, step=0.1, group="Volume Filter")
+
+// ─── ADX Filter Inputs ───
+useAdxFilter = input.bool(true, title="Require ADX Trend Confirmation", group="ADX Filter", tooltip="Filters out trades when market is moving sideways")
+adxLength    = input.int(14, title="ADX Smoothing Length", minval=1, group="ADX Filter")
+diLength     = input.int(14, title="DI Length", minval=1, group="ADX Filter")
+adxThreshold = input.int(25, title="ADX Minimum Threshold", minval=1, group="ADX Filter", tooltip="ADX below this value means market is sideways / choppy")
+
+// ─── EMA Calculations ───
+fastEMA = ta.ema(close, fastLength)
+slowEMA = ta.ema(close, slowLength)
+
+// ─── Volume Calculations ───
+volMA = ta.sma(volume, volMALength)
+volSpike = volume > (volMA * volMultiplier)
+
+// ─── ADX Calculations ───
+[diPlus, diMinus, adx] = ta.dmi(diLength, adxLength)
+adxTrending = adx > adxThreshold
+
+// ─── Plot EMAs ───
+plot(fastEMA, title="Fast EMA", color=color.blue, linewidth=2)
+plot(slowEMA, title="Slow EMA", color=color.orange, linewidth=2)
+
+// ─── Raw Cross Detection ───
+rawCrossUp = ta.crossover(fastEMA, slowEMA)
+rawCrossDown = ta.crossunder(fastEMA, slowEMA)
+
+// ─── Condition Evaluation ───
+volCondition = useVolFilter ? volSpike : true
+adxCondition = useAdxFilter ? adxTrending : true
+
+// ─── Final Signals (filtered by volume and ADX if enabled) ───
+crossUp = rawCrossUp and volCondition and adxCondition
+crossDown = rawCrossDown and volCondition and adxCondition
+
+// ─── 2. Order Execution Commands (Simulates Backtesting) ───
+if crossUp
+    strategy.entry("Long", strategy.long)
+
+if crossDown
+    strategy.entry("Short", strategy.short)
+
+// ─── Plot Signals ───
+plotshape(crossUp, title="Cross Up", location=location.belowbar,
+     color=color.green, style=shape.triangleup, size=size.small, text="BUY")
+
+plotshape(crossDown, title="Cross Down", location=location.abovebar,
+     color=color.red, style=shape.triangledown, size=size.small, text="SELL")
+
+// ─── Background highlight ───
+bgcolor(crossUp ? color.new(color.green, 90) : na)
+bgcolor(crossDown ? color.new(color.red, 90) : na)
+
+// ─── Optional: Mark unconfirmed crosses (cross happened but filtered out) ───
+weakCrossUp = rawCrossUp and not (volCondition and adxCondition)
+weakCrossDown = rawCrossDown and not (volCondition and adxCondition)
+
+plotshape(weakCrossUp, title="Weak Cross Up", location=location.belowbar,
+     color=color.new(color.green, 60), style=shape.triangleup, size=size.tiny, text="weak")
+plotshape(weakCrossDown, title="Weak Cross Down", location=location.abovebar,
+     color=color.new(color.red, 60), style=shape.triangledown, size=size.tiny, text="weak")
+
+// ─── Alerts ───
+alertcondition(crossUp, title="Confirmed EMA Cross Up", message="Fast EMA crossed above Slow EMA with full volume and trend confirmation")
+alertcondition(crossDown, title="Confirmed EMA Cross Down", message="Fast EMA crossed below Slow EMA with full volume and trend confirmation")
+
+// ─── Info Table (shows current vol and ADX state) ───
+var table infoTable = table.new(position.top_right, 2, 1, bgcolor=color.new(color.black, 80))
+if barstate.islast
+    color volColor = volume > volMA ? color.green : color.red
+    color adxColor = adxTrending ? color.green : color.orange
+    
+    table.cell(infoTable, 0, 0, "Vol: " + str.tostring(volume, "#.##a") + " | Avg: " + str.tostring(volMA, "#.##a"), text_color=volColor, text_size=size.small)
+    table.cell(infoTable, 1, 0, "ADX: " + str.tostring(adx, "#.#") + " (Min: " + str.tostring(adxThreshold) + ")", text_color=adxColor, text_size=size.small)

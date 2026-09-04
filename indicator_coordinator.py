@@ -145,6 +145,61 @@ def build_gaussian_ma_job(
     )
 
 
+def build_ema_job(
+    timeframe: str,
+    *,
+    period: int = 20,
+    source: str = "close",
+    output_key: str = "ema",
+) -> IndicatorJob:
+    """Build an EMA job; use ``output_key`` for fast/slow dual-EMA setups."""
+    return IndicatorJob(
+        name="ema",
+        timeframe=timeframe,
+        params=(
+            ("period", period),
+            ("column", source),
+            ("output_key", output_key),
+        ),
+    )
+
+
+def build_sma_job(
+    timeframe: str,
+    *,
+    period: int = 20,
+    source: str = "close",
+    output_key: str = "sma",
+) -> IndicatorJob:
+    """Build an SMA job (e.g. volume MA via ``source='volume'``)."""
+    return IndicatorJob(
+        name="sma",
+        timeframe=timeframe,
+        params=(
+            ("period", period),
+            ("column", source),
+            ("output_key", output_key),
+        ),
+    )
+
+
+def build_adx_job(
+    timeframe: str,
+    *,
+    di_length: int = 14,
+    adx_length: int = 14,
+) -> IndicatorJob:
+    """Build an ADX / +DI / -DI job (TradingView ``ta.dmi``)."""
+    return IndicatorJob(
+        name="adx",
+        timeframe=timeframe,
+        params=(
+            ("di_length", di_length),
+            ("adx_length", adx_length),
+        ),
+    )
+
+
 class IndicatorCoordinator:
     """Coordinates indicator configuration, buffering, and calculation jobs."""
 

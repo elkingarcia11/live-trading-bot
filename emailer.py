@@ -457,46 +457,32 @@ def describe_conditions_met(signal: StrategySignal) -> str:
         return "MACD crossover"
 
     if signal.strategy_name == "gaussian_ma_crossover":
-        fast = indicators.get("gaussian_ma_fast")
-        slow = indicators.get("gaussian_ma_slow")
+        fast = indicators.get("ema_fast")
+        slow = indicators.get("ema_slow")
+        using_ema = fast is not None and slow is not None
+        if not using_ema:
+            fast = indicators.get("gaussian_ma_fast")
+            slow = indicators.get("gaussian_ma_slow")
         if fast is not None and slow is not None:
             fast_v = float(fast)
             slow_v = float(slow)
-            long_ma = fast_v >= slow_v + 0.75
-            long_close = close >= slow_v + 1.5
-            short_ma = slow_v >= fast_v + 0.75
-            short_close = close <= slow_v - 1.5
+            label = "EMA" if using_ema else "GMA"
             if signal.action.value == "buy":
-                if long_ma:
-                    return (
-                        f"fast GMA >= slow + 0.75 "
-                        f"({fast_v:.4f} vs {slow_v:.4f})"
-                    )
-                if long_close:
-                    return (
-                        f"close >= slow + 1.5 "
-                        f"({close:.4f} vs {slow_v:.4f})"
-                    )
-            if signal.action.value == "sell":
-                if short_ma:
-                    return (
-                        f"slow GMA >= fast + 0.75 "
-                        f"({slow_v:.4f} vs {fast_v:.4f})"
-                    )
-                if short_close:
-                    return (
-                        f"close <= slow - 1.5 "
-                        f"({close:.4f} vs {slow_v:.4f})"
-                    )
-            if signal.action.value == "exit":
                 return (
-                    f"entry trigger cleared (fast={fast_v:.4f}, "
-                    f"slow={slow_v:.4f}, close={close:.4f})"
+                    f"fast {label} crossed above slow "
+                    f"({fast_v:.4f} > {slow_v:.4f})"
+                    f"{_ema_filter_suffix(indicators, signal.close)}"
+                )
+            if signal.action.value == "sell":
+                return (
+                    f"fast {label} crossed below slow "
+                    f"({fast_v:.4f} < {slow_v:.4f})"
+                    f"{_ema_filter_suffix(indicators, signal.close)}"
                 )
             return (
-                f"Gaussian MA fast={fast_v:.4f} slow={slow_v:.4f} close={close:.4f}"
+                f"{label} fast={fast_v:.4f} slow={slow_v:.4f} close={close:.4f}"
             )
-        return "Gaussian MA threshold"
+        return "EMA / GMA crossover"
 
     indicator_summary = ", ".join(
         f"{name}={value}"
@@ -505,6 +491,20 @@ def describe_conditions_met(signal: StrategySignal) -> str:
     )
     action = signal.action.value.upper()
     return f"{action} via {signal.strategy_name} at close {close:.4f} ({indicator_summary})"
+
+
+def _ema_filter_suffix(indicators: dict, _close: float) -> str:
+    """Append volume / ADX confirmation details when present."""
+    parts: list[str] = []
+    vol_sma = indicators.get("volume_sma")
+    if vol_sma is not None:
+        parts.append(f"volMA={float(vol_sma):.0f}")
+    adx = indicators.get("adx")
+    if adx is not None:
+        parts.append(f"ADX={float(adx):.1f}")
+    if not parts:
+        return ""
+    return " [" + ", ".join(parts) + "]"
 
 
 def _env_bool(name: str, default: bool) -> bool:

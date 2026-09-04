@@ -32,9 +32,12 @@ from indicator_calculator import (
 )
 from indicator_coordinator import (
     IndicatorJob,
+    build_adx_job,
     build_dema_job,
+    build_ema_job,
     build_gaussian_bands_job,
     build_gaussian_ma_job,
+    build_sma_job,
     build_supertrend_job,
 )
 
@@ -187,12 +190,33 @@ class GaussianMaConfig:
 
 
 @dataclass(frozen=True)
+class EmaPairConfig:
+    """Dual EMA crossover strategy with optional volume and ADX filters.
+
+    Matches the TradingView ``ema.pine`` defaults: EMA 3/8, volume spike vs
+    SMA(7)*0.75, and ADX(14) above 25.
+    """
+
+    fast_period: int = 3
+    slow_period: int = 8
+    source: str = "close"
+    volume_filter: bool = True
+    volume_ma_length: int = 7
+    volume_multiplier: float = 0.75
+    adx_filter: bool = True
+    adx_length: int = 14
+    di_length: int = 14
+    adx_threshold: float = 25.0
+
+
+@dataclass(frozen=True)
 class IndicatorConfig:
     max_bars: int = 500
     dema: Optional[DemaConfig] = field(default_factory=DemaConfig)
     supertrend: Optional[SupertrendConfig] = field(default_factory=SupertrendConfig)
     gaussian_bands: Optional[GaussianBandsConfig] = None
     gaussian_ma: Optional[GaussianMaConfig] = None
+    ema: Optional[EmaPairConfig] = None
 
     def build_jobs(self, timeframe: str) -> tuple[IndicatorJob, ...]:
         jobs: list[IndicatorJob] = []
@@ -244,6 +268,40 @@ class IndicatorConfig:
                     output_key="gaussian_ma_fast",
                 )
             )
+        if self.ema is not None:
+            jobs.append(
+                build_ema_job(
+                    timeframe,
+                    period=self.ema.fast_period,
+                    source=self.ema.source,
+                    output_key="ema_fast",
+                )
+            )
+            jobs.append(
+                build_ema_job(
+                    timeframe,
+                    period=self.ema.slow_period,
+                    source=self.ema.source,
+                    output_key="ema_slow",
+                )
+            )
+            if self.ema.volume_filter:
+                jobs.append(
+                    build_sma_job(
+                        timeframe,
+                        period=self.ema.volume_ma_length,
+                        source="volume",
+                        output_key="volume_sma",
+                    )
+                )
+            if self.ema.adx_filter:
+                jobs.append(
+                    build_adx_job(
+                        timeframe,
+                        di_length=self.ema.di_length,
+                        adx_length=self.ema.adx_length,
+                    )
+                )
         return tuple(jobs)
 
 
@@ -936,6 +994,45 @@ def _parse_indicator_config(payload: dict[str, Any]) -> IndicatorConfig:
         supertrend=_parse_supertrend_config(payload.get("supertrend")),
         gaussian_bands=_parse_gaussian_bands_config(payload.get("gaussian_bands")),
         gaussian_ma=_parse_gaussian_ma_config(payload.get("gaussian_ma")),
+        ema=_parse_ema_pair_config(payload.get("ema")),
+    )
+
+
+def _parse_ema_pair_config(payload: Any) -> Optional[EmaPairConfig]:
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError("indicators.ema must be an object")
+    if not payload.get("enabled", True):
+        return None
+    fast_period = int(payload.get("fast_period", 3))
+    slow_period = int(payload.get("slow_period", 8))
+    if fast_period <= 0 or slow_period <= 0:
+        raise ValueError("indicators.ema periods must be positive")
+    volume_ma_length = int(payload.get("volume_ma_length", 7))
+    di_length = int(payload.get("di_length", 14))
+    adx_length = int(payload.get("adx_length", 14))
+    if volume_ma_length <= 0:
+        raise ValueError("indicators.ema.volume_ma_length must be positive")
+    if di_length <= 0 or adx_length <= 0:
+        raise ValueError("indicators.ema ADX lengths must be positive")
+    volume_multiplier = float(payload.get("volume_multiplier", 0.75))
+    adx_threshold = float(payload.get("adx_threshold", 25))
+    if volume_multiplier <= 0:
+        raise ValueError("indicators.ema.volume_multiplier must be positive")
+    if adx_threshold <= 0:
+        raise ValueError("indicators.ema.adx_threshold must be positive")
+    return EmaPairConfig(
+        fast_period=fast_period,
+        slow_period=slow_period,
+        source=str(payload.get("source", "close")),
+        volume_filter=bool(payload.get("volume_filter", True)),
+        volume_ma_length=volume_ma_length,
+        volume_multiplier=volume_multiplier,
+        adx_filter=bool(payload.get("adx_filter", True)),
+        adx_length=adx_length,
+        di_length=di_length,
+        adx_threshold=adx_threshold,
     )
 
 

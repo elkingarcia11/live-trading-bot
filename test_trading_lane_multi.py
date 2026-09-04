@@ -95,6 +95,39 @@ def test_build_lane_app_config_sets_ledger_and_gma() -> None:
     assert lane_app.forward_test.transactions_csv_path == "data/transactions_400t.csv"
 
 
+def test_build_lane_app_config_sets_ema_periods() -> None:
+    app = AppConfig.from_dict(
+        {
+            "market": {
+                "symbols": ["SPY"],
+                "stream_timeframe": "200t",
+                "strategy_timeframe": "200t",
+            },
+            "indicators": {
+                "ema": {"enabled": True, "fast_period": 3, "slow_period": 10},
+                "gaussian_ma": {"enabled": False},
+            },
+        }
+    )
+    lanes = parse_trading_lanes(
+        [
+            {
+                "timeframe": "200t",
+                "fast_ema_period": 3,
+                "slow_ema_period": 10,
+                "position_size": 500,
+            }
+        ]
+    )
+    lane_app = build_lane_app_config(app, lanes[0])
+    assert lane_app.indicators.ema is not None
+    assert lane_app.indicators.ema.fast_period == 3
+    assert lane_app.indicators.ema.slow_period == 10
+    jobs = lane_app.indicators.build_jobs("200t")
+    keys = {dict(job.params).get("output_key") for job in jobs if job.name == "ema"}
+    assert keys == {"ema_fast", "ema_slow"}
+
+
 def test_build_lane_app_config_applies_stop_overrides() -> None:
     app = AppConfig.from_dict(
         {

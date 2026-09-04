@@ -171,104 +171,78 @@ def macd_crossover(ctx: StrategyEvaluationContext) -> SignalAction:
 
 
 def gaussian_ma_crossover(ctx: StrategyEvaluationContext) -> SignalAction:
-    """Trade options on Gaussian MA threshold entries with trigger-specific exits.
+    """EMA (or GMA) crossover with optional volume and ADX filters.
 
-    Long (call) entry when either:
-      - fast GMA >= slow + 0.75, or
-      - close >= slow + 1.5
-    Short (put) entry when either:
-      - slow GMA >= fast + 0.75, or
-      - close <= slow - 1.5
+    Matches ``ema.pine``:
+      - confirmed cross up   → BUY call
+      - confirmed cross down → SELL/buy put
+      - volume must exceed SMA(volume) * multiplier when volume filter is on
+      - ADX must exceed threshold when ADX filter is on
 
-    Exits flatten the open leg when the entry trigger that fired is no longer true.
-    Entries are edge-triggered (condition must newly become true).
+    Filtered (weak) crosses are ignored. Opposite confirmed crosses flip the
+    option side via the workflow; there is no separate exit-to-flat signal.
     """
-    fast = ctx.indicators.get("gaussian_ma_fast")
-    slow = ctx.indicators.get("gaussian_ma_slow")
+    fast = ctx.indicators.get("ema_fast")
+    slow = ctx.indicators.get("ema_slow")
+    using_ema = fast is not None and slow is not None
+    if not using_ema:
+        fast = ctx.indicators.get("gaussian_ma_fast")
+        slow = ctx.indicators.get("gaussian_ma_slow")
     if fast is None or slow is None:
         return SignalAction.HOLD
 
     try:
         fast_v = float(fast)
         slow_v = float(slow)
-        close_v = float(ctx.close)
     except (TypeError, ValueError):
         return SignalAction.HOLD
 
-    ma_spread = 0.75
-    close_spread = 1.5
-
-    long_ma = fast_v >= slow_v + ma_spread
-    long_close = close_v >= slow_v + close_spread
-    short_ma = slow_v >= fast_v + ma_spread
-    short_close = close_v <= slow_v - close_spread
-
-    prev = ctx.state.get("gma_threshold_prev")
-    if not isinstance(prev, dict):
-        prev = {}
-
-    def _save_prev() -> None:
-        ctx.state["gma_threshold_prev"] = {
-            "long_ma": long_ma,
-            "long_close": long_close,
-            "short_ma": short_ma,
-            "short_close": short_close,
-        }
-
-    if not ctx.has_open_position:
-        ctx.state.pop("gma_entry_side", None)
-        ctx.state.pop("gma_entry_trigger", None)
-
-        if long_ma and not prev.get("long_ma"):
-            ctx.state["gma_entry_side"] = "call"
-            ctx.state["gma_entry_trigger"] = "ma_spread"
-            _save_prev()
-            return SignalAction.BUY
-        if long_close and not prev.get("long_close"):
-            ctx.state["gma_entry_side"] = "call"
-            ctx.state["gma_entry_trigger"] = "close_vs_slow"
-            _save_prev()
-            return SignalAction.BUY
-        if short_ma and not prev.get("short_ma"):
-            ctx.state["gma_entry_side"] = "put"
-            ctx.state["gma_entry_trigger"] = "ma_spread"
-            _save_prev()
-            return SignalAction.SELL
-        if short_close and not prev.get("short_close"):
-            ctx.state["gma_entry_side"] = "put"
-            ctx.state["gma_entry_trigger"] = "close_vs_slow"
-            _save_prev()
-            return SignalAction.SELL
-
-        _save_prev()
+    if fast_v > slow_v:
+        relation = "fast_above"
+    elif slow_v > fast_v:
+        relation = "slow_above"
+    else:
         return SignalAction.HOLD
 
-    entry_side = ctx.state.get("gma_entry_side")
-    entry_trigger = ctx.state.get("gma_entry_trigger")
-    if entry_side == "call":
-        if entry_trigger == "ma_spread" and not long_ma:
-            ctx.state.pop("gma_entry_side", None)
-            ctx.state.pop("gma_entry_trigger", None)
-            _save_prev()
-            return SignalAction.EXIT
-        if entry_trigger == "close_vs_slow" and not long_close:
-            ctx.state.pop("gma_entry_side", None)
-            ctx.state.pop("gma_entry_trigger", None)
-            _save_prev()
-            return SignalAction.EXIT
-    elif entry_side == "put":
-        if entry_trigger == "ma_spread" and not short_ma:
-            ctx.state.pop("gma_entry_side", None)
-            ctx.state.pop("gma_entry_trigger", None)
-            _save_prev()
-            return SignalAction.EXIT
-        if entry_trigger == "close_vs_slow" and not short_close:
-            ctx.state.pop("gma_entry_side", None)
-            ctx.state.pop("gma_entry_trigger", None)
-            _save_prev()
-            return SignalAction.EXIT
+    prev = ctx.state.get("ema_relation")
+    ctx.state["ema_relation"] = relation
+    if prev is None or prev == relation:
+        return SignalAction.HOLD
 
-    _save_prev()
+    raw_cross_up = prev == "slow_above" and relation == "fast_above"
+    raw_cross_down = prev == "fast_above" and relation == "slow_above"
+
+    use_vol = bool(ctx.indicators.get("ema_use_vol_filter", using_ema))
+    use_adx = bool(ctx.indicators.get("ema_use_adx_filter", using_ema))
+    vol_ok = True
+    adx_ok = True
+
+    if use_vol:
+        vol_sma = ctx.indicators.get("volume_sma")
+        vol_mult = float(ctx.indicators.get("ema_vol_multiplier", 0.75))
+        if vol_sma is None or float(vol_sma) <= 0:
+            return SignalAction.HOLD
+        vol_ok = ctx.volume > float(vol_sma) * vol_mult
+
+    if use_adx:
+        adx = ctx.indicators.get("adx")
+        adx_threshold = float(ctx.indicators.get("ema_adx_threshold", 25.0))
+        if adx is None:
+            return SignalAction.HOLD
+        adx_ok = float(adx) > adx_threshold
+
+    if not (vol_ok and adx_ok):
+        ctx.state["ema_last_cross"] = "weak_up" if raw_cross_up else "weak_down"
+        return SignalAction.HOLD
+
+    if raw_cross_up:
+        ctx.state["ema_last_cross"] = "up"
+        ctx.state["gma_entry_side"] = "call"
+        return SignalAction.BUY
+    if raw_cross_down:
+        ctx.state["ema_last_cross"] = "down"
+        ctx.state["gma_entry_side"] = "put"
+        return SignalAction.SELL
     return SignalAction.HOLD
 
 
@@ -449,7 +423,7 @@ def build_default_registry(*, strategy_timeframe: str = "5m") -> StrategyRegistr
             name="gaussian_ma_crossover",
             rule=gaussian_ma_crossover,
             timeframe=strategy_timeframe,
-            required_indicators=("gaussian_ma_fast", "gaussian_ma_slow"),
+            required_indicators=(),
         )
     )
     registry.register(

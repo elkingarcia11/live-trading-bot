@@ -43,7 +43,7 @@
       "squeeze_ratio": 0.75
     },
     "gaussian_ma": {
-      "enabled": true,
+      "enabled": false,
       "fast": {
         "length": 4,
         "sigma_divisor": 7.0,
@@ -54,6 +54,19 @@
         "sigma_divisor": 9.5,
         "sma_length": 3
       }
+    },
+    "ema": {
+      "enabled": true,
+      "fast_period": 3,
+      "slow_period": 8,
+      "source": "close",
+      "volume_filter": true,
+      "volume_ma_length": 7,
+      "volume_multiplier": 0.75,
+      "adx_filter": true,
+      "di_length": 14,
+      "adx_length": 14,
+      "adx_threshold": 25
     }
   },
   "strategies": [
@@ -61,11 +74,9 @@
   ],
   "lanes": [
     {
-      "timeframe": "400t",
-      "fast_gma_length": 14,
-      "fast_gma_sigma": 7.5,
-      "slow_gma_length": 2,
-      "slow_gma_sigma": 1.0,
+      "timeframe": "200t",
+      "fast_ema_period": 3,
+      "slow_ema_period": 8,
       "position_size": 500,
       "stop_loss_pct": 0.05
     }

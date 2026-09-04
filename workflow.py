@@ -122,7 +122,7 @@ from market_session_scheduler import (
 )
 from trade_logger import RiskDecisionRecord, TradeLogger
 from transaction_ledger import TransactionLedger, TransactionRecord
-from workflow_warmup import gaussian_ma_warmup_bar_count
+from workflow_warmup import ema_warmup_bar_count, gaussian_ma_warmup_bar_count
 
 logger = logging.getLogger(__name__)
 
@@ -1145,6 +1145,7 @@ class TradingWorkflow:
         needed = max(
             self._config.min_warmup_bars,
             gaussian_ma_warmup_bar_count(self._config.app),
+            ema_warmup_bar_count(self._config.app),
         )
         have = self._warmup_bar_count(symbol)
         ready = have >= needed
@@ -1830,9 +1831,11 @@ class TradingWorkflow:
             snapshot.values.get("gaussian_ma") is None
             and snapshot.values.get("gaussian_ma_fast") is None
             and snapshot.values.get("gaussian_ma_slow") is None
+            and snapshot.values.get("ema_fast") is None
+            and snapshot.values.get("ema_slow") is None
         ):
             logger.debug(
-                "Gaussian MA not ready for %s %s @ %s (need more bars in buffer)",
+                "MA indicators not ready for %s %s @ %s (need more bars in buffer)",
                 aggregated.symbol,
                 aggregated.timeframe,
                 aggregated.timestamp.isoformat(),
@@ -1889,7 +1892,7 @@ class TradingWorkflow:
                     high=aggregated.high,
                     low=aggregated.low,
                     volume=aggregated.volume,
-                    indicators=snapshot.values,
+                    indicators=self._strategy_indicators(snapshot.values),
                     strategy_name=strategy_name,
                     has_open_position=has_open_position,
                     state=state,
@@ -1959,7 +1962,7 @@ class TradingWorkflow:
                     high=bar.high,
                     low=bar.low,
                     volume=bar.volume,
-                    indicators=snapshot.values,
+                    indicators=self._strategy_indicators(snapshot.values),
                     strategy_name=strategy_name,
                     has_open_position=has_open_position,
                     state=state,
@@ -1986,10 +1989,30 @@ class TradingWorkflow:
                     bar.timestamp.isoformat(),
                     bar.close,
                     signal.action.value.upper(),
-                    snapshot.values.get("gaussian_ma_fast"),
-                    snapshot.values.get("gaussian_ma_slow"),
+                    snapshot.values.get("ema_fast")
+                    or snapshot.values.get("gaussian_ma_fast"),
+                    snapshot.values.get("ema_slow")
+                    or snapshot.values.get("gaussian_ma_slow"),
                 )
             self._handle_strategy_signal(signal)
+
+    def _strategy_indicators(
+        self,
+        values: dict[str, object],
+    ) -> dict[str, object]:
+        """Copy snapshot values and attach EMA filter settings for strategy rules."""
+        indicators = dict(values)
+        ema = self._config.app.indicators.ema
+        if ema is not None:
+            indicators.update(
+                {
+                    "ema_use_vol_filter": ema.volume_filter,
+                    "ema_vol_multiplier": ema.volume_multiplier,
+                    "ema_use_adx_filter": ema.adx_filter,
+                    "ema_adx_threshold": ema.adx_threshold,
+                }
+            )
+        return indicators
 
     def _init_gex_monitor(self) -> None:
         """Wire the scheduled GEX level refresher when enabled in config."""
@@ -2324,10 +2347,26 @@ class TradingWorkflow:
     @staticmethod
     def _strategy_log_context(values: dict[str, object]) -> tuple[str, str]:
         """Return a (label, detail) pair describing indicator state for logs."""
+        ema_fast = values.get("ema_fast")
+        ema_slow = values.get("ema_slow")
+        if ema_fast is not None or ema_slow is not None:
+            parts: list[str] = []
+            if ema_fast is not None:
+                parts.append(f"fast={float(ema_fast):.2f}")
+            if ema_slow is not None:
+                parts.append(f"slow={float(ema_slow):.2f}")
+            adx = values.get("adx")
+            if adx is not None:
+                parts.append(f"adx={float(adx):.1f}")
+            vol_sma = values.get("volume_sma")
+            if vol_sma is not None:
+                parts.append(f"volMA={float(vol_sma):.0f}")
+            return "ema", " " + " ".join(parts)
+
         gauss_fast = values.get("gaussian_ma_fast")
         gauss_slow = values.get("gaussian_ma_slow")
         if gauss_fast is not None or gauss_slow is not None:
-            parts: list[str] = []
+            parts = []
             if gauss_fast is not None:
                 parts.append(f"fast={float(gauss_fast):.2f}")
             if gauss_slow is not None:
@@ -2518,6 +2557,7 @@ class TradingWorkflow:
             needed = max(
                 self._config.min_warmup_bars,
                 gaussian_ma_warmup_bar_count(self._config.app),
+                ema_warmup_bar_count(self._config.app),
             )
             have = self._warmup_bar_count(stream_symbol)
             logger.info(
@@ -3246,8 +3286,12 @@ class TradingWorkflow:
                 )
                 continue
 
-            fast = snapshot.values.get("gaussian_ma_fast")
-            slow = snapshot.values.get("gaussian_ma_slow")
+            fast = snapshot.values.get("ema_fast")
+            slow = snapshot.values.get("ema_slow")
+            using_ema = fast is not None and slow is not None
+            if not using_ema:
+                fast = snapshot.values.get("gaussian_ma_fast")
+                slow = snapshot.values.get("gaussian_ma_slow")
             gauss_ma = (
                 fast
                 or slow
@@ -3255,7 +3299,7 @@ class TradingWorkflow:
             )
             if fast is None and slow is None and gauss_ma is None:
                 logger.info(
-                    "Keeping restored %s; Gaussian MA not ready for reconciliation",
+                    "Keeping restored %s; MA indicators not ready for reconciliation",
                     position.symbol,
                 )
                 continue

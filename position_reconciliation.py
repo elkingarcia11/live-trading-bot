@@ -37,11 +37,22 @@ def option_position_aligned_with_gaussian_crossover(
     fast: float,
     slow: float,
     close: float,
+    *,
+    ma_spread: float = 0.0,
+    close_spread: float = 0.0,
 ) -> bool:
-    """Return True when an open call/put still satisfies a long/short entry rule."""
+    """Return True when an open call/put matches the EMA/GMA crossover regime.
+
+    Fast above slow → CALL; slow above fast → PUT. Optional spreads keep legacy
+    threshold alignment when callers pass non-zero values.
+    """
     normalized = contract_type.upper()
     if normalized == "CALL":
-        return fast >= slow + 0.75 or close >= slow + 1.5
+        return fast >= slow + ma_spread or (
+            close_spread > 0 and close >= slow + close_spread
+        )
     if normalized == "PUT":
-        return slow >= fast + 0.75 or close <= slow - 1.5
+        return slow >= fast + ma_spread or (
+            close_spread > 0 and close <= slow - close_spread
+        )
     return True

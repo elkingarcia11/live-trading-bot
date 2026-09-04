@@ -827,6 +827,20 @@ def gaussian_ma_warmup_bar_count(app: "AppConfig") -> int:
     return max(fast_required, slow_required)
 
 
+def ema_warmup_bar_count(app: "AppConfig") -> int:
+    """Return bars needed for dual EMA + optional volume/ADX filters."""
+    if app.indicators.ema is None:
+        return 0
+    ema = app.indicators.ema
+    required = max(ema.fast_period, ema.slow_period)
+    if ema.volume_filter:
+        required = max(required, ema.volume_ma_length)
+    if ema.adx_filter:
+        # Wilder DI needs di_length; ADX smooths DX another adx_length bars.
+        required = max(required, ema.di_length + ema.adx_length)
+    return required
+
+
 def warmup_required_bar_count(app: "AppConfig") -> int:
     """Return the number of strategy-timeframe bars needed for warmup/entry gate.
 
@@ -856,6 +870,9 @@ def warmup_required_bar_count(app: "AppConfig") -> int:
         # True Gaussian MA warmup needs enough bars for the smoothing stage plus
         # the gaussian window (fast = Gaussian over EMA, slow = Gaussian over SMA).
         required_bars = max(required_bars, gaussian_ma_warmup_bar_count(app))
+
+    if app.indicators.ema is not None:
+        required_bars = max(required_bars, ema_warmup_bar_count(app))
 
     return min(max(1, app.indicators.max_bars), required_bars)
 

@@ -25,6 +25,7 @@ SUPPORTED_INDICATORS = frozenset(
         "macd",
         "sma",
         "ema",
+        "adx",
         "gaussian_bands",
         "gaussian_ma",
     }
@@ -126,11 +127,21 @@ class IndicatorCalculator:
         if indicator == "sma":
             period = int(params.get("period", 20))
             column = str(params.get("column", "close"))
-            return self.sma(normalized, period=period, column=column)
+            output_key = str(params.get("output_key", "sma"))
+            series = self.sma(normalized, period=period, column=column)
+            return {output_key: series.rename(output_key)}
         if indicator == "ema":
             period = int(params.get("period", 20))
             column = str(params.get("column", "close"))
-            return self.ema(normalized, period=period, column=column)
+            output_key = str(params.get("output_key", "ema"))
+            series = self.ema(normalized, period=period, column=column)
+            return {output_key: series.rename(output_key)}
+        if indicator == "adx":
+            return self.adx(
+                normalized,
+                di_length=int(params.get("di_length", 14)),
+                adx_length=int(params.get("adx_length", 14)),
+            )
 
         raise ValueError(
             f"Unsupported indicator '{name}'. Supported: {sorted(SUPPORTED_INDICATORS)}"
@@ -240,6 +251,68 @@ class IndicatorCalculator:
         return bars[column].astype(float).ewm(span=period, adjust=False).mean().rename(
             f"ema_{period}"
         )
+
+    def adx(
+        self,
+        bars: pd.DataFrame,
+        *,
+        di_length: int = 14,
+        adx_length: int = 14,
+    ) -> dict[str, pd.Series]:
+        """Calculate ADX / +DI / -DI matching TradingView ``ta.dmi``.
+
+        Uses Wilder (RMA) smoothing for TR, directional movement, and DX.
+        """
+        if di_length <= 0 or adx_length <= 0:
+            raise ValueError("di_length and adx_length must be positive")
+
+        high = bars["high"].astype(float)
+        low = bars["low"].astype(float)
+        close = bars["close"].astype(float)
+        prev_high = high.shift(1)
+        prev_low = low.shift(1)
+        prev_close = close.shift(1)
+
+        up_move = high - prev_high
+        down_move = prev_low - low
+        plus_dm = pd.Series(
+            np.where((up_move > down_move) & (up_move > 0), up_move, 0.0),
+            index=bars.index,
+        )
+        minus_dm = pd.Series(
+            np.where((down_move > up_move) & (down_move > 0), down_move, 0.0),
+            index=bars.index,
+        )
+        tr = pd.concat(
+            [
+                (high - low).abs(),
+                (high - prev_close).abs(),
+                (low - prev_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+
+        atr = tr.ewm(alpha=1 / di_length, min_periods=di_length, adjust=False).mean()
+        smooth_plus = plus_dm.ewm(
+            alpha=1 / di_length, min_periods=di_length, adjust=False
+        ).mean()
+        smooth_minus = minus_dm.ewm(
+            alpha=1 / di_length, min_periods=di_length, adjust=False
+        ).mean()
+
+        plus_di = (100.0 * smooth_plus / atr.replace(0.0, np.nan)).rename("plus_di")
+        minus_di = (100.0 * smooth_minus / atr.replace(0.0, np.nan)).rename("minus_di")
+        di_sum = (plus_di + minus_di).replace(0.0, np.nan)
+        dx = (100.0 * (plus_di - minus_di).abs() / di_sum).rename("dx")
+        adx = dx.ewm(
+            alpha=1 / adx_length, min_periods=adx_length, adjust=False
+        ).mean().rename("adx")
+
+        return {
+            "adx": adx,
+            "plus_di": plus_di,
+            "minus_di": minus_di,
+        }
 
     def dema(
         self,

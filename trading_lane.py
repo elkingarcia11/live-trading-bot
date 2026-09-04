@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -11,6 +10,7 @@ from typing import Iterator, Optional
 
 from config import (
     AppConfig,
+    EmaPairConfig,
     resolve_transactions_csv_path,
 )
 from forward_test_account import ForwardTestAccount
@@ -29,13 +29,15 @@ _active_lane: ContextVar[Optional["TradingLaneRuntime"]] = ContextVar(
 
 @dataclass(frozen=True)
 class TradingLaneConfig:
-    """One strategy lane (timeframe + GMA legs + optional dollar budget)."""
+    """One strategy lane (timeframe + optional MA legs + dollar budget)."""
 
     timeframe: str
-    fast_gma_length: int
-    fast_gma_sigma: float
-    slow_gma_length: int
-    slow_gma_sigma: float
+    fast_gma_length: Optional[int] = None
+    fast_gma_sigma: Optional[float] = None
+    slow_gma_length: Optional[int] = None
+    slow_gma_sigma: Optional[float] = None
+    fast_ema_period: Optional[int] = None
+    slow_ema_period: Optional[int] = None
     position_size: Optional[float] = None
     stop_loss_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
@@ -48,10 +50,16 @@ class TradingLaneConfig:
         object.__setattr__(self, "timeframe", tf)
         if not self.lane_id.strip():
             object.__setattr__(self, "lane_id", tf)
-        if self.fast_gma_length <= 0 or self.slow_gma_length <= 0:
-            raise ValueError("GMA lengths must be positive")
         if self.position_size is not None and self.position_size <= 0:
             raise ValueError("position_size must be positive when set")
+        for name, value in (
+            ("fast_gma_length", self.fast_gma_length),
+            ("slow_gma_length", self.slow_gma_length),
+            ("fast_ema_period", self.fast_ema_period),
+            ("slow_ema_period", self.slow_ema_period),
+        ):
+            if value is not None and value <= 0:
+                raise ValueError(f"{name} must be positive when set")
         _validate_lane_stop_pct(self.stop_loss_pct, field="stop_loss_pct")
         _validate_lane_stop_pct(self.trailing_stop_pct, field="trailing_stop_pct")
 
@@ -91,10 +99,12 @@ def parse_trading_lanes(payload: object) -> tuple[TradingLaneConfig, ...]:
             TradingLaneConfig(
                 timeframe=timeframe,
                 lane_id=str(item.get("lane_id", timeframe)).strip() or timeframe,
-                fast_gma_length=int(item.get("fast_gma_length", 4)),
-                fast_gma_sigma=float(item.get("fast_gma_sigma", 7.0)),
-                slow_gma_length=int(item.get("slow_gma_length", 10)),
-                slow_gma_sigma=float(item.get("slow_gma_sigma", 9.5)),
+                fast_gma_length=_optional_positive_int(item, "fast_gma_length"),
+                fast_gma_sigma=_optional_float(item, "fast_gma_sigma"),
+                slow_gma_length=_optional_positive_int(item, "slow_gma_length"),
+                slow_gma_sigma=_optional_float(item, "slow_gma_sigma"),
+                fast_ema_period=_optional_positive_int(item, "fast_ema_period"),
+                slow_ema_period=_optional_positive_int(item, "slow_ema_period"),
                 position_size=(
                     float(item["position_size"])
                     if item.get("position_size") not in (None, "")
@@ -118,7 +128,7 @@ def lane_tick_timeframes(lanes: tuple[TradingLaneConfig, ...]) -> tuple[str, ...
 
 
 def build_lane_app_config(base: AppConfig, lane: TradingLaneConfig) -> AppConfig:
-    """Return an AppConfig copy with lane-specific GMA, risk, and ledger path."""
+    """Return an AppConfig copy with lane-specific MA, risk, and ledger path."""
     market = replace(
         base.market,
         stream_timeframe=lane.timeframe,
@@ -126,21 +136,40 @@ def build_lane_app_config(base: AppConfig, lane: TradingLaneConfig) -> AppConfig
     )
     indicators = base.indicators
     gma = indicators.gaussian_ma
-    if gma is not None:
+    if gma is not None and any(
+        value is not None
+        for value in (
+            lane.fast_gma_length,
+            lane.fast_gma_sigma,
+            lane.slow_gma_length,
+            lane.slow_gma_sigma,
+        )
+    ):
         indicators = replace(
             indicators,
             gaussian_ma=replace(
                 gma,
                 fast=replace(
                     gma.fast,
-                    length=lane.fast_gma_length,
-                    sigma_divisor=lane.fast_gma_sigma,
+                    length=lane.fast_gma_length or gma.fast.length,
+                    sigma_divisor=lane.fast_gma_sigma or gma.fast.sigma_divisor,
                 ),
                 slow=replace(
                     gma.slow,
-                    length=lane.slow_gma_length,
-                    sigma_divisor=lane.slow_gma_sigma,
+                    length=lane.slow_gma_length or gma.slow.length,
+                    sigma_divisor=lane.slow_gma_sigma or gma.slow.sigma_divisor,
                 ),
+            ),
+        )
+    ema = indicators.ema
+    if lane.fast_ema_period is not None or lane.slow_ema_period is not None:
+        base_ema = ema or EmaPairConfig()
+        indicators = replace(
+            indicators,
+            ema=replace(
+                base_ema,
+                fast_period=lane.fast_ema_period or base_ema.fast_period,
+                slow_period=lane.slow_ema_period or base_ema.slow_period,
             ),
         )
     risk = base.risk
@@ -231,15 +260,23 @@ def build_lane_runtimes(
             transaction_ledger=ledger,
         )
         runtimes[lane.timeframe] = runtime
+        ema = lane_app.indicators.ema
+        if ema is not None:
+            ma_desc = f"EMA fast={ema.fast_period} slow={ema.slow_period}"
+        else:
+            gma = lane_app.indicators.gaussian_ma
+            if gma is not None:
+                ma_desc = (
+                    f"GMA fast={gma.fast.length}/{gma.fast.sigma_divisor:.2f} "
+                    f"slow={gma.slow.length}/{gma.slow.sigma_divisor:.2f}"
+                )
+            else:
+                ma_desc = "no MA"
         logger.info(
-            "Lane %s: %s GMA fast=%d/%.2f slow=%d/%.2f budget=$%s "
-            "stop=%s trail=%s ledger=%s",
+            "Lane %s: %s %s budget=$%s stop=%s trail=%s ledger=%s",
             lane.lane_id,
             lane.timeframe,
-            lane.fast_gma_length,
-            lane.fast_gma_sigma,
-            lane.slow_gma_length,
-            lane.slow_gma_sigma,
+            ma_desc,
             f"{lane.position_size:,.0f}" if lane.position_size else "default",
             _format_stop_pct(lane_app.options.stop_loss_pct),
             _format_stop_pct(lane_app.options.trailing_stop_pct),
@@ -287,6 +324,18 @@ def _timeframe_sort_key(timeframe: str) -> tuple[int, str]:
     if is_tick_timeframe(timeframe):
         return (parse_tick_timeframe(timeframe), timeframe)
     return (10_000, timeframe)
+
+
+def _optional_positive_int(item: dict[str, object], field: str) -> Optional[int]:
+    if field not in item or item[field] in (None, ""):
+        return None
+    return int(item[field])
+
+
+def _optional_float(item: dict[str, object], field: str) -> Optional[float]:
+    if field not in item or item[field] in (None, ""):
+        return None
+    return float(item[field])
 
 
 def _parse_lane_stop_pct(item: dict[str, object], field: str) -> Optional[float]:
