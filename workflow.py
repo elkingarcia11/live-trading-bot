@@ -1692,6 +1692,7 @@ class TradingWorkflow:
                 strategy_name=strategy_name,
                 conditions_met=conditions_met,
                 send_email=self._trade_emailer is not None,
+                exit_mark_override=mark,
             )
         finally:
             self._flattening_contracts.discard(key)
@@ -3374,12 +3375,22 @@ class TradingWorkflow:
         strategy_name: str,
         conditions_met: str,
         send_email: bool = True,
+        exit_mark_override: Optional[float] = None,
     ) -> None:
-        """Exit an open option position in paper or live mode."""
-        exit_mark, exit_quote, chain_underlying = self._resolve_option_exit(
-            position,
-            underlying_spot,
-        )
+        """Exit an open option position in paper or live mode.
+
+        When ``exit_mark_override`` is set (e.g. the streamed mark that tripped a
+        stop), that premium is used for P&L instead of re-quoting the chain.
+        """
+        if exit_mark_override is not None and exit_mark_override > 0:
+            exit_mark = float(exit_mark_override)
+            exit_quote: Optional[OptionQuoteSnapshot] = None
+            chain_underlying: Optional[float] = None
+        else:
+            exit_mark, exit_quote, chain_underlying = self._resolve_option_exit(
+                position,
+                underlying_spot,
+            )
         exit_underlying = self._resolve_exit_underlying_price(
             underlying_symbol,
             chain_underlying=chain_underlying,
@@ -3704,6 +3715,18 @@ class TradingWorkflow:
                 position.symbol,
             )
 
+        if position.last_mark_price is not None and position.last_mark_price > 0:
+            logger.warning(
+                "Using last streamed mark %.2f for option exit on %s",
+                position.last_mark_price,
+                position.symbol,
+            )
+            return (
+                float(position.last_mark_price),
+                quote,
+                chain_underlying,
+            )
+
         if position.asset_type == "OPTION":
             logger.warning(
                 "Using entry premium fallback for option exit on %s",
@@ -3714,9 +3737,6 @@ class TradingWorkflow:
                 quote,
                 chain_underlying,
             )
-
-        if position.last_mark_price is not None and position.last_mark_price > 0:
-            return float(position.last_mark_price), quote, chain_underlying
 
         return (
             float(position.average_entry_price or fallback_underlying_spot),

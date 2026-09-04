@@ -57,11 +57,11 @@
     },
     "ema": {
       "enabled": true,
-      "fast_period": 3,
+      "fast_period": 7,
       "slow_period": 8,
       "source": "close",
       "volume_filter": true,
-      "volume_ma_length": 7,
+      "volume_ma_length": 9,
       "volume_multiplier": 0.75,
       "adx_filter": true,
       "di_length": 14,
@@ -74,8 +74,8 @@
   ],
   "lanes": [
     {
-      "timeframe": "200t",
-      "fast_ema_period": 3,
+      "timeframe": "400t",
+      "fast_ema_period": 7,
       "slow_ema_period": 8,
       "position_size": 500,
       "stop_loss_pct": 0.05
